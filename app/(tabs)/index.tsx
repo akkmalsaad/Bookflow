@@ -1,21 +1,18 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useMemo } from 'react';
 import { FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { StatCard } from '@/components/StatCard';
 import { StatusPill } from '@/components/StatusPill';
-import { useAppData } from '@/context/app-data-context';
+import { getCurrencyFormatter, useAppData } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
-
-const currency = new Intl.NumberFormat('en-US', {
-  style: 'currency',
-  currency: 'USD',
-});
 
 export default function HomeScreen() {
   const { isDarkMode } = useTheme();
-  const { bookings, customers, invoices, reminders } = useAppData();
+  const { bookings, customers, invoices, reminders, currency } = useAppData();
   const palette = getThemePalette(isDarkMode);
+  const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const upcoming = bookings.slice(0, 2);
   const customerMap = new Map(customers.map((customer) => [customer.id, customer]));
   const totalRevenue = bookings.reduce((sum, booking) => sum + booking.price, 0);
@@ -70,7 +67,7 @@ export default function HomeScreen() {
                 </View>
                 <View style={styles.metaRow}>
                   <Ionicons name="cash-outline" size={16} color={palette.muter} />
-                  <Text style={[styles.metaValue, { color: palette.text }]}>{currency.format(item.price)}</Text>
+                  <Text style={[styles.metaValue, styles.currencyMetaValue, { color: palette.text }]}>{currencyFormatter.format(item.price)}</Text>
                 </View>
               </View>
             );
@@ -79,10 +76,10 @@ export default function HomeScreen() {
       </View>
 
       <View style={styles.statsGrid}>
-        <StatCard label="Revenue" value={currency.format(totalRevenue)} detail="This month" tone="blue" />
+        <StatCard label="Revenue" value={currencyFormatter.format(totalRevenue)} detail="This month" tone="blue" isCurrency />
         <StatCard label="Upcoming" value={String(upcoming.length)} detail="Bookings this week" tone="green" />
-        <StatCard label="Income" value={currency.format(totalIncome)} detail="Collected" tone="amber" />
-        <StatCard label="Expense" value={currency.format(totalExpense)} detail="Outstanding" tone="purple" />
+        <StatCard label="Income" value={currencyFormatter.format(totalIncome)} detail="Collected" tone="amber" isCurrency />
+        <StatCard label="Expense" value={currencyFormatter.format(totalExpense)} detail="Outstanding" tone="purple" isCurrency />
       </View>
 
       <View style={[styles.panel, { backgroundColor: palette.surface, borderColor: palette.border }]}>
@@ -120,7 +117,7 @@ export default function HomeScreen() {
                 <Text style={[styles.invoiceCustomer, { color: palette.muter }]}>{customer?.name ?? 'Unknown customer'}</Text>
               </View>
               <View style={styles.invoiceMeta}>
-                <Text style={[styles.amount, { color: palette.text }]}>{currency.format(invoice.amount)}</Text>
+                <Text style={[styles.amount, { color: palette.text }]}>{currencyFormatter.format(invoice.amount)}</Text>
                 <StatusPill label={invoice.status} tone={tone} />
               </View>
             </View>
@@ -234,6 +231,9 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
   },
+  currencyMetaValue: {
+    fontSize: 11,
+  },
   reminderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -270,7 +270,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   amount: {
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '800',
     color: '#111827',
     marginBottom: 6,

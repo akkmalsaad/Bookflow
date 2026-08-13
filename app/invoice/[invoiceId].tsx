@@ -1,19 +1,19 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { useAppData } from '@/context/app-data-context';
+import { getCurrencyFormatter, useAppData } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
-
-const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 
 export default function InvoiceAcceptanceScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ invoiceId?: string }>();
   const { isDarkMode } = useTheme();
-  const { invoices, customers, updateInvoiceStatus } = useAppData();
+  const { invoices, customers, updateInvoiceStatus, currency } = useAppData();
   const palette = getThemePalette(isDarkMode);
+  const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const invoice = invoices.find((item) => item.id === params.invoiceId);
   const customer = invoice ? customers.find((person) => person.id === invoice.customerId) : undefined;
 
@@ -40,8 +40,15 @@ export default function InvoiceAcceptanceScreen() {
       <View style={[styles.card, { backgroundColor: palette.surface, borderColor: palette.border, shadowColor: isDarkMode ? '#020617' : '#101828' }]}> 
         <Text style={[styles.customerName, { color: palette.text }]}>{customer.name}</Text>
         <Text style={[styles.customerMeta, { color: palette.muter }]}>{customer.email}</Text>
-        <Text style={[styles.amount, { color: palette.text }]}>{currency.format(invoice.amount)}</Text>
+        {invoice.serviceName ? <Text style={[styles.serviceName, { color: palette.accent }]}>{invoice.serviceName}</Text> : null}
+        <Text style={[styles.amount, { color: palette.text }]}>{currencyFormatter.format(invoice.amount)}</Text>
         <Text style={[styles.dueDate, { color: palette.muter }]}>Due: {invoice.dueDate}</Text>
+        {invoice.terms ? (
+          <View style={[styles.termsBox, { backgroundColor: palette.surfaceAlt, borderColor: palette.border }]}>
+            <Text style={[styles.termsLabel, { color: palette.muter }]}>Information & terms</Text>
+            <Text style={[styles.termsText, { color: palette.text }]}>{invoice.terms}</Text>
+          </View>
+        ) : null}
       </View>
 
       <View style={styles.actions}>
@@ -105,14 +112,36 @@ const styles = StyleSheet.create({
   },
   amount: {
     color: '#111827',
-    fontSize: 34,
+    fontSize: 32,
     fontWeight: '800',
     marginBottom: 8,
+  },
+  serviceName: {
+    fontSize: 14,
+    fontWeight: '800',
+    marginBottom: 6,
   },
   dueDate: {
     color: '#374151',
     fontSize: 14,
     fontWeight: '600',
+  },
+  termsBox: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 18,
+  },
+  termsLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.7,
+    textTransform: 'uppercase',
+    marginBottom: 6,
+  },
+  termsText: {
+    fontSize: 13,
+    lineHeight: 19,
   },
   actions: {
     flexDirection: 'row',

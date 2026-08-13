@@ -5,6 +5,7 @@ type StatCardProps = {
   value: string;
   detail: string;
   tone: 'blue' | 'green' | 'amber' | 'purple';
+  isCurrency?: boolean;
 };
 
 const toneColors: Record<StatCardProps['tone'], { background: string; accent: string }> = {
@@ -14,13 +15,13 @@ const toneColors: Record<StatCardProps['tone'], { background: string; accent: st
   purple: { background: '#F1E8FF', accent: '#7C5CFA' },
 };
 
-export function StatCard({ label, value, detail, tone }: StatCardProps) {
+export function StatCard({ label, value, detail, tone, isCurrency = false }: StatCardProps) {
   const colors = toneColors[tone];
 
   return (
     <View style={[styles.card, { backgroundColor: colors.background }]}>
       <Text style={[styles.label, { color: colors.accent }]}>{label}</Text>
-      <Text style={styles.value}>{value}</Text>
+      <Text style={[styles.value, isCurrency && styles.currencyValue]}>{value}</Text>
       <Text style={styles.detail}>{detail}</Text>
     </View>
   );
@@ -47,6 +48,9 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#111827',
     marginBottom: 6,
+  },
+  currencyValue: {
+    fontSize: 24,
   },
   detail: {
     fontSize: 12,

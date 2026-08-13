@@ -1,16 +1,16 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useMemo } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { useAppData } from '@/context/app-data-context';
+import { getCurrencyFormatter, useAppData } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
-
-const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 
 export default function FinanceScreen() {
   const { isDarkMode } = useTheme();
-  const { financeEntries } = useAppData();
+  const { financeEntries, currency } = useAppData();
   const palette = getThemePalette(isDarkMode);
+  const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
 
   const totalIncome = financeEntries
     .filter((entry) => entry.type === 'income')
@@ -35,11 +35,11 @@ export default function FinanceScreen() {
       <View style={styles.statsRow}>
         <View style={[styles.statCard, { backgroundColor: isDarkMode ? '#142B3E' : '#EAFBF2' }]}>
           <Text style={[styles.statLabel, { color: isDarkMode ? '#B8D4FF' : '#4B5563' }]}>Income</Text>
-          <Text style={[styles.statValue, { color: isDarkMode ? '#E2E8F0' : '#111827' }]}>{currency.format(totalIncome)}</Text>
+          <Text style={[styles.statValue, { color: isDarkMode ? '#E2E8F0' : '#111827' }]}>{currencyFormatter.format(totalIncome)}</Text>
         </View>
         <View style={[styles.statCard, { backgroundColor: isDarkMode ? '#2B1A1A' : '#FDECEC', marginRight: 0 }]}>
           <Text style={[styles.statLabel, { color: isDarkMode ? '#FDB8A8' : '#4B5563' }]}>Expense</Text>
-          <Text style={[styles.statValue, { color: isDarkMode ? '#F8FAFC' : '#111827' }]}>{currency.format(totalExpenses)}</Text>
+          <Text style={[styles.statValue, { color: isDarkMode ? '#F8FAFC' : '#111827' }]}>{currencyFormatter.format(totalExpenses)}</Text>
         </View>
       </View>
 
@@ -62,7 +62,7 @@ export default function FinanceScreen() {
             <View style={styles.entryRight}>
               <Text style={[styles.amount, item.type === 'income' ? styles.positive : styles.negative]}>
                 {item.type === 'income' ? '+' : '-'}
-                {currency.format(item.amount)}
+                {currencyFormatter.format(item.amount)}
               </Text>
               <Text style={[styles.date, { color: palette.muter }]}>{item.date}</Text>
             </View>
@@ -136,7 +136,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   statValue: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '800',
     color: '#111827',
   },
@@ -194,7 +194,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   amount: {
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '800',
     marginBottom: 4,
   },

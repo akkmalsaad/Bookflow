@@ -30,6 +30,8 @@ export type Invoice = {
   dueDate: string;
   status: InvoiceStatus;
   sentAt: string;
+  serviceName?: string;
+  terms?: string;
 };
 
 export type FinanceEntry = {

@@ -1,18 +1,17 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Animated, FlatList, Linking, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { StatusPill } from '@/components/StatusPill';
-import { useAppData } from '@/context/app-data-context';
+import { getCurrencyFormatter, useAppData } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
-
-const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 
 export default function InvoicesScreen() {
   const { isDarkMode } = useTheme();
-  const { customers, invoices, packages, addCustomer, addInvoice, invoiceDraft, setInvoiceDraft, updateInvoiceStatus } = useAppData();
+  const { customers, invoices, packages, addCustomer, addInvoice, invoiceDraft, setInvoiceDraft, updateInvoiceStatus, currency } = useAppData();
   const palette = getThemePalette(isDarkMode);
+  const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const customerMap = new Map(customers.map((customer) => [customer.id, customer]));
   const [showComposer, setShowComposer] = useState(Boolean(invoiceDraft));
   const [customerMode, setCustomerMode] = useState<'existing' | 'manual'>(invoiceDraft ? 'existing' : 'existing');
@@ -97,6 +96,8 @@ export default function InvoicesScreen() {
       dueDate: draftDueDate,
       status: 'Draft',
       sentAt: new Date().toISOString().slice(0, 10),
+      serviceName: selectedPackage?.name ?? invoiceDraft?.serviceName,
+      terms: selectedPackage?.info ?? invoiceDraft?.terms,
     });
 
     setDraftAmount(packages[0] ? String(packages[0].price) : '');
@@ -159,7 +160,7 @@ export default function InvoicesScreen() {
                 <Text style={[styles.metaLabel, { color: palette.muter }]}>Sent</Text>
                 <Text style={[styles.metaValue, { color: palette.text }]}>{item.sentAt}</Text>
               </View>
-              <Text style={[styles.amount, { color: palette.text }]}>{currency.format(item.amount)}</Text>
+              <Text style={[styles.amount, { color: palette.text }]}>{currencyFormatter.format(item.amount)}</Text>
 
               <View style={styles.actionRow}>
                 <Pressable style={styles.linkButton} onPress={() => handleShareInvoice(item.id)}>
@@ -287,7 +288,9 @@ export default function InvoicesScreen() {
                   key={item.id}
                   onPress={() => handlePackageSelection(item.id)}
                   style={[styles.selectOption, { backgroundColor: palette.surface, borderColor: palette.border }, selectedPackageId === item.id && { backgroundColor: palette.iconWrap, borderColor: palette.accent }]}>
-                  <Text style={[styles.selectText, { color: palette.text }]}>{item.name} · {currency.format(item.price)}</Text>
+                  <Text style={[styles.selectText, { color: palette.text }]}>
+                    {item.name} · <Text style={styles.inlineCurrency}>{currencyFormatter.format(item.price)}</Text>
+                  </Text>
                 </Pressable>
               ))}
             </View>
@@ -405,7 +408,7 @@ const styles = StyleSheet.create({
   },
   amount: {
     marginTop: 10,
-    fontSize: 24,
+    fontSize: 22,
     color: '#111827',
     fontWeight: '800',
   },
@@ -553,6 +556,9 @@ const styles = StyleSheet.create({
     color: '#111827',
     fontWeight: '600',
   },
+  inlineCurrency: {
+    fontSize: 12,
+  },
   selectSubtext: {
     color: '#6B7280',
     fontSize: 12,
@@ -590,4 +596,3 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
 });
-

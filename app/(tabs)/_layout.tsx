@@ -87,7 +87,7 @@ export default function TabLayout() {
         active: '#E2E8F0',
         inactive: '#94A3B8',
         border: 'rgba(255, 255, 255, 0.24)',
-        glass: 'rgba(15, 23, 42, 0.30)',
+        glass: 'rgba(15, 23, 42, 0.14)',
         highlight: 'rgba(255, 255, 255, 0.32)',
         shadow: '#020617',
       }
@@ -95,12 +95,14 @@ export default function TabLayout() {
         active: '#111827',
         inactive: '#6B7280',
         border: 'rgba(255, 255, 255, 0.92)',
-        glass: 'rgba(255, 255, 255, 0.32)',
+        glass: 'rgba(255, 255, 255, 0.14)',
         highlight: 'rgba(255, 255, 255, 0.96)',
         shadow: '#111827',
       };
 
   const safeBottomOffset = Math.max(10, insets.bottom);
+  const safeHorizontalOffset = Math.max(20, Math.max(insets.left, insets.right) + 12);
+  const safeTabBarWidth = Math.max(0, screenWidth - safeHorizontalOffset * 2);
 
   return (
     <Tabs
@@ -113,8 +115,8 @@ export default function TabLayout() {
           <View style={styles.mirrorBackground}>
             <BlurView
               experimentalBlurMethod="dimezisBlurView"
-              intensity={70}
-              tint={isDarkMode ? 'systemChromeMaterialDark' : 'systemChromeMaterialLight'}
+              intensity={45}
+              tint={isDarkMode ? 'systemUltraThinMaterialDark' : 'systemUltraThinMaterialLight'}
               style={StyleSheet.absoluteFill}
             />
             <View style={[StyleSheet.absoluteFill, { backgroundColor: palette.glass }]} />
@@ -123,13 +125,13 @@ export default function TabLayout() {
         ),
         tabBarStyle: {
           position: 'absolute',
-          left: 16,
-          right: 16,
+          width: safeTabBarWidth,
+          marginHorizontal: safeHorizontalOffset,
           bottom: safeBottomOffset,
           height: 68,
           paddingTop: 8,
           paddingBottom: 8,
-          borderRadius: 30,
+          borderRadius: 34,
           borderWidth: 1,
           borderColor: palette.border,
           backgroundColor: 'transparent',
@@ -141,7 +143,10 @@ export default function TabLayout() {
         },
         tabBarItemStyle: {
           borderRadius: 16,
-          marginHorizontal: 4,
+          marginHorizontal: 2,
+        },
+        tabBarIconStyle: {
+          transform: [{ translateY: 7 }],
         },
         sceneStyleInterpolator: tabSceneStyleInterpolator,
         transitionSpec: {
@@ -242,14 +247,14 @@ export default function TabLayout() {
 
 const styles = StyleSheet.create({
   iconStage: {
-    width: 52,
-    height: 52,
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },
   mirrorBackground: {
     ...StyleSheet.absoluteFillObject,
-    borderRadius: 30,
+    borderRadius: 34,
     overflow: 'hidden',
   },
   mirrorHighlight: {

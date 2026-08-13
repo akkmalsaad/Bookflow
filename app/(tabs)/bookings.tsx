@@ -5,10 +5,9 @@ import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { StatusPill } from '@/components/StatusPill';
-import { useAppData } from '@/context/app-data-context';
+import { Booking, getCurrencyFormatter, useAppData } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 
-const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 function getStatusTone(status: string) {
@@ -34,8 +33,9 @@ function formatDisplayDate(dateString: string) {
 export default function BookingsScreen() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
-  const { packages, bookings, customers, addBooking, setInvoiceDraft } = useAppData();
+  const { packages, bookings, customers, addBooking, setInvoiceDraft, currency } = useAppData();
   const palette = getThemePalette(isDarkMode);
+  const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const customerMap = new Map(customers.map((customer) => [customer.id, customer]));
   const [showComposer, setShowComposer] = useState(false);
   const [draftTitle, setDraftTitle] = useState('');
@@ -156,12 +156,14 @@ export default function BookingsScreen() {
       amount: booking.price,
       dueDate,
       bookingId: booking.id,
+      serviceName: booking.packageName,
+      terms: packages.find((item) => item.name === booking.packageName)?.info,
     });
 
     router.push('/(tabs)/invoices');
   };
 
-  const flatListData = selectedDayBookings.length > 0
+  const flatListData: (Booking | { readonly id: 'empty-state'; readonly __empty: true })[] = selectedDayBookings.length > 0
     ? selectedDayBookings
     : [{ id: 'empty-state', __empty: true } as const];
 
@@ -231,7 +233,7 @@ export default function BookingsScreen() {
           </>
         )}
         renderItem={({ item }) => {
-          if ('__empty' in item && item.__empty) {
+          if ('__empty' in item) {
             return (
               <View style={[styles.emptyState, { backgroundColor: palette.surface, borderColor: palette.border }]}>
                 <Text style={[styles.emptyText, { color: palette.muter }]}>No bookings scheduled for this date.</Text>
@@ -265,7 +267,7 @@ export default function BookingsScreen() {
                 <Text style={[styles.metaValue, { color: palette.text }]}>{item.packageName}</Text>
               </View>
               <View style={[styles.footerRow, { borderTopColor: palette.border }]}>
-                <Text style={[styles.amount, { color: palette.text }]}>{currency.format(item.price)}</Text>
+                <Text style={[styles.amount, { color: palette.text }]}>{currencyFormatter.format(item.price)}</Text>
                 <Text style={[styles.notes, { color: palette.muter }]}>{item.notes}</Text>
               </View>
 
@@ -587,7 +589,7 @@ const styles = StyleSheet.create({
     paddingTop: 12,
   },
   amount: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '800',
     marginBottom: 8,
   },

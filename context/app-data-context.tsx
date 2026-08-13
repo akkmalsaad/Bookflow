@@ -10,8 +10,18 @@ import {
 export type PackageOption = {
   id: string;
   name: string;
+  details: string;
+  duration: string;
   price: number;
-  notes?: string;
+  info: string;
+};
+
+export type BusinessProfile = {
+  name: string;
+  nature: string;
+  phone: string;
+  email: string;
+  address: string;
 };
 
 export type Customer = {
@@ -43,6 +53,8 @@ export type Invoice = {
   dueDate: string;
   status: 'Draft' | 'Sent' | 'Accepted' | 'Declined' | 'Paid' | 'Overdue' | 'Cancelled';
   sentAt: string;
+  serviceName?: string;
+  terms?: string;
 };
 
 export type FinanceEntry = {
@@ -67,7 +79,22 @@ export type InvoiceDraftPrefill = {
   amount: number;
   dueDate: string;
   bookingId?: string;
+  serviceName?: string;
+  terms?: string;
 };
+
+export type CurrencyCode = 'MYR' | 'IDR' | 'USD';
+
+export const CURRENCY_OPTIONS: { code: CurrencyCode; label: string; locale: string }[] = [
+  { code: 'MYR', label: 'Malaysian Ringgit', locale: 'ms-MY' },
+  { code: 'IDR', label: 'Indonesian Rupiah', locale: 'id-ID' },
+  { code: 'USD', label: 'US Dollar', locale: 'en-US' },
+];
+
+export function getCurrencyFormatter(code: CurrencyCode) {
+  const locale = CURRENCY_OPTIONS.find((option) => option.code === code)?.locale ?? 'en-US';
+  return new Intl.NumberFormat(locale, { style: 'currency', currency: code });
+}
 
 type AppDataContextValue = {
   packages: PackageOption[];
@@ -77,9 +104,11 @@ type AppDataContextValue = {
   financeEntries: FinanceEntry[];
   reminders: Reminder[];
   invoiceDraft: InvoiceDraftPrefill | null;
-  businessProfile: { name: string; email?: string; phone?: string };
-  updateBusinessProfile: (profile: { name: string; email?: string; phone?: string }) => void;
-  addPackage: (name: string, price: number, notes?: string) => void;
+  businessProfile: BusinessProfile;
+  updateBusinessProfile: (profile: BusinessProfile) => void;
+  currency: CurrencyCode;
+  updateCurrency: (code: CurrencyCode) => void;
+  addPackage: (service: Omit<PackageOption, 'id'>) => void;
   updatePackage: (id: string, updates: Partial<PackageOption>) => void;
   removePackage: (id: string) => void;
   addCustomer: (customer: Omit<Customer, 'id'>) => void;
@@ -93,9 +122,30 @@ type AppDataContextValue = {
 };
 
 const initialPackages: PackageOption[] = [
-  { id: 'pkg-1', name: 'Wedding Package', price: 3200, notes: '' },
-  { id: 'pkg-2', name: 'Family Session', price: 850, notes: '' },
-  { id: 'pkg-3', name: 'Commercial Day Rate', price: 4200, notes: '' },
+  {
+    id: 'pkg-1',
+    name: 'Wedding Package',
+    details: 'Full wedding photography coverage with two photographers.',
+    duration: '8 hours',
+    price: 3200,
+    info: 'A 30% booking deposit is required. Final images are delivered within 8 weeks.',
+  },
+  {
+    id: 'pkg-2',
+    name: 'Family Session',
+    details: 'Outdoor or studio portrait session for one family.',
+    duration: '2 hours',
+    price: 850,
+    info: 'The session may be rescheduled once with at least 48 hours notice.',
+  },
+  {
+    id: 'pkg-3',
+    name: 'Commercial Day Rate',
+    details: 'Commercial photography coverage with edited image delivery.',
+    duration: '8 hours',
+    price: 4200,
+    info: 'Usage licensing is limited to the scope agreed in the final invoice.',
+  },
 ];
 
 const initialReminders: Reminder[] = [
@@ -114,7 +164,14 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const [financeEntries, setFinanceEntries] = useState<FinanceEntry[]>(initialFinanceEntries);
   const [reminders, setReminders] = useState<Reminder[]>(initialReminders);
   const [invoiceDraft, setInvoiceDraft] = useState<InvoiceDraftPrefill | null>(null);
-  const [businessProfile, setBusinessProfile] = useState({ name: 'Lena Hart Photography', email: 'lena@example.com', phone: '' });
+  const [businessProfile, setBusinessProfile] = useState<BusinessProfile>({
+    name: 'Studio Lensa KL',
+    nature: 'Photographer',
+    phone: '',
+    email: '',
+    address: '',
+  });
+  const [currency, setCurrency] = useState<CurrencyCode>('USD');
 
   const value = useMemo<AppDataContextValue>(
     () => ({
@@ -125,22 +182,28 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       financeEntries,
       reminders,
       invoiceDraft,
-    businessProfile,
-    updateBusinessProfile: (profile: { name: string; email?: string; phone?: string }) => {
-      setBusinessProfile(profile);
-    },
-    addPackage: (name: string, price: number, notes?: string) => {
-        if (!name.trim() || Number.isNaN(price) || price <= 0) {
+      businessProfile,
+      updateBusinessProfile: (profile: BusinessProfile) => {
+        setBusinessProfile(profile);
+      },
+      currency,
+      updateCurrency: (code: CurrencyCode) => {
+        setCurrency(code);
+      },
+      addPackage: (service: Omit<PackageOption, 'id'>) => {
+        if (!service.name.trim() || Number.isNaN(service.price) || service.price <= 0) {
           return;
         }
 
         setPackages((current) => [
           ...current,
           {
+            ...service,
             id: `pkg-${Date.now()}`,
-            name: name.trim(),
-            price,
-            notes: notes ?? '',
+            name: service.name.trim(),
+            details: service.details.trim(),
+            duration: service.duration.trim(),
+            info: service.info.trim(),
           },
         ]);
       },
@@ -276,7 +339,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         );
       },
     }),
-    [bookings, customers, financeEntries, invoiceDraft, invoices, packages, reminders],
+    [bookings, businessProfile, currency, customers, financeEntries, invoiceDraft, invoices, packages, reminders],
   );
 
   return <AppDataContext.Provider value={value}>{children}</AppDataContext.Provider>;

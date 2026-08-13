@@ -1,61 +1,87 @@
 import { Ionicons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, Modal, Share, Platform, KeyboardAvoidingView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { useAppData } from '@/context/app-data-context';
+import { CURRENCY_OPTIONS, getCurrencyFormatter, useAppData } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 
 export default function SettingsScreen() {
   const { isDarkMode, toggleTheme } = useTheme();
-  const { packages, addPackage, updatePackage, removePackage, businessProfile, updateBusinessProfile, customers, bookings, invoices, financeEntries } = useAppData();
-  const [packageName, setPackageName] = useState('');
-  const [packagePrice, setPackagePrice] = useState('');
+  const { packages, addPackage, removePackage, businessProfile, updateBusinessProfile, currency, updateCurrency, customers, bookings, invoices, financeEntries } = useAppData();
+  const currencyFormatter = getCurrencyFormatter(currency);
 
-  // Business profile modal state
   const [showProfileEditor, setShowProfileEditor] = useState(false);
   const [profileName, setProfileName] = useState(businessProfile.name);
-  const [profileEmail, setProfileEmail] = useState(businessProfile.email ?? '');
-  const [profilePhone, setProfilePhone] = useState(businessProfile.phone ?? '');
+  const [profileNature, setProfileNature] = useState(businessProfile.nature);
+  const [profilePhone, setProfilePhone] = useState(businessProfile.phone);
+  const [profileEmail, setProfileEmail] = useState(businessProfile.email);
+  const [profileAddress, setProfileAddress] = useState(businessProfile.address);
+  const [profileCurrency, setProfileCurrency] = useState(currency);
 
-  // Package edit modal state
-  const [showPackageEditor, setShowPackageEditor] = useState(false);
-  const [editingPackageId, setEditingPackageId] = useState(null as string | null);
-  const [packageNotes, setPackageNotes] = useState('');
+  const [showServicesManager, setShowServicesManager] = useState(false);
+  const [showServiceForm, setShowServiceForm] = useState(false);
+  const [serviceName, setServiceName] = useState('');
+  const [serviceDetails, setServiceDetails] = useState('');
+  const [serviceTime, setServiceTime] = useState('');
+  const [servicePrice, setServicePrice] = useState('');
+  const [serviceInfo, setServiceInfo] = useState('');
 
   const palette = getThemePalette(isDarkMode);
+  const appVersion = Constants.expoConfig?.version ?? 'Unknown';
 
-  const handleAddPackage = () => {
-    const parsedPrice = Number(packagePrice);
-
-    addPackage(packageName, parsedPrice, '');
-    setPackageName('');
-    setPackagePrice('');
+  const openProfileEditor = () => {
+    setProfileName(businessProfile.name);
+    setProfileNature(businessProfile.nature);
+    setProfilePhone(businessProfile.phone);
+    setProfileEmail(businessProfile.email);
+    setProfileAddress(businessProfile.address);
+    setProfileCurrency(currency);
+    setShowProfileEditor(true);
   };
 
-  const openEditPackage = (pkgId: string) => {
-    const pkg = packages.find((p) => p.id === pkgId);
-    if (!pkg) return;
-    setEditingPackageId(pkg.id);
-    setPackageName(pkg.name);
-    setPackagePrice(String(pkg.price));
-    setPackageNotes(pkg.notes ?? '');
-    setShowPackageEditor(true);
+  const resetServiceForm = () => {
+    setServiceName('');
+    setServiceDetails('');
+    setServiceTime('');
+    setServicePrice('');
+    setServiceInfo('');
   };
 
-  const handleSaveEditedPackage = () => {
-    if (!editingPackageId) return;
-    const parsed = Number(packagePrice);
-    updatePackage(editingPackageId, { name: packageName.trim(), price: parsed, notes: packageNotes });
-    setShowPackageEditor(false);
-    setEditingPackageId(null);
-    setPackageName('');
-    setPackagePrice('');
-    setPackageNotes('');
+  const closeServicesManager = () => {
+    resetServiceForm();
+    setShowServiceForm(false);
+    setShowServicesManager(false);
+  };
+
+  const handleAddService = () => {
+    const parsedPrice = Number(servicePrice);
+
+    if (!serviceName.trim() || !serviceDetails.trim() || !serviceTime.trim() || Number.isNaN(parsedPrice) || parsedPrice <= 0) {
+      return;
+    }
+
+    addPackage({
+      name: serviceName,
+      details: serviceDetails,
+      duration: serviceTime,
+      price: parsedPrice,
+      info: serviceInfo,
+    });
+    resetServiceForm();
+    setShowServiceForm(false);
   };
 
   const handleSaveProfile = () => {
-    updateBusinessProfile({ name: profileName.trim() || 'Business', email: profileEmail.trim(), phone: profilePhone.trim() });
+    updateBusinessProfile({
+      name: profileName.trim() || businessProfile.name,
+      nature: profileNature.trim() || businessProfile.nature,
+      phone: profilePhone.trim(),
+      email: profileEmail.trim(),
+      address: profileAddress.trim(),
+    });
+    updateCurrency(profileCurrency);
     setShowProfileEditor(false);
   };
 
@@ -68,7 +94,7 @@ export default function SettingsScreen() {
         <h1>Bookflow Export - ${businessProfile.name}</h1>
         <h2>Packages</h2>
         <ul>
-          ${packages.map((p) => `<li><strong>${p.name}</strong> - $${p.price}<br/>${(p.notes || '')}</li>`).join('')}
+          ${packages.map((p) => `<li><strong>${p.name}</strong> — ${p.duration} — ${currencyFormatter.format(p.price)}<br/>${p.details}<br/>${p.info}</li>`).join('')}
         </ul>
         <h2>Customers</h2>
         <ul>
@@ -76,15 +102,15 @@ export default function SettingsScreen() {
         </ul>
         <h2>Bookings</h2>
         <ul>
-          ${bookings.map((b) => `<li>${b.date} — ${b.title} — ${b.packageName} — $${b.price}</li>`).join('')}
+          ${bookings.map((b) => `<li>${b.date} — ${b.title} — ${b.packageName} — ${currencyFormatter.format(b.price)}</li>`).join('')}
         </ul>
         <h2>Invoices</h2>
         <ul>
-          ${invoices.map((i) => `<li>${i.id} — ${i.status} — $${i.amount} — Due ${i.dueDate}</li>`).join('')}
+          ${invoices.map((i) => `<li>${i.id} — ${i.status} — ${currencyFormatter.format(i.amount)} — Due ${i.dueDate}</li>`).join('')}
         </ul>
         <h2>Finance</h2>
         <ul>
-          ${financeEntries.map((f) => `<li>${f.date} — ${f.category} — $${f.amount} — ${f.type}</li>`).join('')}
+          ${financeEntries.map((f) => `<li>${f.date} — ${f.category} — ${currencyFormatter.format(f.amount)} — ${f.type}</li>`).join('')}
         </ul>
       </body>
       </html>
@@ -99,7 +125,7 @@ export default function SettingsScreen() {
       } else {
         await Share.share({ title: 'Bookflow Export', message: 'Open this HTML in a browser to print/save as PDF.', url: `data:text/html,${encodeURIComponent(html)}` });
       }
-    } catch (err) {
+    } catch {
       // ignore errors silently — sharing is best-effort in this prototype
     }
   };
@@ -113,87 +139,78 @@ export default function SettingsScreen() {
         <Text style={[styles.title, { color: palette.text }]}>Business setup</Text>
 
         <View style={[styles.card, { backgroundColor: palette.surface, borderColor: palette.border }]}>
-          <View style={styles.row}>
+          <View style={styles.summaryRow}>
             <View style={[styles.iconWrap, { backgroundColor: palette.iconWrap }]}>
-              <Ionicons name="person-circle" size={22} color={palette.accent} />
+              <Ionicons name="business-outline" size={22} color={palette.accent} />
             </View>
-            <View>
+            <View style={styles.summaryCopy}>
               <Text style={[styles.label, { color: palette.muter }]}>Business profile</Text>
-              <Text style={[styles.value, { color: palette.text }]}>{businessProfile.name}</Text>
+              <Text style={[styles.summaryTitle, { color: palette.text }]}>{businessProfile.name}</Text>
+              <Text style={[styles.summarySubtitle, { color: palette.muter }]}>{businessProfile.nature}</Text>
             </View>
-            <Pressable onPress={() => setShowProfileEditor(true)} style={{ marginLeft: 12, padding: 6 }}>
-              <Ionicons name="pencil" size={18} color={palette.accent} />
+            <Pressable
+              onPress={openProfileEditor}
+              style={[styles.editButton, { backgroundColor: palette.iconWrap }]}
+              accessibilityLabel="Edit business profile">
+              <Ionicons name="pencil" size={15} color={palette.accent} />
+              <Text style={[styles.editButtonText, { color: palette.accent }]}>Edit</Text>
             </Pressable>
           </View>
+        </View>
 
-          <View style={styles.row}>
-            <View style={[styles.iconWrap, { backgroundColor: palette.iconWrap }]}>
-              <Ionicons name="mail" size={22} color={palette.accent} />
+        <View style={[styles.card, styles.themeCard, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+          <View style={styles.themeRow}>
+            <View style={[styles.iconWrap, styles.themeIconWrap, { backgroundColor: palette.iconWrap }]}>
+              <Ionicons name={isDarkMode ? 'moon' : 'sunny'} size={22} color={palette.accent} />
             </View>
-            <View>
-              <Text style={[styles.label, { color: palette.muter }]}>Invoice delivery</Text>
-              <Text style={[styles.value, { color: palette.text }]}>Email + WhatsApp reminders</Text>
+            <View style={styles.themeCopy}>
+              <Text style={[styles.label, { color: palette.muter }]}>Appearance</Text>
+              <Text style={[styles.value, { color: palette.text }]}>Dark mode</Text>
+              <Text style={[styles.themeDescription, { color: palette.muter }]}>
+                {isDarkMode ? 'On — optimized for low light' : 'Off — using light appearance'}
+              </Text>
             </View>
-          </View>
-
-          <View style={styles.row}>
-            <View style={[styles.iconWrap, { backgroundColor: palette.iconWrap }]}>
-              <Ionicons name="notifications" size={22} color={palette.accent} />
-            </View>
-            <View>
-              <Text style={[styles.label, { color: palette.muter }]}>Reminder schedule</Text>
-              <Text style={[styles.value, { color: palette.text }]}>7 days before + overdue notices</Text>
+            <View
+              style={[
+                styles.switchWrap,
+                {
+                  backgroundColor: isDarkMode ? palette.iconWrap : palette.surfaceAlt,
+                  borderColor: isDarkMode ? palette.accent : palette.border,
+                },
+              ]}>
+              <Switch
+                value={isDarkMode}
+                onValueChange={toggleTheme}
+                trackColor={{ false: '#94A3B8', true: palette.accent }}
+                thumbColor="#FFFFFF"
+                ios_backgroundColor="#94A3B8"
+                style={styles.themeSwitch}
+                accessibilityLabel="Dark mode"
+                accessibilityHint="Switches between light and dark appearance"
+              />
             </View>
           </View>
         </View>
 
         <View style={[styles.card, { backgroundColor: palette.surface, borderColor: palette.border, marginTop: 18 }]}>
-          <View style={styles.sectionHeader}>
-            <Text style={[styles.sectionTitle, { color: palette.text }]}>Event packages</Text>
-          </View>
-
-          <View style={styles.formRow}>
-            <TextInput
-              value={packageName}
-              onChangeText={setPackageName}
-              placeholder="Package name"
-              placeholderTextColor={palette.muter}
-              style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
-            />
-            <TextInput
-              value={packagePrice}
-              onChangeText={setPackagePrice}
-              placeholder="Price"
-              keyboardType="numeric"
-              placeholderTextColor={palette.muter}
-              style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text, width: 110 }]}
-            />
-          </View>
-
-          <Pressable style={[styles.addButton, { backgroundColor: palette.accent }]} onPress={handleAddPackage}>
-            <Text style={styles.addButtonText}>Add package</Text>
-          </Pressable>
-
-          <View style={styles.packageList}>
-            {packages.map((item) => (
-              <View key={item.id} style={[styles.packageItem, { backgroundColor: palette.surfaceAlt, borderColor: palette.border }]}>
-                <View style={styles.packageInfo}>
-                  <Text style={[styles.packageName, { color: palette.text }]}>{item.name}</Text>
-                  <Text style={[styles.packagePrice, { color: palette.accent }]}>
-                    ${item.price.toLocaleString()}
-                  </Text>
-                  {item.notes ? <Text style={{ color: palette.muter, marginTop: 6 }}>{item.notes}</Text> : null}
-                </View>
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <Pressable onPress={() => openEditPackage(item.id)} style={{ marginRight: 8 }}>
-                    <Ionicons name="pencil" size={16} color={palette.accent} />
-                  </Pressable>
-                  <Pressable onPress={() => removePackage(item.id)} style={styles.removeButton}>
-                    <Ionicons name="trash-outline" size={16} color={palette.accent} />
-                  </Pressable>
-                </View>
-              </View>
-            ))}
+          <View style={styles.summaryRow}>
+            <View style={[styles.iconWrap, { backgroundColor: palette.iconWrap }]}>
+              <Ionicons name="cube-outline" size={22} color={palette.accent} />
+            </View>
+            <View style={styles.summaryCopy}>
+              <Text style={[styles.label, { color: palette.muter }]}>Services</Text>
+              <Text style={[styles.summaryTitle, { color: palette.text }]}>Event packages</Text>
+              <Text style={[styles.summarySubtitle, { color: palette.muter }]}>
+                {packages.length} {packages.length === 1 ? 'service' : 'services'} available
+              </Text>
+            </View>
+            <Pressable
+              onPress={() => setShowServicesManager(true)}
+              style={[styles.editButton, { backgroundColor: palette.iconWrap }]}
+              accessibilityLabel="Edit event packages">
+              <Ionicons name="pencil" size={15} color={palette.accent} />
+              <Text style={[styles.editButtonText, { color: palette.accent }]}>Edit</Text>
+            </Pressable>
           </View>
         </View>
 
@@ -210,21 +227,10 @@ export default function SettingsScreen() {
           </Pressable>
         </View>
 
-          <View style={styles.themeRow}>
-            <View>
-              <Text style={[styles.label, { color: palette.muter }]}>Theme</Text>
-              <Text style={[styles.value, { color: palette.text }]}>
-                {isDarkMode ? 'Dark mode' : 'Normal mode'}
-              </Text>
-            </View>
-            <Switch
-              value={isDarkMode}
-              onValueChange={toggleTheme}
-              trackColor={{ false: '#CBD5E1', true: '#4F46E5' }}
-              thumbColor="#FFFFFF"
-            />
-          </View>
-
+        <View style={styles.versionFooter}>
+          <Ionicons name="information-circle-outline" size={15} color={palette.muter} />
+          <Text style={[styles.versionText, { color: palette.muter }]}>Bookflow version {appVersion}</Text>
+        </View>
 
       </ScrollView>
         {/* Profile editor modal */}
@@ -245,8 +251,32 @@ export default function SettingsScreen() {
                     value={profileName}
                     onChangeText={setProfileName}
                     style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
+                    placeholder="Studio Lensa KL"
+                    placeholderTextColor={palette.muter}
                     returnKeyType="next"
-                    onSubmitEditing={() => { /* focus next */ }}
+                    blurOnSubmit={false}
+                  />
+
+                  <Text style={[styles.fieldLabel, { color: palette.muter }]}>Nature of business</Text>
+                  <TextInput
+                    value={profileNature}
+                    onChangeText={setProfileNature}
+                    style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
+                    placeholder="Photographer"
+                    placeholderTextColor={palette.muter}
+                    returnKeyType="next"
+                    blurOnSubmit={false}
+                  />
+
+                  <Text style={[styles.fieldLabel, { color: palette.muter }]}>Phone number</Text>
+                  <TextInput
+                    value={profilePhone}
+                    onChangeText={setProfilePhone}
+                    style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
+                    keyboardType="phone-pad"
+                    placeholder="+60 12-345 6789"
+                    placeholderTextColor={palette.muter}
+                    returnKeyType="next"
                     blurOnSubmit={false}
                   />
 
@@ -256,22 +286,52 @@ export default function SettingsScreen() {
                     onChangeText={setProfileEmail}
                     style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
                     keyboardType="email-address"
+                    autoCapitalize="none"
+                    placeholder="hello@studiolensakl.com"
+                    placeholderTextColor={palette.muter}
                     returnKeyType="next"
                     blurOnSubmit={false}
                   />
 
-                  <Text style={[styles.fieldLabel, { color: palette.muter }]}>Phone</Text>
+                  <Text style={[styles.fieldLabel, { color: palette.muter }]}>Address</Text>
                   <TextInput
-                    value={profilePhone}
-                    onChangeText={setProfilePhone}
-                    style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
-                    keyboardType="phone-pad"
-                    returnKeyType="done"
-                    onSubmitEditing={handleSaveProfile}
+                    value={profileAddress}
+                    onChangeText={setProfileAddress}
+                    style={[styles.input, styles.multilineInput, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
+                    placeholder="Business address"
+                    placeholderTextColor={palette.muter}
+                    multiline
+                    textAlignVertical="top"
                   />
 
+                  <Text style={[styles.fieldLabel, { color: palette.muter }]}>Currency</Text>
+                  <View style={styles.currencyOptions}>
+                    {CURRENCY_OPTIONS.map((option) => {
+                      const isSelected = option.code === profileCurrency;
+                      return (
+                        <Pressable
+                          key={option.code}
+                          onPress={() => setProfileCurrency(option.code)}
+                          style={[
+                            styles.currencyOption,
+                            {
+                              backgroundColor: isSelected ? palette.accent : palette.surfaceAlt,
+                              borderColor: isSelected ? palette.accent : palette.border,
+                            },
+                          ]}>
+                          <Text style={[styles.currencyOptionLabel, { color: isSelected ? '#fff' : palette.text }]}>
+                            {option.label}
+                          </Text>
+                          <Text style={[styles.currencyOptionCode, { color: isSelected ? 'rgba(255,255,255,0.85)' : palette.muter }]}>
+                            {option.code}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+
                   <Pressable style={styles.submitButton} onPress={handleSaveProfile}>
-                    <Text style={styles.submitButtonText}>Save profile</Text>
+                    <Text style={styles.submitButtonText}>Save changes</Text>
                   </Pressable>
                 </ScrollView>
               </SafeAreaView>
@@ -279,28 +339,136 @@ export default function SettingsScreen() {
           </View>
         </Modal>
 
-        {/* Package editor modal */}
-        <Modal visible={showPackageEditor} transparent animationType="slide" onRequestClose={() => setShowPackageEditor(false)}>
+        <Modal visible={showServicesManager} transparent animationType="slide" onRequestClose={closeServicesManager}>
           <View style={styles.modalBackdrop}>
-            <View style={[styles.modalCard, { backgroundColor: palette.surface, borderColor: palette.border }]}> 
-              <View style={styles.modalHeader}>
-                <Text style={[styles.modalTitle, { color: palette.text }]}>{editingPackageId ? 'Edit package' : 'New package'}</Text>
-                <Pressable onPress={() => setShowPackageEditor(false)}>
-                  <Ionicons name="close" size={22} color={palette.text} />
-                </Pressable>
-              </View>
+            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboardAvoider} keyboardVerticalOffset={48}>
+              <SafeAreaView edges={["top", "left", "right", "bottom"]} style={[styles.modalCard, styles.servicesModalCard, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+                <View style={styles.modalHeader}>
+                  <Text style={[styles.modalTitle, { color: palette.text }]}>{showServiceForm ? 'New service' : 'Event packages'}</Text>
+                  <Pressable onPress={closeServicesManager} style={styles.closeButton} accessibilityLabel="Close services editor">
+                    <Ionicons name="close" size={22} color={palette.text} />
+                  </Pressable>
+                </View>
 
-              <Text style={[styles.fieldLabel, { color: palette.muter }]}>Package name</Text>
-              <TextInput value={packageName} onChangeText={setPackageName} style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]} />
-              <Text style={[styles.fieldLabel, { color: palette.muter }]}>Price</Text>
-              <TextInput value={packagePrice} onChangeText={setPackagePrice} keyboardType="numeric" style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]} />
-              <Text style={[styles.fieldLabel, { color: palette.muter }]}>Notes</Text>
-              <TextInput value={packageNotes} onChangeText={setPackageNotes} style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]} multiline />
+                <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={styles.modalContent}>
+                  {showServiceForm ? (
+                    <>
+                      <Text style={[styles.fieldLabel, { color: palette.muter }]}>Service name</Text>
+                      <TextInput
+                        value={serviceName}
+                        onChangeText={setServiceName}
+                        style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
+                        placeholder="Wedding photography"
+                        placeholderTextColor={palette.muter}
+                      />
 
-              <Pressable style={styles.submitButton} onPress={editingPackageId ? handleSaveEditedPackage : handleAddPackage}>
-                <Text style={styles.submitButtonText}>{editingPackageId ? 'Save package' : 'Add package'}</Text>
-              </Pressable>
-            </View>
+                      <Text style={[styles.fieldLabel, { color: palette.muter }]}>Details of service</Text>
+                      <TextInput
+                        value={serviceDetails}
+                        onChangeText={setServiceDetails}
+                        style={[styles.input, styles.multilineInput, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
+                        placeholder="Describe what is included"
+                        placeholderTextColor={palette.muter}
+                        multiline
+                        textAlignVertical="top"
+                      />
+
+                      <Text style={[styles.fieldLabel, { color: palette.muter }]}>Time</Text>
+                      <TextInput
+                        value={serviceTime}
+                        onChangeText={setServiceTime}
+                        style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
+                        placeholder="e.g. 4 hours"
+                        placeholderTextColor={palette.muter}
+                      />
+
+                      <Text style={[styles.fieldLabel, { color: palette.muter }]}>Price</Text>
+                      <TextInput
+                        value={servicePrice}
+                        onChangeText={setServicePrice}
+                        style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
+                        placeholder="1200"
+                        placeholderTextColor={palette.muter}
+                        keyboardType="numeric"
+                      />
+
+                      <Text style={[styles.fieldLabel, { color: palette.muter }]}>Info / invoice terms</Text>
+                      <TextInput
+                        value={serviceInfo}
+                        onChangeText={setServiceInfo}
+                        style={[styles.input, styles.termsInput, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
+                        placeholder="Add payment, cancellation, delivery, or other customer-facing terms"
+                        placeholderTextColor={palette.muter}
+                        multiline
+                        textAlignVertical="top"
+                      />
+                      <Text style={[styles.helperText, { color: palette.muter }]}>This information will be included in invoices that use this service.</Text>
+
+                      <View style={styles.formActions}>
+                        <Pressable
+                          style={[styles.secondaryButton, { backgroundColor: palette.surfaceAlt, borderColor: palette.border }]}
+                          onPress={() => {
+                            resetServiceForm();
+                            setShowServiceForm(false);
+                          }}>
+                          <Text style={[styles.secondaryButtonText, { color: palette.text }]}>Cancel</Text>
+                        </Pressable>
+                        <Pressable style={[styles.saveServiceButton, { backgroundColor: palette.accent }]} onPress={handleAddService}>
+                          <Text style={styles.submitButtonText}>Save service</Text>
+                        </Pressable>
+                      </View>
+                    </>
+                  ) : (
+                    <>
+                      <Pressable
+                        style={[styles.addServiceButton, { backgroundColor: palette.accent }]}
+                        onPress={() => {
+                          resetServiceForm();
+                          setShowServiceForm(true);
+                        }}>
+                        <Ionicons name="add" size={18} color="#fff" />
+                        <Text style={styles.addButtonText}>Add new service</Text>
+                      </Pressable>
+
+                      <View style={styles.packageList}>
+                        {packages.length > 0 ? packages.map((item) => (
+                          <View key={item.id} style={[styles.packageItem, { backgroundColor: palette.surfaceAlt, borderColor: palette.border }]}>
+                            <View style={styles.serviceItemHeader}>
+                              <View style={styles.packageInfo}>
+                                <Text style={[styles.packageName, { color: palette.text }]}>{item.name}</Text>
+                                <Text style={[styles.packagePrice, { color: palette.accent }]}>{currencyFormatter.format(item.price)}</Text>
+                              </View>
+                              <Pressable
+                                onPress={() => removePackage(item.id)}
+                                style={[styles.removeButton, { backgroundColor: palette.iconWrap }]}
+                                accessibilityLabel={`Delete ${item.name}`}>
+                                <Ionicons name="trash-outline" size={17} color="#E11D48" />
+                              </Pressable>
+                            </View>
+                            <Text style={[styles.serviceDetails, { color: palette.muter }]}>{item.details}</Text>
+                            <View style={styles.serviceMetaRow}>
+                              <Ionicons name="time-outline" size={14} color={palette.muter} />
+                              <Text style={[styles.serviceMetaText, { color: palette.muter }]}>{item.duration}</Text>
+                            </View>
+                            {item.info ? (
+                              <View style={[styles.termsPreview, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+                                <Text style={[styles.termsLabel, { color: palette.muter }]}>Invoice info</Text>
+                                <Text style={[styles.termsText, { color: palette.text }]}>{item.info}</Text>
+                              </View>
+                            ) : null}
+                          </View>
+                        )) : (
+                          <View style={[styles.emptyServices, { backgroundColor: palette.surfaceAlt, borderColor: palette.border }]}>
+                            <Ionicons name="cube-outline" size={24} color={palette.muter} />
+                            <Text style={[styles.emptyServicesText, { color: palette.muter }]}>No services yet</Text>
+                          </View>
+                        )}
+                      </View>
+                    </>
+                  )}
+                </ScrollView>
+              </SafeAreaView>
+            </KeyboardAvoidingView>
           </View>
         </Modal>
     </SafeAreaView>
@@ -338,10 +506,34 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     elevation: 2,
   },
-  row: {
+  summaryRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 18,
+  },
+  summaryCopy: {
+    flex: 1,
+    paddingRight: 10,
+  },
+  summaryTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+  },
+  summarySubtitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: 3,
+  },
+  editButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  editButtonText: {
+    fontSize: 12,
+    fontWeight: '800',
   },
   iconWrap: {
     width: 42,
@@ -369,11 +561,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '800',
   },
-  formRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 12,
-  },
   input: {
     borderWidth: 1,
     borderRadius: 12,
@@ -382,6 +569,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     flex: 1,
+  },
+  multilineInput: {
+    minHeight: 76,
+  },
+  termsInput: {
+    minHeight: 104,
+  },
+  helperText: {
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 6,
   },
   addButton: {
     borderRadius: 12,
@@ -395,17 +593,34 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     fontSize: 14,
   },
-  packageList: {
-    gap: 8,
+  currencyOptions: {
+    gap: 10,
   },
-  packageItem: {
+  currencyOption: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     borderWidth: 1,
     borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  currencyOptionLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  currencyOptionCode: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  packageList: {
+    gap: 8,
+  },
+  packageItem: {
+    borderWidth: 1,
+    borderRadius: 12,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 12,
   },
   packageInfo: {
     flex: 1,
@@ -415,9 +630,45 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   packagePrice: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '800',
     marginTop: 4,
+  },
+  serviceItemHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  serviceDetails: {
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 8,
+  },
+  serviceMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: 8,
+  },
+  serviceMetaText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  termsPreview: {
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 10,
+    marginTop: 10,
+  },
+  termsLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    marginBottom: 4,
+  },
+  termsText: {
+    fontSize: 12,
+    lineHeight: 17,
   },
   removeButton: {
     width: 32,
@@ -429,8 +680,45 @@ const styles = StyleSheet.create({
   },
   themeRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  themeCard: {
+    marginTop: 18,
+  },
+  themeIconWrap: {
+    marginBottom: 0,
+  },
+  themeCopy: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  themeDescription: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 3,
+  },
+  switchWrap: {
+    minWidth: 66,
+    minHeight: 48,
+    borderRadius: 24,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 5,
+  },
+  themeSwitch: {
+    transform: [{ scaleX: 1.08 }, { scaleY: 1.08 }],
+  },
+  versionFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 24,
+  },
+  versionText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   modalBackdrop: {
     flex: 1,
@@ -442,6 +730,7 @@ const styles = StyleSheet.create({
   modalCard: {
     width: '100%',
     maxWidth: 720,
+    maxHeight: '90%',
     borderRadius: 14,
     padding: 16,
     borderWidth: 1,
@@ -452,6 +741,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
+  closeButton: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   modalTitle: {
     fontSize: 16,
     fontWeight: '800',
@@ -461,6 +756,57 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginTop: 8,
     marginBottom: 6,
+  },
+  keyboardAvoider: {
+    width: '100%',
+    maxWidth: 720,
+  },
+  servicesModalCard: {
+    alignSelf: 'center',
+  },
+  modalContent: {
+    paddingBottom: 8,
+  },
+  addServiceButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    borderRadius: 12,
+    paddingVertical: 12,
+    marginBottom: 14,
+  },
+  emptyServices: {
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 28,
+  },
+  emptyServicesText: {
+    fontSize: 13,
+    fontWeight: '700',
+    marginTop: 8,
+  },
+  formActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 16,
+  },
+  secondaryButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 10,
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  secondaryButtonText: {
+    fontWeight: '800',
+  },
+  saveServiceButton: {
+    flex: 1,
+    borderRadius: 10,
+    alignItems: 'center',
+    paddingVertical: 12,
   },
   submitButton: {
     marginTop: 14,
