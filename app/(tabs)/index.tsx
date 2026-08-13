@@ -1,98 +1,278 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+import { StatCard } from '@/components/StatCard';
+import { StatusPill } from '@/components/StatusPill';
+import { useAppData } from '@/context/app-data-context';
+import { getThemePalette, useTheme } from '@/context/theme-context';
+
+const currency = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+});
 
 export default function HomeScreen() {
-  return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+  const { isDarkMode } = useTheme();
+  const { bookings, customers, invoices, reminders } = useAppData();
+  const palette = getThemePalette(isDarkMode);
+  const upcoming = bookings.slice(0, 2);
+  const customerMap = new Map(customers.map((customer) => [customer.id, customer]));
+  const totalRevenue = bookings.reduce((sum, booking) => sum + booking.price, 0);
+  const totalIncome = invoices.filter((invoice) => invoice.status === 'Paid' || invoice.status === 'Accepted').reduce((sum, invoice) => sum + invoice.amount, 0);
+  const totalExpense = invoices.filter((invoice) => invoice.status === 'Overdue' || invoice.status === 'Declined').reduce((sum, invoice) => sum + invoice.amount, 0);
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+  return (
+    <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]}>
+      <ScrollView style={styles.screenScroll} contentContainerStyle={styles.content}>
+      <View style={styles.topHeader}>
+        <View>
+          <Text style={[styles.eyebrow, { color: palette.accent }]}>Dashboard</Text>
+          <Text style={[styles.title, { color: palette.text }]}>Bookflow overview</Text>
+        </View>
+        <Pressable style={[styles.bellButton, { backgroundColor: palette.surface, shadowColor: isDarkMode ? '#020617' : '#101828' }]} accessibilityLabel="Notifications">
+          <Ionicons name="notifications-outline" size={22} color={palette.text} />
+        </Pressable>
+      </View>
+
+      <View style={[styles.panel, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+        <View style={styles.sectionHeader}>
+          <Text style={[styles.sectionTitle, { color: palette.text }]}>Today’s priority</Text>
+          <Text style={[styles.link, { color: palette.accent }]}>View all</Text>
+        </View>
+
+        <FlatList
+          data={upcoming}
+          scrollEnabled={false}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => {
+            const customer = customerMap.get(item.customerId);
+            const statusTone =
+              item.status === 'Confirmed' ? 'blue' : item.status === 'Completed' ? 'green' : item.status === 'Inquiry' ? 'amber' : 'red';
+
+            return (
+              <View style={[styles.listCard, { backgroundColor: palette.surfaceAlt, borderColor: palette.border }]}>
+                <View style={styles.listHeader}>
+                  <View>
+                    <Text style={[styles.bookingTitle, { color: palette.text }]}>{item.title}</Text>
+                    <Text style={[styles.bookingCustomer, { color: palette.muter }]}>{customer?.name ?? 'Unknown customer'}</Text>
+                  </View>
+                  <StatusPill label={item.status} tone={statusTone} />
+                </View>
+
+                <View style={styles.metaRow}>
+                  <Ionicons name="calendar-outline" size={16} color={palette.muter} />
+                  <Text style={[styles.metaValue, { color: palette.text }]}>{item.date}</Text>
+                </View>
+                <View style={styles.metaRow}>
+                  <Ionicons name="location-outline" size={16} color={palette.muter} />
+                  <Text style={[styles.metaValue, { color: palette.text }]}>{item.location}</Text>
+                </View>
+                <View style={styles.metaRow}>
+                  <Ionicons name="cash-outline" size={16} color={palette.muter} />
+                  <Text style={[styles.metaValue, { color: palette.text }]}>{currency.format(item.price)}</Text>
+                </View>
+              </View>
+            );
+          }}
+        />
+      </View>
+
+      <View style={styles.statsGrid}>
+        <StatCard label="Revenue" value={currency.format(totalRevenue)} detail="This month" tone="blue" />
+        <StatCard label="Upcoming" value={String(upcoming.length)} detail="Bookings this week" tone="green" />
+        <StatCard label="Income" value={currency.format(totalIncome)} detail="Collected" tone="amber" />
+        <StatCard label="Expense" value={currency.format(totalExpense)} detail="Outstanding" tone="purple" />
+      </View>
+
+      <View style={[styles.panel, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+        <View style={styles.sectionHeader}>
+          <Text style={[styles.sectionTitle, { color: palette.text }]}>Reminder queue</Text>
+          <Text style={[styles.link, { color: palette.accent }]}>{reminders.length} active</Text>
+        </View>
+
+        {reminders.slice(0, 2).map((reminder) => (
+          <View key={reminder.id} style={[styles.reminderRow, { borderBottomColor: palette.border }]}>
+            <View>
+              <Text style={[styles.reminderTitle, { color: palette.text }]}>{reminder.title}</Text>
+              <Text style={[styles.reminderMeta, { color: palette.muter }]}>{reminder.dueDate} • {reminder.channel}</Text>
+            </View>
+            <StatusPill label={reminder.status} tone={reminder.status === 'sent' ? 'green' : reminder.status === 'failed' ? 'red' : 'amber'} />
+          </View>
+        ))}
+      </View>
+
+      <View style={[styles.panel, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+        <View style={styles.sectionHeader}>
+          <Text style={[styles.sectionTitle, { color: palette.text }]}>Recent invoices</Text>
+          <Text style={[styles.link, { color: palette.accent }]}>Open</Text>
+        </View>
+
+        {invoices.slice(0, 3).map((invoice) => {
+          const customer = customerMap.get(invoice.customerId);
+          const tone =
+            invoice.status === 'Paid' ? 'green' : invoice.status === 'Accepted' ? 'blue' : invoice.status === 'Overdue' ? 'amber' : invoice.status === 'Declined' ? 'red' : 'gray';
+
+          return (
+            <View key={invoice.id} style={[styles.invoiceRow, { borderBottomColor: palette.border }]}>
+              <View>
+                <Text style={[styles.invoiceId, { color: palette.text }]}>{invoice.id}</Text>
+                <Text style={[styles.invoiceCustomer, { color: palette.muter }]}>{customer?.name ?? 'Unknown customer'}</Text>
+              </View>
+              <View style={styles.invoiceMeta}>
+                <Text style={[styles.amount, { color: palette.text }]}>{currency.format(invoice.amount)}</Text>
+                <StatusPill label={invoice.status} tone={tone} />
+              </View>
+            </View>
+          );
+        })}
+      </View>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
+  screen: {
+    flex: 1,
+  },
+  screenScroll: {
+    flex: 1,
+  },
+  content: {
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 90,
+  },
+  topHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    justifyContent: 'space-between',
+    marginBottom: 16,
   },
-  stepContainer: {
-    gap: 8,
+  eyebrow: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    marginBottom: 6,
+  },
+  title: {
+    fontSize: 30,
+    fontWeight: '800',
+  },
+  bellButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 2,
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 18,
+    marginBottom: 18,
+  },
+  panel: {
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 18,
+    marginBottom: 18,
+    shadowColor: '#101828',
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 2,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  link: {
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  listCard: {
+    borderRadius: 16,
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    padding: 14,
+    marginBottom: 12,
+  },
+  listHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 10,
+  },
+  bookingTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  bookingCustomer: {
+    fontSize: 12,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginBottom: 8,
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  metaValue: {
+    marginLeft: 8,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  reminderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+  },
+  reminderTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  reminderMeta: {
+    fontSize: 12,
+  },
+  invoiceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+  },
+  invoiceId: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  invoiceCustomer: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  invoiceMeta: {
+    alignItems: 'flex-end',
+  },
+  amount: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 6,
   },
 });
