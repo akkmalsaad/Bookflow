@@ -15,6 +15,9 @@ export type Booking = {
   customerId: string;
   title: string;
   date: string;
+  time?: string;
+  startTime?: string;
+  endTime?: string;
   location: string;
   packageName: string;
   price: number;
@@ -31,6 +34,12 @@ export type Invoice = {
   status: InvoiceStatus;
   sentAt: string;
   serviceName?: string;
+  packageDetails?: string;
+  eventLocation?: string;
+  eventDate?: string;
+  eventTime?: string;
+  eventStartTime?: string;
+  eventEndTime?: string;
   terms?: string;
 };
 
@@ -76,6 +85,9 @@ export const bookings: Booking[] = [
     customerId: 'cust-1',
     title: 'Wedding Coverage',
     date: '2026-08-18',
+    time: '10:00',
+    startTime: '10:00',
+    endTime: '18:00',
     location: 'Hill Country Ranch',
     packageName: 'Signature Wedding',
     price: 3200,
@@ -87,6 +99,9 @@ export const bookings: Booking[] = [
     customerId: 'cust-2',
     title: 'Family Portrait Session',
     date: '2026-08-21',
+    time: '16:30',
+    startTime: '16:30',
+    endTime: '18:30',
     location: 'Lakeview Park',
     packageName: 'Family Session',
     price: 850,
@@ -98,6 +113,9 @@ export const bookings: Booking[] = [
     customerId: 'cust-3',
     title: 'Brand Campaign Shoot',
     date: '2026-08-28',
+    time: '09:00',
+    startTime: '09:00',
+    endTime: '17:00',
     location: 'Warehouse District',
     packageName: 'Commercial Day Rate',
     price: 4200,
@@ -109,6 +127,9 @@ export const bookings: Booking[] = [
     customerId: 'cust-1',
     title: 'Engagement Session',
     date: '2026-07-14',
+    time: '17:30',
+    startTime: '17:30',
+    endTime: '19:00',
     location: 'Downtown Rooftop',
     packageName: 'Mini Session',
     price: 650,

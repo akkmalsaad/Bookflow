@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { Animated, FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Animated, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -18,7 +18,20 @@ function getStatusTone(status: string) {
 }
 
 function toIsoDate(date: Date) {
-  return date.toISOString().split('T')[0];
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function normalizeTime(value: string) {
+  const match = value.trim().match(/^(\d{1,2}):([0-5]\d)$/);
+  if (!match) return null;
+
+  const hour = Number(match[1]);
+  if (hour < 0 || hour > 23) return null;
+
+  return `${String(hour).padStart(2, '0')}:${match[2]}`;
 }
 
 function formatDisplayDate(dateString: string) {
@@ -33,18 +46,27 @@ function formatDisplayDate(dateString: string) {
 export default function BookingsScreen() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
-  const { packages, bookings, customers, addBooking, setInvoiceDraft, currency } = useAppData();
+  const { packages, bookings, customers, invoices, createBooking, currency } = useAppData();
   const palette = getThemePalette(isDarkMode);
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const customerMap = new Map(customers.map((customer) => [customer.id, customer]));
   const [showComposer, setShowComposer] = useState(false);
-  const [draftTitle, setDraftTitle] = useState('');
   const [draftNotes, setDraftNotes] = useState('');
   const [selectedCustomerId, setSelectedCustomerId] = useState(customers[0]?.id ?? '');
+  const [customerMode, setCustomerMode] = useState<'existing' | 'new'>(customers.length ? 'existing' : 'new');
   const [customerQuery, setCustomerQuery] = useState('');
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+  const [newCustomerName, setNewCustomerName] = useState('');
+  const [newCustomerEmail, setNewCustomerEmail] = useState('');
+  const [newCustomerPhone, setNewCustomerPhone] = useState('');
+  const [newCustomerLocation, setNewCustomerLocation] = useState('');
   const [selectedPackageId, setSelectedPackageId] = useState(packages[0]?.id ?? '');
+  const [showPackageDropdown, setShowPackageDropdown] = useState(false);
   const [draftPrice, setDraftPrice] = useState(String(packages[0]?.price ?? 0));
+  const [draftStartTime, setDraftStartTime] = useState('10:00');
+  const [draftEndTime, setDraftEndTime] = useState('11:00');
+  const [draftLocation, setDraftLocation] = useState('');
+  const [formError, setFormError] = useState('');
   const dropdownAnim = useRef(new Animated.Value(0)).current;
 
   const firstBookingDate = bookings[0]?.date ?? toIsoDate(new Date());
@@ -104,12 +126,21 @@ export default function BookingsScreen() {
     }
 
     setSelectedCustomerId(customers[0]?.id ?? '');
+    setCustomerMode(customers.length ? 'existing' : 'new');
     setCustomerQuery('');
     setShowCustomerDropdown(false);
+    setNewCustomerName('');
+    setNewCustomerEmail('');
+    setNewCustomerPhone('');
+    setNewCustomerLocation('');
     setSelectedPackageId(packages[0].id);
+    setShowPackageDropdown(false);
     setDraftPrice(String(packages[0].price));
-    setDraftTitle('');
+    setDraftStartTime('10:00');
+    setDraftEndTime('11:00');
+    setDraftLocation('');
     setDraftNotes('');
+    setFormError('');
     setShowComposer(true);
   };
 
@@ -117,50 +148,55 @@ export default function BookingsScreen() {
     const chosenPackage = packages.find((item) => item.id === packageId);
     setSelectedPackageId(packageId);
     setDraftPrice(String(chosenPackage?.price ?? 0));
+    setShowPackageDropdown(false);
   };
 
   const handleAddBooking = () => {
-    const trimmedTitle = draftTitle.trim();
     const numericPrice = Number(draftPrice);
+    const isNewCustomerValid = Boolean(newCustomerName.trim() && newCustomerEmail.trim());
+    const hasValidCustomer = customerMode === 'existing' ? Boolean(selectedCustomerId) : isNewCustomerValid;
+    const startTime = normalizeTime(draftStartTime);
+    const endTime = normalizeTime(draftEndTime);
+    const hasValidTimeRange = Boolean(startTime && endTime && endTime > startTime);
 
-    if (!trimmedTitle || !selectedPackage || !selectedCustomerId || Number.isNaN(numericPrice) || numericPrice <= 0) {
+    if (!selectedPackage || !hasValidCustomer || Number.isNaN(numericPrice) || numericPrice <= 0 || !startTime || !endTime || !hasValidTimeRange) {
+      setFormError('Choose a package and add valid customer, price, start time, and later finish time.');
       return;
     }
 
-    addBooking({
-      customerId: selectedCustomerId,
-      title: trimmedTitle,
+    const result = createBooking({
+      customerId: customerMode === 'existing' ? selectedCustomerId : undefined,
+      newCustomer: customerMode === 'new' ? {
+        name: newCustomerName,
+        email: newCustomerEmail,
+        phone: newCustomerPhone,
+        location: newCustomerLocation,
+        notes: 'Created while adding a booking.',
+      } : undefined,
+      title: selectedPackage.name,
       date: selectedDate,
-      location: 'Client location',
+      time: startTime,
+      startTime,
+      endTime,
+      location: draftLocation.trim() || 'Client location',
       packageName: selectedPackage.name,
       price: numericPrice,
       status: 'Inquiry',
       notes: draftNotes.trim() || 'New booking created from quick add.',
     });
 
+    if (!result) {
+      setFormError('The booking could not be saved. Check the customer and booking details.');
+      return;
+    }
+
     setShowComposer(false);
-    setDraftTitle('');
     setDraftNotes('');
     setCustomerQuery('');
     setShowCustomerDropdown(false);
     setDraftPrice(String(selectedPackage.price));
-  };
-
-  const handleCreateInvoiceFromBooking = (booking: (typeof bookings)[number]) => {
-    const dueDate = new Date(new Date(`${booking.date}T00:00:00`).getTime() + 7 * 24 * 60 * 60 * 1000)
-      .toISOString()
-      .slice(0, 10);
-
-    setInvoiceDraft({
-      customerId: booking.customerId,
-      amount: booking.price,
-      dueDate,
-      bookingId: booking.id,
-      serviceName: booking.packageName,
-      terms: packages.find((item) => item.name === booking.packageName)?.info,
-    });
-
-    router.push('/(tabs)/invoices');
+    setFormError('');
+    Alert.alert('Booking saved', `Draft invoice ${result.invoice.id} was created automatically.`);
   };
 
   const flatListData: (Booking | { readonly id: 'empty-state'; readonly __empty: true })[] = selectedDayBookings.length > 0
@@ -242,6 +278,7 @@ export default function BookingsScreen() {
           }
 
           const customer = customerMap.get(item.customerId);
+          const invoice = invoices.find((candidate) => candidate.bookingId === item.id);
           const statusTone = getStatusTone(item.status);
 
           return (
@@ -255,8 +292,14 @@ export default function BookingsScreen() {
               </View>
 
               <View style={styles.metaRow}>
-                <Text style={[styles.metaLabel, { color: palette.muter }]}>Time</Text>
+                <Text style={[styles.metaLabel, { color: palette.muter }]}>Date</Text>
                 <Text style={[styles.metaValue, { color: palette.text }]}>{item.date}</Text>
+              </View>
+              <View style={styles.metaRow}>
+                <Text style={[styles.metaLabel, { color: palette.muter }]}>Time</Text>
+                <Text style={[styles.metaValue, { color: palette.text }]}>
+                  {item.startTime ?? item.time ?? 'Not specified'} – {item.endTime ?? 'Not specified'}
+                </Text>
               </View>
               <View style={styles.metaRow}>
                 <Text style={[styles.metaLabel, { color: palette.muter }]}>Location</Text>
@@ -271,9 +314,12 @@ export default function BookingsScreen() {
                 <Text style={[styles.notes, { color: palette.muter }]}>{item.notes}</Text>
               </View>
 
-              <Pressable style={[styles.invoiceButton, { backgroundColor: palette.accent }]} onPress={() => handleCreateInvoiceFromBooking(item)}>
-                <Text style={styles.invoiceButtonText}>Create invoice</Text>
-              </Pressable>
+              {invoice && (
+                <Pressable style={[styles.invoiceButton, { backgroundColor: palette.accent }]} onPress={() => router.push('/(tabs)/invoices')}>
+                  <Ionicons name="document-text-outline" size={16} color="#fff" />
+                  <Text style={styles.invoiceButtonText}>View invoice · {invoice.status}</Text>
+                </Pressable>
+              )}
             </View>
           );
         }}
@@ -290,76 +336,186 @@ export default function BookingsScreen() {
               </Pressable>
             </View>
 
-            <Text style={[styles.fieldLabel, { color: palette.muter }]}>Booking title</Text>
-            <TextInput
-              value={draftTitle}
-              onChangeText={setDraftTitle}
-              placeholder="Wedding coverage"
-              placeholderTextColor={palette.muter}
-              style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
-            />
-
-            <Text style={[styles.fieldLabel, { color: palette.muter }]}>Customer</Text>
-            <Pressable
-              onPress={() => setShowCustomerDropdown((current) => !current)}
-              style={[styles.dropdownButton, { backgroundColor: palette.surfaceAlt, borderColor: palette.border }, showCustomerDropdown && { borderColor: palette.accent, backgroundColor: palette.iconWrap }]}>
-              <Text style={[styles.dropdownText, { color: palette.text }]}>{selectedCustomer ? selectedCustomer.name : 'Choose a customer'}</Text>
-              <Ionicons name={showCustomerDropdown ? 'chevron-up' : 'chevron-down'} size={18} color={palette.text} />
-            </Pressable>
-
-            <Animated.View
-              style={[
-                styles.dropdownPanel,
-                {
-                  maxHeight: dropdownAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [0, 220],
-                  }),
-                  opacity: dropdownAnim,
-                  backgroundColor: palette.surfaceAlt,
-                  borderColor: palette.border,
-                },
-              ]}>
-              <TextInput
-                value={customerQuery}
-                onChangeText={setCustomerQuery}
-                placeholder="Search customer"
-                placeholderTextColor={palette.muter}
-                style={[styles.searchInput, { backgroundColor: palette.surface, borderColor: palette.border, color: palette.text }]}
-              />
-
-              <View style={styles.dropdownList}>
-                {filteredCustomers.length > 0 ? (
-                  filteredCustomers.map((customer) => (
-                    <Pressable
-                      key={customer.id}
-                      onPress={() => {
-                        setSelectedCustomerId(customer.id);
-                        setCustomerQuery('');
-                        setShowCustomerDropdown(false);
-                      }}
-                      style={[styles.selectOption, { backgroundColor: palette.surface, borderColor: palette.border }, selectedCustomerId === customer.id && { backgroundColor: palette.iconWrap, borderColor: palette.accent }]}>
-                      <Text style={[styles.selectText, { color: palette.text }]}>{customer.name}</Text>
-                      <Text style={[styles.selectSubtext, { color: palette.muter }]}>{customer.email}</Text>
-                    </Pressable>
-                  ))
-                ) : (
-                  <Text style={[styles.emptySearchText, { color: palette.muter }]}>No matching customer</Text>
-                )}
-              </View>
-            </Animated.View>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={styles.modalScrollContent}>
 
             <Text style={[styles.fieldLabel, { color: palette.muter }]}>Package</Text>
-            <View style={styles.packagePickerWrap}>
-              {packages.map((item) => (
-                <Pressable
-                  key={item.id}
-                  style={[styles.packageOption, { backgroundColor: palette.surfaceAlt, borderColor: palette.border }, selectedPackageId === item.id && { backgroundColor: palette.iconWrap, borderColor: palette.accent }]}
-                  onPress={() => handlePackageSelection(item.id)}>
-                  <Text style={[styles.packageOptionText, { color: palette.text }]}>{item.name}</Text>
-                </Pressable>
-              ))}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Choose a package"
+              onPress={() => {
+                setShowPackageDropdown((current) => !current);
+                setShowCustomerDropdown(false);
+              }}
+              style={[
+                styles.dropdownButton,
+                { backgroundColor: palette.surfaceAlt, borderColor: palette.border },
+                showPackageDropdown && { borderColor: palette.accent, backgroundColor: palette.iconWrap },
+              ]}>
+              <View style={styles.packageSelectedCopy}>
+                <Text style={[styles.packageSelectedName, { color: palette.text }]}>{selectedPackage?.name ?? 'Choose a package'}</Text>
+                {selectedPackage ? (
+                  <Text style={[styles.packageSelectedMeta, { color: palette.muter }]}>
+                    {selectedPackage.duration} · {currencyFormatter.format(selectedPackage.price)}
+                  </Text>
+                ) : null}
+              </View>
+              <Ionicons name={showPackageDropdown ? 'chevron-up' : 'chevron-down'} size={18} color={palette.text} />
+            </Pressable>
+
+            {showPackageDropdown && (
+              <View style={[styles.packageDropdownPanel, { backgroundColor: palette.surfaceAlt, borderColor: palette.border }]}>
+                <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" style={styles.packageDropdownScroll}>
+                  {packages.map((item) => (
+                    <Pressable
+                      key={item.id}
+                      onPress={() => handlePackageSelection(item.id)}
+                      style={[
+                        styles.packageOption,
+                        { backgroundColor: palette.surface, borderColor: palette.border },
+                        selectedPackageId === item.id && { backgroundColor: palette.iconWrap, borderColor: palette.accent },
+                      ]}>
+                      <View style={styles.packageOptionHeader}>
+                        <Text style={[styles.packageOptionText, { color: palette.text }]}>{item.name}</Text>
+                        {selectedPackageId === item.id ? <Ionicons name="checkmark" size={17} color={palette.accent} /> : null}
+                      </View>
+                      <Text style={[styles.packageOptionMeta, { color: palette.muter }]}>
+                        {item.duration} · {currencyFormatter.format(item.price)}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+
+            <Text style={[styles.fieldLabel, { color: palette.muter }]}>Customer source</Text>
+            <View style={styles.modeRow}>
+              <Pressable
+                onPress={() => {
+                  setCustomerMode('existing');
+                  setFormError('');
+                }}
+                style={[
+                  styles.modeButton,
+                  { backgroundColor: palette.surfaceAlt, borderColor: palette.border },
+                  customerMode === 'existing' && { backgroundColor: palette.iconWrap, borderColor: palette.accent },
+                ]}>
+                <Text style={[styles.modeButtonText, { color: customerMode === 'existing' ? palette.accent : palette.text }]}>Existing customer</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  setCustomerMode('new');
+                  setShowCustomerDropdown(false);
+                  setFormError('');
+                }}
+                style={[
+                  styles.modeButton,
+                  { backgroundColor: palette.surfaceAlt, borderColor: palette.border },
+                  customerMode === 'new' && { backgroundColor: palette.iconWrap, borderColor: palette.accent },
+                ]}>
+                <Text style={[styles.modeButtonText, { color: customerMode === 'new' ? palette.accent : palette.text }]}>Add new customer</Text>
+              </Pressable>
             </View>
+
+            {customerMode === 'existing' ? (
+              <>
+                <Text style={[styles.fieldLabel, { color: palette.muter }]}>Customer</Text>
+                <Pressable
+                  onPress={() => {
+                    setShowCustomerDropdown((current) => !current);
+                    setShowPackageDropdown(false);
+                  }}
+                  style={[styles.dropdownButton, { backgroundColor: palette.surfaceAlt, borderColor: palette.border }, showCustomerDropdown && { borderColor: palette.accent, backgroundColor: palette.iconWrap }]}>
+                  <Text style={[styles.dropdownText, { color: palette.text }]}>{selectedCustomer ? selectedCustomer.name : 'Choose a customer'}</Text>
+                  <Ionicons name={showCustomerDropdown ? 'chevron-up' : 'chevron-down'} size={18} color={palette.text} />
+                </Pressable>
+
+                <Animated.View
+                  style={[
+                    styles.dropdownPanel,
+                    {
+                      maxHeight: dropdownAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0, 220],
+                      }),
+                      opacity: dropdownAnim,
+                      backgroundColor: palette.surfaceAlt,
+                      borderColor: palette.border,
+                    },
+                  ]}>
+                  <TextInput
+                    value={customerQuery}
+                    onChangeText={setCustomerQuery}
+                    placeholder="Search customer"
+                    placeholderTextColor={palette.muter}
+                    style={[styles.searchInput, { backgroundColor: palette.surface, borderColor: palette.border, color: palette.text }]}
+                  />
+
+                  <View style={styles.dropdownList}>
+                    {filteredCustomers.length > 0 ? (
+                      filteredCustomers.map((customer) => (
+                        <Pressable
+                          key={customer.id}
+                          onPress={() => {
+                            setSelectedCustomerId(customer.id);
+                            setCustomerQuery('');
+                            setShowCustomerDropdown(false);
+                          }}
+                          style={[styles.selectOption, { backgroundColor: palette.surface, borderColor: palette.border }, selectedCustomerId === customer.id && { backgroundColor: palette.iconWrap, borderColor: palette.accent }]}>
+                          <Text style={[styles.selectText, { color: palette.text }]}>{customer.name}</Text>
+                          <Text style={[styles.selectSubtext, { color: palette.muter }]}>{customer.email}</Text>
+                        </Pressable>
+                      ))
+                    ) : (
+                      <Text style={[styles.emptySearchText, { color: palette.muter }]}>No matching customer</Text>
+                    )}
+                  </View>
+                </Animated.View>
+              </>
+            ) : (
+              <>
+                <Text style={[styles.fieldLabel, { color: palette.muter }]}>Customer name</Text>
+                <TextInput
+                  value={newCustomerName}
+                  onChangeText={setNewCustomerName}
+                  placeholder="Jane Smith"
+                  placeholderTextColor={palette.muter}
+                  style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
+                />
+
+                <Text style={[styles.fieldLabel, { color: palette.muter }]}>Customer email</Text>
+                <TextInput
+                  value={newCustomerEmail}
+                  onChangeText={setNewCustomerEmail}
+                  placeholder="jane@example.com"
+                  placeholderTextColor={palette.muter}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
+                />
+
+                <Text style={[styles.fieldLabel, { color: palette.muter }]}>Customer phone</Text>
+                <TextInput
+                  value={newCustomerPhone}
+                  onChangeText={setNewCustomerPhone}
+                  placeholder="+60 12-345 6789"
+                  placeholderTextColor={palette.muter}
+                  keyboardType="phone-pad"
+                  style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
+                />
+
+                <Text style={[styles.fieldLabel, { color: palette.muter }]}>Customer location</Text>
+                <TextInput
+                  value={newCustomerLocation}
+                  onChangeText={setNewCustomerLocation}
+                  placeholder="Kuala Lumpur"
+                  placeholderTextColor={palette.muter}
+                  style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
+                />
+              </>
+            )}
 
             <Text style={[styles.fieldLabel, { color: palette.muter }]}>Price</Text>
             <TextInput
@@ -367,6 +523,45 @@ export default function BookingsScreen() {
               onChangeText={setDraftPrice}
               keyboardType="numeric"
               placeholder="0"
+              placeholderTextColor={palette.muter}
+              style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
+            />
+
+            <Text style={[styles.fieldLabel, { color: palette.muter }]}>Event date</Text>
+            <TextInput
+              value={selectedDate}
+              editable={false}
+              style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.muter, opacity: 0.8 }]}
+            />
+
+            <View style={styles.timeRow}>
+              <View style={styles.timeField}>
+                <Text style={[styles.fieldLabel, { color: palette.muter }]}>Start time</Text>
+                <TextInput
+                  value={draftStartTime}
+                  onChangeText={setDraftStartTime}
+                  placeholder="10:00"
+                  placeholderTextColor={palette.muter}
+                  style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
+                />
+              </View>
+              <View style={styles.timeField}>
+                <Text style={[styles.fieldLabel, { color: palette.muter }]}>Finish time</Text>
+                <TextInput
+                  value={draftEndTime}
+                  onChangeText={setDraftEndTime}
+                  placeholder="11:00"
+                  placeholderTextColor={palette.muter}
+                  style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
+                />
+              </View>
+            </View>
+
+            <Text style={[styles.fieldLabel, { color: palette.muter }]}>Event location</Text>
+            <TextInput
+              value={draftLocation}
+              onChangeText={setDraftLocation}
+              placeholder="Venue or client location"
               placeholderTextColor={palette.muter}
               style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
             />
@@ -381,9 +576,17 @@ export default function BookingsScreen() {
               style={[styles.input, styles.notesInput, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
             />
 
+            <View style={[styles.invoiceNotice, { backgroundColor: palette.iconWrap, borderColor: palette.accent }]}>
+              <Ionicons name="document-text-outline" size={18} color={palette.accent} />
+              <Text style={[styles.invoiceNoticeText, { color: palette.text }]}>A draft invoice will be created automatically from this booking.</Text>
+            </View>
+
+            {formError ? <Text style={styles.formError}>{formError}</Text> : null}
+
             <Pressable style={styles.submitButton} onPress={handleAddBooking}>
-              <Text style={styles.submitButtonText}>Save booking</Text>
+              <Text style={styles.submitButtonText}>Save booking &amp; create invoice</Text>
             </Pressable>
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -602,12 +805,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#111827',
     borderRadius: 10,
     paddingVertical: 10,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
   },
   invoiceButtonText: {
     color: '#fff',
     fontWeight: '700',
     fontSize: 13,
+    marginLeft: 6,
   },
   modalBackdrop: {
     flex: 1,
@@ -621,6 +827,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 18,
     paddingBottom: 28,
+    maxHeight: '92%',
+  },
+  modalScrollContent: {
+    paddingBottom: 4,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -646,6 +856,31 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 14,
+  },
+  timeRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  timeField: {
+    flex: 1,
+  },
+  modeRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 4,
+  },
+  modeButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  modeButtonText: {
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
   },
   dropdownButton: {
     flexDirection: 'row',
@@ -722,18 +957,68 @@ const styles = StyleSheet.create({
     minHeight: 80,
     textAlignVertical: 'top',
   },
-  packagePickerWrap: {
-    gap: 8,
+  invoiceNotice: {
+    borderWidth: 1,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginTop: 14,
+  },
+  invoiceNoticeText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 18,
+    marginLeft: 8,
+  },
+  formError: {
+    color: '#DC2626',
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: 12,
+  },
+  packageSelectedCopy: {
+    flex: 1,
+  },
+  packageSelectedName: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  packageSelectedMeta: {
+    fontSize: 12,
+    marginTop: 3,
+  },
+  packageDropdownPanel: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 8,
+    marginBottom: 8,
+  },
+  packageDropdownScroll: {
+    maxHeight: 240,
   },
   packageOption: {
     borderWidth: 1,
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,
+    marginBottom: 8,
+  },
+  packageOptionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   packageOptionText: {
+    flex: 1,
     fontSize: 14,
     fontWeight: '700',
+  },
+  packageOptionMeta: {
+    fontSize: 12,
+    marginTop: 4,
   },
   submitButton: {
     marginTop: 16,

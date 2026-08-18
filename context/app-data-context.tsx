@@ -38,6 +38,9 @@ export type Booking = {
   customerId: string;
   title: string;
   date: string;
+  time?: string;
+  startTime?: string;
+  endTime?: string;
   location: string;
   packageName: string;
   price: number;
@@ -54,6 +57,12 @@ export type Invoice = {
   status: 'Draft' | 'Sent' | 'Accepted' | 'Declined' | 'Paid' | 'Overdue' | 'Cancelled';
   sentAt: string;
   serviceName?: string;
+  packageDetails?: string;
+  eventLocation?: string;
+  eventDate?: string;
+  eventTime?: string;
+  eventStartTime?: string;
+  eventEndTime?: string;
   terms?: string;
 };
 
@@ -74,6 +83,15 @@ export type Reminder = {
   status: 'scheduled' | 'sent' | 'failed';
 };
 
+export type AppNotification = {
+  id: string;
+  title: string;
+  message: string;
+  createdAt: string;
+  isOpened: boolean;
+  type: 'booking' | 'invoice' | 'reminder';
+};
+
 export type InvoiceDraftPrefill = {
   customerId: string;
   amount: number;
@@ -81,6 +99,17 @@ export type InvoiceDraftPrefill = {
   bookingId?: string;
   serviceName?: string;
   terms?: string;
+};
+
+export type CreateBookingInput = Omit<Booking, 'id' | 'customerId'> & {
+  customerId?: string;
+  newCustomer?: Omit<Customer, 'id'>;
+};
+
+export type CreateBookingResult = {
+  booking: Booking;
+  customer: Customer;
+  invoice: Invoice;
 };
 
 export type CurrencyCode = 'MYR' | 'IDR' | 'USD';
@@ -103,6 +132,7 @@ type AppDataContextValue = {
   invoices: Invoice[];
   financeEntries: FinanceEntry[];
   reminders: Reminder[];
+  notifications: AppNotification[];
   invoiceDraft: InvoiceDraftPrefill | null;
   businessProfile: BusinessProfile;
   updateBusinessProfile: (profile: BusinessProfile) => void;
@@ -111,14 +141,16 @@ type AppDataContextValue = {
   addPackage: (service: Omit<PackageOption, 'id'>) => void;
   updatePackage: (id: string, updates: Partial<PackageOption>) => void;
   removePackage: (id: string) => void;
-  addCustomer: (customer: Omit<Customer, 'id'>) => void;
-  addBooking: (booking: Omit<Booking, 'id'>) => void;
+  addCustomer: (customer: Omit<Customer, 'id'>) => Customer | null;
+  createBooking: (booking: CreateBookingInput) => CreateBookingResult | null;
   addInvoice: (invoice: Omit<Invoice, 'id'>) => void;
   setInvoiceDraft: (draft: InvoiceDraftPrefill | null) => void;
   updateInvoiceStatus: (invoiceId: string, status: Invoice['status']) => void;
   addFinanceEntry: (entry: Omit<FinanceEntry, 'id'>) => void;
   addReminder: (reminder: Omit<Reminder, 'id'>) => void;
   markReminderSent: (reminderId: string) => void;
+  markNotificationOpened: (notificationId: string) => void;
+  markAllNotificationsOpened: () => void;
 };
 
 const initialPackages: PackageOption[] = [
@@ -154,6 +186,33 @@ const initialReminders: Reminder[] = [
   { id: 'rem-3', title: 'Booking confirmation', dueDate: '2026-08-20', channel: 'sms', status: 'sent' },
 ];
 
+const initialNotifications: AppNotification[] = [
+  {
+    id: 'notification-1',
+    title: 'Invoice accepted',
+    message: 'Nadia Brooks accepted invoice inv-103.',
+    createdAt: '2026-08-13T09:30:00.000Z',
+    isOpened: false,
+    type: 'invoice',
+  },
+  {
+    id: 'notification-2',
+    title: 'Invoice overdue',
+    message: 'Invoice inv-104 for Milo Chen is now overdue.',
+    createdAt: '2026-08-12T08:15:00.000Z',
+    isOpened: false,
+    type: 'invoice',
+  },
+  {
+    id: 'notification-3',
+    title: 'Booking coming up',
+    message: 'Wedding Coverage is scheduled for August 18.',
+    createdAt: '2026-08-11T04:00:00.000Z',
+    isOpened: true,
+    type: 'booking',
+  },
+];
+
 const AppDataContext = createContext<AppDataContextValue | undefined>(undefined);
 
 export function AppDataProvider({ children }: { children: React.ReactNode }) {
@@ -163,6 +222,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const [invoices, setInvoices] = useState<Invoice[]>(initialInvoices);
   const [financeEntries, setFinanceEntries] = useState<FinanceEntry[]>(initialFinanceEntries);
   const [reminders, setReminders] = useState<Reminder[]>(initialReminders);
+  const [notifications, setNotifications] = useState<AppNotification[]>(initialNotifications);
   const [invoiceDraft, setInvoiceDraft] = useState<InvoiceDraftPrefill | null>(null);
   const [businessProfile, setBusinessProfile] = useState<BusinessProfile>({
     name: 'Studio Lensa KL',
@@ -171,7 +231,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     email: '',
     address: '',
   });
-  const [currency, setCurrency] = useState<CurrencyCode>('USD');
+  const [currency, setCurrency] = useState<CurrencyCode>('MYR');
 
   const value = useMemo<AppDataContextValue>(
     () => ({
@@ -181,6 +241,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       invoices,
       financeEntries,
       reminders,
+      notifications,
       invoiceDraft,
       businessProfile,
       updateBusinessProfile: (profile: BusinessProfile) => {
@@ -218,42 +279,95 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         const safeEmail = customer.email.trim();
 
         if (!safeName || !safeEmail) {
-          return;
+          return null;
         }
 
-        setCustomers((current) => [
-          ...current,
-          {
-            ...customer,
-            id: `cust-${Date.now()}`,
-            name: safeName,
-            email: safeEmail,
-          },
-        ]);
-      },
-      addBooking: (booking: Omit<Booking, 'id'>) => {
-        if (!booking.title.trim() || !booking.customerId) {
-          return;
-        }
-
-        const createdBooking = {
-          ...booking,
-          id: `bk-${Date.now()}`,
-          title: booking.title.trim(),
-          notes: booking.notes.trim() || 'Booking created from the app.',
+        const createdCustomer: Customer = {
+          ...customer,
+          id: `cust-${Date.now()}`,
+          name: safeName,
+          email: safeEmail,
         };
 
+        setCustomers((current) => [...current, createdCustomer]);
+        return createdCustomer;
+      },
+      createBooking: (booking: CreateBookingInput) => {
+        const safeTitle = booking.title.trim();
+        const safeNewCustomerName = booking.newCustomer?.name.trim() ?? '';
+        const safeNewCustomerEmail = booking.newCustomer?.email.trim() ?? '';
+        const existingCustomer = customers.find((customer) => customer.id === booking.customerId);
+
+        if (
+          !safeTitle ||
+          Number.isNaN(booking.price) ||
+          booking.price <= 0 ||
+          (!existingCustomer && (!safeNewCustomerName || !safeNewCustomerEmail))
+        ) {
+          return null;
+        }
+
+        const createdAt = Date.now();
+        const resolvedCustomer: Customer = existingCustomer ?? {
+          ...booking.newCustomer!,
+          id: `cust-${createdAt}`,
+          name: safeNewCustomerName,
+          email: safeNewCustomerEmail,
+          phone: booking.newCustomer?.phone.trim() ?? '',
+          location: booking.newCustomer?.location.trim() ?? '',
+          notes: booking.newCustomer?.notes.trim() ?? '',
+        };
+        const createdBooking: Booking = {
+          id: `bk-${createdAt}`,
+          customerId: resolvedCustomer.id,
+          title: safeTitle,
+          date: booking.date,
+          time: booking.startTime?.trim() || booking.time?.trim() || 'Not specified',
+          startTime: booking.startTime?.trim() || booking.time?.trim() || 'Not specified',
+          endTime: booking.endTime?.trim() || 'Not specified',
+          location: booking.location.trim(),
+          packageName: booking.packageName,
+          price: booking.price,
+          status: booking.status,
+          notes: booking.notes.trim() || 'Booking created from the app.',
+        };
+        const invoiceDueDate = new Date(new Date(`${booking.date}T00:00:00`).getTime() + 7 * 24 * 60 * 60 * 1000)
+          .toISOString()
+          .slice(0, 10);
+        const createdInvoice: Invoice = {
+          id: `inv-${createdAt}`,
+          bookingId: createdBooking.id,
+          customerId: resolvedCustomer.id,
+          amount: createdBooking.price,
+          dueDate: invoiceDueDate,
+          status: 'Draft',
+          sentAt: new Date().toISOString().slice(0, 10),
+          serviceName: createdBooking.packageName,
+          packageDetails: packages.find((item) => item.name === createdBooking.packageName)?.details,
+          eventLocation: createdBooking.location,
+          eventDate: createdBooking.date,
+          eventTime: createdBooking.time,
+          eventStartTime: createdBooking.startTime,
+          eventEndTime: createdBooking.endTime,
+          terms: packages.find((item) => item.name === createdBooking.packageName)?.info,
+        };
+
+        if (!existingCustomer) {
+          setCustomers((current) => [...current, resolvedCustomer]);
+        }
         setBookings((current) => [createdBooking, ...current]);
+        setInvoices((current) => [createdInvoice, ...current]);
         setReminders((current) => [
           {
-            id: `rem-${Date.now()}`,
-            title: `${booking.title.trim()} reminder`,
+            id: `rem-${createdAt}`,
+            title: `${safeTitle} reminder`,
             dueDate: booking.date,
             channel: 'email',
             status: 'scheduled',
           },
           ...current,
         ]);
+        return { booking: createdBooking, customer: resolvedCustomer, invoice: createdInvoice };
       },
       addInvoice: (invoice: Omit<Invoice, 'id'>) => {
         if (!invoice.customerId || Number.isNaN(invoice.amount) || invoice.amount <= 0) {
@@ -338,8 +452,16 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           current.map((item) => (item.id === reminderId ? { ...item, status: 'sent' } : item)),
         );
       },
+      markNotificationOpened: (notificationId: string) => {
+        setNotifications((current) =>
+          current.map((item) => (item.id === notificationId ? { ...item, isOpened: true } : item)),
+        );
+      },
+      markAllNotificationsOpened: () => {
+        setNotifications((current) => current.map((item) => ({ ...item, isOpened: true })));
+      },
     }),
-    [bookings, businessProfile, currency, customers, financeEntries, invoiceDraft, invoices, packages, reminders],
+    [bookings, businessProfile, currency, customers, financeEntries, invoiceDraft, invoices, notifications, packages, reminders],
   );
 
   return <AppDataContext.Provider value={value}>{children}</AppDataContext.Provider>;

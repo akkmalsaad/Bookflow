@@ -1,19 +1,33 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { useMemo } from 'react';
-import { FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { PriorityStack } from '@/components/PriorityStack';
 import { StatCard } from '@/components/StatCard';
 import { StatusPill } from '@/components/StatusPill';
 import { getCurrencyFormatter, useAppData } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 
+function getLocalDateKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 export default function HomeScreen() {
+  const router = useRouter();
   const { isDarkMode } = useTheme();
-  const { bookings, customers, invoices, reminders, currency } = useAppData();
+  const { bookings, customers, invoices, reminders, notifications, currency } = useAppData();
   const palette = getThemePalette(isDarkMode);
+  const unreadNotificationCount = notifications.filter((notification) => !notification.isOpened).length;
+  const hasUnreadNotifications = unreadNotificationCount > 0;
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
-  const upcoming = bookings.slice(0, 2);
+  const todayKey = getLocalDateKey(new Date());
+  const todaysBookings = bookings.filter((booking) => booking.date === todayKey);
+  const upcomingBookings = bookings.filter((booking) => booking.date >= todayKey && booking.status !== 'Cancelled');
   const customerMap = new Map(customers.map((customer) => [customer.id, customer]));
   const totalRevenue = bookings.reduce((sum, booking) => sum + booking.price, 0);
   const totalIncome = invoices.filter((invoice) => invoice.status === 'Paid' || invoice.status === 'Accepted').reduce((sum, invoice) => sum + invoice.amount, 0);
@@ -23,12 +37,36 @@ export default function HomeScreen() {
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]}>
       <ScrollView style={styles.screenScroll} contentContainerStyle={styles.content}>
       <View style={styles.topHeader}>
-        <View>
-          <Text style={[styles.eyebrow, { color: palette.accent }]}>Dashboard</Text>
-          <Text style={[styles.title, { color: palette.text }]}>Bookflow overview</Text>
+        <View style={styles.headerLeft}>
+          <View style={[styles.logoWrap, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+            <Image
+              source={require('../../assets/images/bookflow-logo.png')}
+              style={styles.logoImage}
+              resizeMode="contain"
+            />
+          </View>
+          <View>
+            <Text style={[styles.eyebrow, { color: palette.accent }]}>Dashboard</Text>
+            <Text style={[styles.title, { color: palette.text }]}>Bookflow overview</Text>
+          </View>
         </View>
-        <Pressable style={[styles.bellButton, { backgroundColor: palette.surface, shadowColor: isDarkMode ? '#020617' : '#101828' }]} accessibilityLabel="Notifications">
-          <Ionicons name="notifications-outline" size={22} color={palette.text} />
+        <Pressable
+          onPress={() => router.push('/notifications')}
+          style={({ pressed }) => [
+            styles.bellButton,
+            {
+              backgroundColor: palette.surface,
+              shadowColor: isDarkMode ? '#020617' : '#101828',
+              opacity: pressed ? 0.7 : 1,
+            },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel={hasUnreadNotifications ? `Notifications, ${unreadNotificationCount} unread` : 'Notifications'}>
+          <Ionicons
+            name={hasUnreadNotifications ? 'notifications' : 'notifications-outline'}
+            size={22}
+            color={hasUnreadNotifications ? palette.danger : palette.text}
+          />
         </Pressable>
       </View>
 
@@ -38,46 +76,12 @@ export default function HomeScreen() {
           <Text style={[styles.link, { color: palette.accent }]}>View all</Text>
         </View>
 
-        <FlatList
-          data={upcoming}
-          scrollEnabled={false}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => {
-            const customer = customerMap.get(item.customerId);
-            const statusTone =
-              item.status === 'Confirmed' ? 'blue' : item.status === 'Completed' ? 'green' : item.status === 'Inquiry' ? 'amber' : 'red';
-
-            return (
-              <View style={[styles.listCard, { backgroundColor: palette.surfaceAlt, borderColor: palette.border }]}>
-                <View style={styles.listHeader}>
-                  <View>
-                    <Text style={[styles.bookingTitle, { color: palette.text }]}>{item.title}</Text>
-                    <Text style={[styles.bookingCustomer, { color: palette.muter }]}>{customer?.name ?? 'Unknown customer'}</Text>
-                  </View>
-                  <StatusPill label={item.status} tone={statusTone} />
-                </View>
-
-                <View style={styles.metaRow}>
-                  <Ionicons name="calendar-outline" size={16} color={palette.muter} />
-                  <Text style={[styles.metaValue, { color: palette.text }]}>{item.date}</Text>
-                </View>
-                <View style={styles.metaRow}>
-                  <Ionicons name="location-outline" size={16} color={palette.muter} />
-                  <Text style={[styles.metaValue, { color: palette.text }]}>{item.location}</Text>
-                </View>
-                <View style={styles.metaRow}>
-                  <Ionicons name="cash-outline" size={16} color={palette.muter} />
-                  <Text style={[styles.metaValue, styles.currencyMetaValue, { color: palette.text }]}>{currencyFormatter.format(item.price)}</Text>
-                </View>
-              </View>
-            );
-          }}
-        />
+        <PriorityStack bookings={todaysBookings} customerMap={customerMap} currencyFormatter={currencyFormatter} palette={palette} />
       </View>
 
       <View style={styles.statsGrid}>
         <StatCard label="Revenue" value={currencyFormatter.format(totalRevenue)} detail="This month" tone="blue" isCurrency />
-        <StatCard label="Upcoming" value={String(upcoming.length)} detail="Bookings this week" tone="green" />
+        <StatCard label="Upcoming" value={String(upcomingBookings.length)} detail="Bookings from today" tone="green" />
         <StatCard label="Income" value={currencyFormatter.format(totalIncome)} detail="Collected" tone="amber" isCurrency />
         <StatCard label="Expense" value={currencyFormatter.format(totalExpense)} detail="Outstanding" tone="purple" isCurrency />
       </View>
@@ -147,6 +151,24 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 16,
   },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  logoWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    marginRight: 12,
+    borderWidth: 1,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoImage: {
+    width: 34,
+    height: 34,
+  },
   eyebrow: {
     fontSize: 12,
     fontWeight: '700',
@@ -199,40 +221,6 @@ const styles = StyleSheet.create({
   link: {
     fontWeight: '700',
     fontSize: 12,
-  },
-  listCard: {
-    borderRadius: 16,
-    backgroundColor: '#F9FAFB',
-    borderWidth: 1,
-    padding: 14,
-    marginBottom: 12,
-  },
-  listHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 10,
-  },
-  bookingTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    marginBottom: 4,
-  },
-  bookingCustomer: {
-    fontSize: 12,
-  },
-  metaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  metaValue: {
-    marginLeft: 8,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  currencyMetaValue: {
-    fontSize: 11,
   },
   reminderRow: {
     flexDirection: 'row',

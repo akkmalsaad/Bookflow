@@ -1,5 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Animated, FlatList, Linking, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import * as Linking from 'expo-linking';
+import { useRouter } from 'expo-router';
+import { Alert, Animated, FlatList, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -8,6 +10,7 @@ import { getCurrencyFormatter, useAppData } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 
 export default function InvoicesScreen() {
+  const router = useRouter();
   const { isDarkMode } = useTheme();
   const { customers, invoices, packages, addCustomer, addInvoice, invoiceDraft, setInvoiceDraft, updateInvoiceStatus, currency } = useAppData();
   const palette = getThemePalette(isDarkMode);
@@ -54,9 +57,43 @@ export default function InvoicesScreen() {
     setDraftAmount(String(chosenPackage?.price ?? 0));
   };
 
-  const handleShareInvoice = (invoiceId: string) => {
-    const publicUrl = `https://bookflow.app/invoice/${invoiceId}?accept=true`;
-    Linking.openURL(publicUrl);
+  const handleShareInvoice = async (invoice: (typeof invoices)[number]) => {
+    const customer = customerMap.get(invoice.customerId);
+    const rawPhone = customer?.phone.trim() ?? '';
+    const phoneNumber = rawPhone.replace(/\D/g, '');
+
+    if (!customer || !phoneNumber || phoneNumber.startsWith('0')) {
+      Alert.alert(
+        'WhatsApp number required',
+        'Add the customer phone number with its country code, for example +60 12-345 6789.',
+      );
+      return;
+    }
+
+    const invoiceUrl = Linking.createURL(`invoice/${invoice.id}`, {
+      queryParams: { accept: 'true' },
+    });
+    const message = [
+      `Hi ${customer.name},`,
+      '',
+      `Here is invoice ${invoice.id} for ${currencyFormatter.format(invoice.amount)}.`,
+      `Due date: ${invoice.dueDate}`,
+      '',
+      `Open this link to review and accept your invoice: ${invoiceUrl}`,
+    ].join('\n');
+    const encodedMessage = encodeURIComponent(message);
+    const whatsappAppUrl = `whatsapp://send?phone=${phoneNumber}&text=${encodedMessage}`;
+    const whatsappWebUrl = `https://wa.me/${phoneNumber}?text=${encodedMessage}`;
+
+    try {
+      await Linking.openURL(Platform.OS === 'web' ? whatsappWebUrl : whatsappAppUrl);
+    } catch {
+      try {
+        await Linking.openURL(whatsappWebUrl);
+      } catch {
+        Alert.alert('Unable to open WhatsApp', 'Install WhatsApp or WhatsApp Business, then try again.');
+      }
+    }
   };
 
   const handleCreateInvoice = () => {
@@ -80,9 +117,8 @@ export default function InvoicesScreen() {
         notes: 'Created from invoice form',
       };
 
-      addCustomer(createdCustomer);
-      const latestCustomer = customers[customers.length - 1];
-      resolvedCustomerId = latestCustomer?.id ?? selectedCustomerId;
+      const savedCustomer = addCustomer(createdCustomer);
+      resolvedCustomerId = savedCustomer?.id ?? '';
     }
 
     if (!resolvedCustomerId || Number.isNaN(amount) || amount <= 0) {
@@ -97,6 +133,7 @@ export default function InvoicesScreen() {
       status: 'Draft',
       sentAt: new Date().toISOString().slice(0, 10),
       serviceName: selectedPackage?.name ?? invoiceDraft?.serviceName,
+      packageDetails: selectedPackage?.details,
       terms: selectedPackage?.info ?? invoiceDraft?.terms,
     });
 
@@ -145,33 +182,46 @@ export default function InvoicesScreen() {
 
           return (
             <View style={[styles.card, { backgroundColor: palette.surface, borderColor: palette.border }]}>
-              <View style={styles.cardHeader}>
-                <View>
-                  <Text style={[styles.cardTitle, { color: palette.text }]}>{item.id}</Text>
-                  <Text style={[styles.customer, { color: palette.muter }]}>{customer?.name ?? 'Unknown customer'}</Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Open invoice ${item.id}`}
+                onPress={() => router.push({ pathname: '/invoice/[invoiceId]', params: { invoiceId: item.id } })}
+                style={({ pressed }) => pressed && styles.cardPressed}>
+                <View style={styles.cardHeader}>
+                  <View>
+                    <Text style={[styles.cardTitle, { color: palette.text }]}>{item.id}</Text>
+                    <Text style={[styles.customer, { color: palette.muter }]}>{customer?.name ?? 'Unknown customer'}</Text>
+                  </View>
+                  <StatusPill label={item.status} tone={tone} />
                 </View>
-                <StatusPill label={item.status} tone={tone} />
-              </View>
-              <View style={styles.metaRow}>
-                <Text style={[styles.metaLabel, { color: palette.muter }]}>Due date</Text>
-                <Text style={[styles.metaValue, { color: palette.text }]}>{item.dueDate}</Text>
-              </View>
-              <View style={styles.metaRow}>
-                <Text style={[styles.metaLabel, { color: palette.muter }]}>Sent</Text>
-                <Text style={[styles.metaValue, { color: palette.text }]}>{item.sentAt}</Text>
-              </View>
-              <Text style={[styles.amount, { color: palette.text }]}>{currencyFormatter.format(item.amount)}</Text>
+                <View style={styles.metaRow}>
+                  <Text style={[styles.metaLabel, { color: palette.muter }]}>Due date</Text>
+                  <Text style={[styles.metaValue, { color: palette.text }]}>{item.dueDate}</Text>
+                </View>
+                <View style={styles.metaRow}>
+                  <Text style={[styles.metaLabel, { color: palette.muter }]}>Sent</Text>
+                  <Text style={[styles.metaValue, { color: palette.text }]}>{item.sentAt}</Text>
+                </View>
+                <Text style={[styles.amount, { color: palette.text }]}>{currencyFormatter.format(item.amount)}</Text>
+              </Pressable>
 
-              <View style={styles.actionRow}>
-                <Pressable style={styles.linkButton} onPress={() => handleShareInvoice(item.id)}>
-                  <Text style={styles.linkButtonText}>Send link</Text>
-                </Pressable>
-                {item.status !== 'Accepted' && item.status !== 'Paid' && (
-                  <Pressable style={styles.acceptButton} onPress={() => updateInvoiceStatus(item.id, 'Accepted')}>
-                    <Text style={styles.acceptButtonText}>Accept</Text>
+              {item.status !== 'Paid' && (
+                <View style={styles.actionRow}>
+                  <Pressable style={styles.linkButton} onPress={() => handleShareInvoice(item)}>
+                    <Ionicons name="logo-whatsapp" size={17} color="#fff" />
+                    <Text style={styles.linkButtonText}>Send invoice</Text>
                   </Pressable>
-                )}
-              </View>
+                  {item.status === 'Accepted' ? (
+                    <Pressable style={styles.paymentButton} onPress={() => updateInvoiceStatus(item.id, 'Paid')}>
+                      <Text style={styles.paymentButtonText}>Payment done</Text>
+                    </Pressable>
+                  ) : (
+                    <Pressable style={styles.acceptButton} onPress={() => updateInvoiceStatus(item.id, 'Accepted')}>
+                      <Text style={styles.acceptButtonText}>Accept</Text>
+                    </Pressable>
+                  )}
+                </View>
+              )}
             </View>
           );
         }}
@@ -375,6 +425,9 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     elevation: 2,
   },
+  cardPressed: {
+    opacity: 0.7,
+  },
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -419,14 +472,17 @@ const styles = StyleSheet.create({
   },
   linkButton: {
     flex: 1,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     paddingVertical: 10,
     borderRadius: 10,
-    backgroundColor: '#EEF2FF',
+    backgroundColor: '#128C7E',
   },
   linkButtonText: {
-    color: '#312E81',
+    color: '#fff',
     fontWeight: '700',
+    marginLeft: 7,
   },
   acceptButton: {
     flex: 1,
@@ -436,6 +492,17 @@ const styles = StyleSheet.create({
     backgroundColor: '#111827',
   },
   acceptButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+  },
+  paymentButton: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: '#117A4C',
+  },
+  paymentButtonText: {
     color: '#fff',
     fontWeight: '700',
   },
