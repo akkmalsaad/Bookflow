@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, Modal, Share, Platform, KeyboardAvoidingView } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, Modal, Share, Platform, KeyboardAvoidingView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { CURRENCY_OPTIONS, getCurrencyFormatter, useAppData } from '@/context/app-data-context';
@@ -30,6 +30,11 @@ export default function SettingsScreen() {
 
   const palette = getThemePalette(isDarkMode);
   const appVersion = Constants.expoConfig?.version ?? 'Unknown';
+  const softSurface = isDarkMode ? '#172033' : '#F7F9FD';
+  const softInset = isDarkMode ? '#111A2B' : '#EEF2F8';
+  const softBorder = isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.9)';
+  const softShadow = isDarkMode ? '#020617' : '#A7B4C8';
+  const accentSoft = isDarkMode ? '#29284B' : '#E9E8FF';
 
   const openProfileEditor = () => {
     setProfileName(businessProfile.name);
@@ -132,15 +137,24 @@ export default function SettingsScreen() {
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]}>
+      <View pointerEvents="none" style={[styles.ambientOrb, styles.ambientOrbTop, { backgroundColor: isDarkMode ? '#293258' : '#E4E6FF' }]} />
+      <View pointerEvents="none" style={[styles.ambientOrb, styles.ambientOrbSide, { backgroundColor: isDarkMode ? '#163B38' : '#DFF7EF' }]} />
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}>
-        <Text style={[styles.eyebrow, { color: palette.accent }]}>Settings</Text>
-        <Text style={[styles.title, { color: palette.text }]}>Business setup</Text>
+        <View style={styles.headerRow}>
+          <View style={[styles.headerIcon, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
+            <Ionicons name="settings-outline" size={23} color={palette.accent} />
+          </View>
+          <View>
+            <Text style={[styles.eyebrow, { color: palette.accent }]}>Settings</Text>
+            <Text style={[styles.title, { color: palette.text }]}>Business setup</Text>
+          </View>
+        </View>
 
-        <View style={[styles.card, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+        <View style={[styles.card, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
           <View style={styles.summaryRow}>
-            <View style={[styles.iconWrap, { backgroundColor: palette.iconWrap }]}>
+            <View style={[styles.iconWrap, { backgroundColor: accentSoft }]}>
               <Ionicons name="business-outline" size={22} color={palette.accent} />
             </View>
             <View style={styles.summaryCopy}>
@@ -150,7 +164,7 @@ export default function SettingsScreen() {
             </View>
             <Pressable
               onPress={openProfileEditor}
-              style={[styles.editButton, { backgroundColor: palette.iconWrap }]}
+              style={[styles.editButton, { backgroundColor: softInset }]}
               accessibilityLabel="Edit business profile">
               <Ionicons name="pencil" size={15} color={palette.accent} />
               <Text style={[styles.editButtonText, { color: palette.accent }]}>Edit</Text>
@@ -158,9 +172,9 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        <View style={[styles.card, styles.themeCard, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+        <View style={[styles.card, styles.themeCard, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
           <View style={styles.themeRow}>
-            <View style={[styles.iconWrap, styles.themeIconWrap, { backgroundColor: palette.iconWrap }]}>
+            <View style={[styles.iconWrap, styles.themeIconWrap, { backgroundColor: accentSoft }]}>
               <Ionicons name={isDarkMode ? 'moon' : 'sunny'} size={22} color={palette.accent} />
             </View>
             <View style={styles.themeCopy}>
@@ -174,8 +188,8 @@ export default function SettingsScreen() {
               style={[
                 styles.switchWrap,
                 {
-                  backgroundColor: isDarkMode ? palette.iconWrap : palette.surfaceAlt,
-                  borderColor: isDarkMode ? palette.accent : palette.border,
+                  backgroundColor: isDarkMode ? accentSoft : softInset,
+                  borderColor: isDarkMode ? palette.accent : softBorder,
                 },
               ]}>
               <Switch
@@ -192,9 +206,9 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        <View style={[styles.card, { backgroundColor: palette.surface, borderColor: palette.border, marginTop: 18 }]}>
+        <View style={[styles.card, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow, marginTop: 18 }]}>
           <View style={styles.summaryRow}>
-            <View style={[styles.iconWrap, { backgroundColor: palette.iconWrap }]}>
+            <View style={[styles.iconWrap, { backgroundColor: accentSoft }]}>
               <Ionicons name="cube-outline" size={22} color={palette.accent} />
             </View>
             <View style={styles.summaryCopy}>
@@ -206,7 +220,7 @@ export default function SettingsScreen() {
             </View>
             <Pressable
               onPress={() => setShowServicesManager(true)}
-              style={[styles.editButton, { backgroundColor: palette.iconWrap }]}
+              style={[styles.editButton, { backgroundColor: softInset }]}
               accessibilityLabel="Edit event packages">
               <Ionicons name="pencil" size={15} color={palette.accent} />
               <Text style={[styles.editButtonText, { color: palette.accent }]}>Edit</Text>
@@ -214,21 +228,27 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        <View style={[styles.card, { backgroundColor: palette.surface, borderColor: palette.border, marginTop: 18 }]}> 
-          <View style={styles.sectionHeader}>
-            <Text style={[styles.sectionTitle, { color: palette.text }]}>Data</Text>
+        <View style={[styles.card, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow, marginTop: 18 }]}>
+          <View style={styles.dataHeader}>
+            <View style={[styles.iconWrap, { backgroundColor: accentSoft }]}>
+              <Ionicons name="download-outline" size={22} color={palette.accent} />
+            </View>
+            <View style={styles.dataHeaderCopy}>
+              <Text style={[styles.label, { color: palette.muter }]}>Data</Text>
+              <Text style={[styles.sectionTitle, { color: palette.text }]}>Export records</Text>
+            </View>
           </View>
-          <View style={{ marginBottom: 8 }}>
+          <View style={styles.dataCopy}>
             <Text style={[styles.label, { color: palette.muter }]}>Extract / Export</Text>
             <Text style={[styles.value, { color: palette.text }]}>Export a tax-ready summary (HTML) which you can print/save as PDF</Text>
           </View>
-          <Pressable style={[styles.addButton, { backgroundColor: palette.accent }]} onPress={exportDataAsPdf}>
+          <Pressable style={[styles.addButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]} onPress={exportDataAsPdf}>
             <Text style={styles.addButtonText}>Export as PDF</Text>
           </Pressable>
         </View>
 
         <View style={styles.versionFooter}>
-          <Ionicons name="information-circle-outline" size={15} color={palette.muter} />
+          <Image source={require('../../assets/images/bookflow-logo.png')} style={styles.versionLogo} resizeMode="contain" />
           <Text style={[styles.versionText, { color: palette.muter }]}>Bookflow version {appVersion}</Text>
         </View>
 
@@ -237,11 +257,14 @@ export default function SettingsScreen() {
         <Modal visible={showProfileEditor} transparent animationType="slide" onRequestClose={() => setShowProfileEditor(false)}>
           <View style={styles.modalBackdrop}>
             <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ width: '100%' }} keyboardVerticalOffset={80}>
-              <SafeAreaView edges={["top","left","right","bottom"]} style={[styles.modalCard, { backgroundColor: palette.surface, borderColor: palette.border }]}> 
+              <SafeAreaView edges={["top","left","right","bottom"]} style={[styles.modalCard, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
                 <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 12 }}>
                   <View style={styles.modalHeader}>
-                    <Text style={[styles.modalTitle, { color: palette.text }]}>Edit business profile</Text>
-                    <Pressable onPress={() => setShowProfileEditor(false)}>
+                    <View>
+                      <Text style={[styles.modalEyebrow, { color: palette.accent }]}>Business</Text>
+                      <Text style={[styles.modalTitle, { color: palette.text }]}>Edit business profile</Text>
+                    </View>
+                    <Pressable onPress={() => setShowProfileEditor(false)} style={[styles.closeButton, { backgroundColor: softInset }]}>
                       <Ionicons name="close" size={22} color={palette.text} />
                     </Pressable>
                   </View>
@@ -250,7 +273,7 @@ export default function SettingsScreen() {
                   <TextInput
                     value={profileName}
                     onChangeText={setProfileName}
-                    style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
+                    style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
                     placeholder="Studio Lensa KL"
                     placeholderTextColor={palette.muter}
                     returnKeyType="next"
@@ -261,7 +284,7 @@ export default function SettingsScreen() {
                   <TextInput
                     value={profileNature}
                     onChangeText={setProfileNature}
-                    style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
+                    style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
                     placeholder="Photographer"
                     placeholderTextColor={palette.muter}
                     returnKeyType="next"
@@ -272,7 +295,7 @@ export default function SettingsScreen() {
                   <TextInput
                     value={profilePhone}
                     onChangeText={setProfilePhone}
-                    style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
+                    style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
                     keyboardType="phone-pad"
                     placeholder="+60 12-345 6789"
                     placeholderTextColor={palette.muter}
@@ -284,7 +307,7 @@ export default function SettingsScreen() {
                   <TextInput
                     value={profileEmail}
                     onChangeText={setProfileEmail}
-                    style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
+                    style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
                     keyboardType="email-address"
                     autoCapitalize="none"
                     placeholder="hello@studiolensakl.com"
@@ -297,7 +320,7 @@ export default function SettingsScreen() {
                   <TextInput
                     value={profileAddress}
                     onChangeText={setProfileAddress}
-                    style={[styles.input, styles.multilineInput, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
+                    style={[styles.input, styles.multilineInput, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
                     placeholder="Business address"
                     placeholderTextColor={palette.muter}
                     multiline
@@ -315,8 +338,8 @@ export default function SettingsScreen() {
                           style={[
                             styles.currencyOption,
                             {
-                              backgroundColor: isSelected ? palette.accent : palette.surfaceAlt,
-                              borderColor: isSelected ? palette.accent : palette.border,
+                              backgroundColor: isSelected ? palette.accent : softInset,
+                              borderColor: isSelected ? palette.accent : softBorder,
                             },
                           ]}>
                           <Text style={[styles.currencyOptionLabel, { color: isSelected ? '#fff' : palette.text }]}>
@@ -330,7 +353,7 @@ export default function SettingsScreen() {
                     })}
                   </View>
 
-                  <Pressable style={styles.submitButton} onPress={handleSaveProfile}>
+                  <Pressable style={[styles.submitButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]} onPress={handleSaveProfile}>
                     <Text style={styles.submitButtonText}>Save changes</Text>
                   </Pressable>
                 </ScrollView>
@@ -342,10 +365,13 @@ export default function SettingsScreen() {
         <Modal visible={showServicesManager} transparent animationType="slide" onRequestClose={closeServicesManager}>
           <View style={styles.modalBackdrop}>
             <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboardAvoider} keyboardVerticalOffset={48}>
-              <SafeAreaView edges={["top", "left", "right", "bottom"]} style={[styles.modalCard, styles.servicesModalCard, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+              <SafeAreaView edges={["top", "left", "right", "bottom"]} style={[styles.modalCard, styles.servicesModalCard, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
                 <View style={styles.modalHeader}>
-                  <Text style={[styles.modalTitle, { color: palette.text }]}>{showServiceForm ? 'New service' : 'Event packages'}</Text>
-                  <Pressable onPress={closeServicesManager} style={styles.closeButton} accessibilityLabel="Close services editor">
+                  <View>
+                    <Text style={[styles.modalEyebrow, { color: palette.accent }]}>Services</Text>
+                    <Text style={[styles.modalTitle, { color: palette.text }]}>{showServiceForm ? 'New service' : 'Event packages'}</Text>
+                  </View>
+                  <Pressable onPress={closeServicesManager} style={[styles.closeButton, { backgroundColor: softInset }]} accessibilityLabel="Close services editor">
                     <Ionicons name="close" size={22} color={palette.text} />
                   </Pressable>
                 </View>
@@ -357,7 +383,7 @@ export default function SettingsScreen() {
                       <TextInput
                         value={serviceName}
                         onChangeText={setServiceName}
-                        style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
+                        style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
                         placeholder="Wedding photography"
                         placeholderTextColor={palette.muter}
                       />
@@ -366,7 +392,7 @@ export default function SettingsScreen() {
                       <TextInput
                         value={serviceDetails}
                         onChangeText={setServiceDetails}
-                        style={[styles.input, styles.multilineInput, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
+                        style={[styles.input, styles.multilineInput, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
                         placeholder="Describe what is included"
                         placeholderTextColor={palette.muter}
                         multiline
@@ -377,7 +403,7 @@ export default function SettingsScreen() {
                       <TextInput
                         value={serviceTime}
                         onChangeText={setServiceTime}
-                        style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
+                        style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
                         placeholder="e.g. 4 hours"
                         placeholderTextColor={palette.muter}
                       />
@@ -386,7 +412,7 @@ export default function SettingsScreen() {
                       <TextInput
                         value={servicePrice}
                         onChangeText={setServicePrice}
-                        style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
+                        style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
                         placeholder="1200"
                         placeholderTextColor={palette.muter}
                         keyboardType="numeric"
@@ -396,7 +422,7 @@ export default function SettingsScreen() {
                       <TextInput
                         value={serviceInfo}
                         onChangeText={setServiceInfo}
-                        style={[styles.input, styles.termsInput, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
+                        style={[styles.input, styles.termsInput, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
                         placeholder="Add payment, cancellation, delivery, or other customer-facing terms"
                         placeholderTextColor={palette.muter}
                         multiline
@@ -406,14 +432,14 @@ export default function SettingsScreen() {
 
                       <View style={styles.formActions}>
                         <Pressable
-                          style={[styles.secondaryButton, { backgroundColor: palette.surfaceAlt, borderColor: palette.border }]}
+                          style={[styles.secondaryButton, { backgroundColor: softInset, borderColor: softBorder }]}
                           onPress={() => {
                             resetServiceForm();
                             setShowServiceForm(false);
                           }}>
                           <Text style={[styles.secondaryButtonText, { color: palette.text }]}>Cancel</Text>
                         </Pressable>
-                        <Pressable style={[styles.saveServiceButton, { backgroundColor: palette.accent }]} onPress={handleAddService}>
+                        <Pressable style={[styles.saveServiceButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]} onPress={handleAddService}>
                           <Text style={styles.submitButtonText}>Save service</Text>
                         </Pressable>
                       </View>
@@ -421,7 +447,7 @@ export default function SettingsScreen() {
                   ) : (
                     <>
                       <Pressable
-                        style={[styles.addServiceButton, { backgroundColor: palette.accent }]}
+                        style={[styles.addServiceButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]}
                         onPress={() => {
                           resetServiceForm();
                           setShowServiceForm(true);
@@ -432,7 +458,7 @@ export default function SettingsScreen() {
 
                       <View style={styles.packageList}>
                         {packages.length > 0 ? packages.map((item) => (
-                          <View key={item.id} style={[styles.packageItem, { backgroundColor: palette.surfaceAlt, borderColor: palette.border }]}>
+                          <View key={item.id} style={[styles.packageItem, { backgroundColor: softInset, borderColor: softBorder }]}>
                             <View style={styles.serviceItemHeader}>
                               <View style={styles.packageInfo}>
                                 <Text style={[styles.packageName, { color: palette.text }]}>{item.name}</Text>
@@ -440,7 +466,7 @@ export default function SettingsScreen() {
                               </View>
                               <Pressable
                                 onPress={() => removePackage(item.id)}
-                                style={[styles.removeButton, { backgroundColor: palette.iconWrap }]}
+                                style={[styles.removeButton, { backgroundColor: softSurface }]}
                                 accessibilityLabel={`Delete ${item.name}`}>
                                 <Ionicons name="trash-outline" size={17} color="#E11D48" />
                               </Pressable>
@@ -451,14 +477,14 @@ export default function SettingsScreen() {
                               <Text style={[styles.serviceMetaText, { color: palette.muter }]}>{item.duration}</Text>
                             </View>
                             {item.info ? (
-                              <View style={[styles.termsPreview, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+                              <View style={[styles.termsPreview, { backgroundColor: softSurface, borderColor: softBorder }]}>
                                 <Text style={[styles.termsLabel, { color: palette.muter }]}>Invoice info</Text>
                                 <Text style={[styles.termsText, { color: palette.text }]}>{item.info}</Text>
                               </View>
                             ) : null}
                           </View>
                         )) : (
-                          <View style={[styles.emptyServices, { backgroundColor: palette.surfaceAlt, borderColor: palette.border }]}>
+                          <View style={[styles.emptyServices, { backgroundColor: softInset, borderColor: softBorder }]}>
                             <Ionicons name="cube-outline" size={24} color={palette.muter} />
                             <Text style={[styles.emptyServicesText, { color: palette.muter }]}>No services yet</Text>
                           </View>
@@ -478,33 +504,68 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
+    overflow: 'hidden',
+  },
+  ambientOrb: {
+    position: 'absolute',
+    borderRadius: 999,
+    opacity: 0.72,
+  },
+  ambientOrbTop: {
+    width: 220,
+    height: 220,
+    top: -118,
+    right: -86,
+  },
+  ambientOrbSide: {
+    width: 170,
+    height: 170,
+    top: 430,
+    left: -126,
   },
   scrollContent: {
     paddingHorizontal: 20,
-    paddingTop: 12,
+    paddingTop: 14,
     paddingBottom: 120,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  headerIcon: {
+    width: 54,
+    height: 54,
+    borderRadius: 18,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    shadowOffset: { width: 6, height: 7 },
+    elevation: 5,
   },
   eyebrow: {
     textTransform: 'uppercase',
     fontSize: 12,
     fontWeight: '700',
     letterSpacing: 1,
-    marginBottom: 6,
+    marginBottom: 5,
   },
   title: {
-    fontSize: 28,
+    fontSize: 19,
     fontWeight: '800',
-    marginBottom: 18,
+    letterSpacing: -0.45,
   },
   card: {
-    borderRadius: 18,
-    padding: 18,
+    borderRadius: 26,
+    padding: 20,
     borderWidth: 1,
-    shadowColor: '#101828',
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 2,
+    shadowOpacity: 0.16,
+    shadowRadius: 18,
+    shadowOffset: { width: 8, height: 10 },
+    elevation: 5,
   },
   summaryRow: {
     flexDirection: 'row',
@@ -512,14 +573,16 @@ const styles = StyleSheet.create({
   },
   summaryCopy: {
     flex: 1,
+    minWidth: 0,
     paddingRight: 10,
   },
   summaryTitle: {
     fontSize: 17,
     fontWeight: '800',
+    letterSpacing: -0.2,
   },
   summarySubtitle: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
     marginTop: 3,
   },
@@ -527,54 +590,62 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    borderRadius: 13,
+    paddingHorizontal: 11,
+    paddingVertical: 9,
   },
   editButtonText: {
     fontSize: 12,
     fontWeight: '800',
   },
   iconWrap: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
+    width: 44,
+    height: 44,
+    borderRadius: 15,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 14,
   },
   label: {
-    fontSize: 12,
-    fontWeight: '700',
+    fontSize: 10,
+    fontWeight: '800',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
     marginBottom: 4,
   },
   value: {
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '600',
   },
-  sectionHeader: {
-    marginBottom: 12,
+  dataHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  dataHeaderCopy: {
+    flex: 1,
+  },
+  dataCopy: {
+    marginBottom: 14,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '800',
   },
   input: {
     borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     fontSize: 14,
     fontWeight: '600',
-    flex: 1,
   },
   multilineInput: {
-    minHeight: 76,
+    minHeight: 84,
   },
   termsInput: {
-    minHeight: 104,
+    minHeight: 112,
   },
   helperText: {
     fontSize: 12,
@@ -582,11 +653,14 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   addButton: {
-    borderRadius: 12,
-    paddingVertical: 12,
+    borderRadius: 17,
+    paddingVertical: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 14,
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+    shadowOffset: { width: 4, height: 6 },
+    elevation: 4,
   },
   addButtonText: {
     color: '#fff',
@@ -601,9 +675,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 16,
     paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingVertical: 13,
   },
   currencyOptionLabel: {
     fontSize: 14,
@@ -614,20 +688,19 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   packageList: {
-    gap: 8,
+    gap: 10,
   },
   packageItem: {
     borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
+    borderRadius: 18,
+    padding: 14,
   },
   packageInfo: {
     flex: 1,
   },
   packageName: {
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   packagePrice: {
     fontSize: 12,
@@ -655,8 +728,8 @@ const styles = StyleSheet.create({
   },
   termsPreview: {
     borderWidth: 1,
-    borderRadius: 10,
-    padding: 10,
+    borderRadius: 14,
+    padding: 11,
     marginTop: 10,
   },
   termsLabel: {
@@ -671,12 +744,11 @@ const styles = StyleSheet.create({
     lineHeight: 17,
   },
   removeButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
+    width: 36,
+    height: 36,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F3F4F6',
   },
   themeRow: {
     flexDirection: 'row',
@@ -690,6 +762,7 @@ const styles = StyleSheet.create({
   },
   themeCopy: {
     flex: 1,
+    minWidth: 0,
     paddingRight: 12,
   },
   themeDescription: {
@@ -714,15 +787,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    marginTop: 24,
+    marginTop: 26,
   },
   versionText: {
     fontSize: 12,
     fontWeight: '600',
   },
+  versionLogo: {
+    width: 20,
+    height: 20,
+  },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    backgroundColor: 'rgba(15, 23, 42, 0.58)',
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 20,
@@ -731,31 +808,46 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 720,
     maxHeight: '90%',
-    borderRadius: 14,
-    padding: 16,
+    borderRadius: 28,
+    padding: 20,
     borderWidth: 1,
+    shadowOpacity: 0.32,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 14,
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 14,
   },
   closeButton: {
-    width: 36,
-    height: 36,
+    width: 40,
+    height: 40,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
   modalTitle: {
-    fontSize: 16,
+    fontSize: 20,
+    fontWeight: '900',
+    letterSpacing: -0.35,
+  },
+  modalEyebrow: {
+    fontSize: 10,
     fontWeight: '800',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    marginBottom: 3,
   },
   fieldLabel: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
-    marginTop: 8,
-    marginBottom: 6,
+    marginTop: 12,
+    marginBottom: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 0.65,
   },
   keyboardAvoider: {
     width: '100%',
@@ -772,15 +864,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 7,
-    borderRadius: 12,
-    paddingVertical: 12,
+    borderRadius: 17,
+    paddingVertical: 14,
     marginBottom: 14,
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+    shadowOffset: { width: 4, height: 6 },
+    elevation: 4,
   },
   emptyServices: {
     alignItems: 'center',
     borderWidth: 1,
-    borderRadius: 12,
-    paddingVertical: 28,
+    borderRadius: 18,
+    paddingVertical: 30,
   },
   emptyServicesText: {
     fontSize: 13,
@@ -790,30 +886,37 @@ const styles = StyleSheet.create({
   formActions: {
     flexDirection: 'row',
     gap: 10,
-    marginTop: 16,
+    marginTop: 18,
   },
   secondaryButton: {
     flex: 1,
     borderWidth: 1,
-    borderRadius: 10,
+    borderRadius: 16,
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: 13,
   },
   secondaryButtonText: {
     fontWeight: '800',
   },
   saveServiceButton: {
     flex: 1,
-    borderRadius: 10,
+    borderRadius: 16,
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: 13,
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+    shadowOffset: { width: 4, height: 6 },
+    elevation: 4,
   },
   submitButton: {
-    marginTop: 14,
-    backgroundColor: '#111827',
-    paddingVertical: 12,
-    borderRadius: 10,
+    marginTop: 18,
+    paddingVertical: 14,
+    borderRadius: 17,
     alignItems: 'center',
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+    shadowOffset: { width: 4, height: 6 },
+    elevation: 4,
   },
   submitButtonText: {
     color: '#fff',

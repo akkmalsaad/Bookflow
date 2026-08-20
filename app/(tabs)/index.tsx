@@ -17,10 +17,14 @@ function getLocalDateKey(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
+function formatShortDate(dateKey: string) {
+  return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' }).format(new Date(`${dateKey}T00:00:00`));
+}
+
 export default function HomeScreen() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
-  const { bookings, customers, invoices, reminders, notifications, currency } = useAppData();
+  const { bookings, customers, invoices, reminders, notifications, currency, businessProfile } = useAppData();
   const palette = getThemePalette(isDarkMode);
   const unreadNotificationCount = notifications.filter((notification) => !notification.isOpened).length;
   const hasUnreadNotifications = unreadNotificationCount > 0;
@@ -28,26 +32,47 @@ export default function HomeScreen() {
   const todayKey = getLocalDateKey(new Date());
   const todaysBookings = bookings.filter((booking) => booking.date === todayKey);
   const upcomingBookings = bookings.filter((booking) => booking.date >= todayKey && booking.status !== 'Cancelled');
+  const nextBookingDate = upcomingBookings.reduce<string | null>(
+    (soonest, booking) => (soonest === null || booking.date < soonest ? booking.date : soonest),
+    null,
+  );
+  const upcomingDetail = nextBookingDate ? `Next: ${formatShortDate(nextBookingDate)}` : 'No bookings scheduled';
   const customerMap = new Map(customers.map((customer) => [customer.id, customer]));
   const totalRevenue = bookings.reduce((sum, booking) => sum + booking.price, 0);
   const totalIncome = invoices.filter((invoice) => invoice.status === 'Paid' || invoice.status === 'Accepted').reduce((sum, invoice) => sum + invoice.amount, 0);
   const totalExpense = invoices.filter((invoice) => invoice.status === 'Overdue' || invoice.status === 'Declined').reduce((sum, invoice) => sum + invoice.amount, 0);
+  const softSurface = isDarkMode ? '#172033' : '#F7F9FD';
+  const softInset = isDarkMode ? '#111A2B' : '#EEF2F8';
+  const softBorder = isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.9)';
+  const softShadow = isDarkMode ? '#020617' : '#A7B4C8';
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]}>
+      <View pointerEvents="none" style={[styles.ambientOrb, styles.ambientOrbTop, { backgroundColor: isDarkMode ? '#293258' : '#E4E6FF' }]} />
+      <View pointerEvents="none" style={[styles.ambientOrb, styles.ambientOrbSide, { backgroundColor: isDarkMode ? '#163B38' : '#DFF7EF' }]} />
       <ScrollView style={styles.screenScroll} contentContainerStyle={styles.content}>
       <View style={styles.topHeader}>
         <View style={styles.headerLeft}>
-          <View style={[styles.logoWrap, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+          <View
+            style={[
+              styles.logoWrap,
+              {
+                backgroundColor: softSurface,
+                borderColor: softBorder,
+                shadowColor: softShadow,
+              },
+            ]}>
             <Image
               source={require('../../assets/images/bookflow-logo.png')}
               style={styles.logoImage}
               resizeMode="contain"
             />
           </View>
-          <View>
+          <View style={styles.headerCopy}>
             <Text style={[styles.eyebrow, { color: palette.accent }]}>Dashboard</Text>
-            <Text style={[styles.title, { color: palette.text }]}>Bookflow overview</Text>
+            <Text style={[styles.title, { color: palette.text }]} numberOfLines={1}>
+              Welcome {businessProfile.name}
+            </Text>
           </View>
         </View>
         <Pressable
@@ -55,8 +80,9 @@ export default function HomeScreen() {
           style={({ pressed }) => [
             styles.bellButton,
             {
-              backgroundColor: palette.surface,
-              shadowColor: isDarkMode ? '#020617' : '#101828',
+              backgroundColor: softSurface,
+              borderColor: softBorder,
+              shadowColor: softShadow,
               opacity: pressed ? 0.7 : 1,
             },
           ]}
@@ -67,66 +93,153 @@ export default function HomeScreen() {
             size={22}
             color={hasUnreadNotifications ? palette.danger : palette.text}
           />
+          {hasUnreadNotifications ? (
+            <View style={[styles.notificationBadge, { backgroundColor: palette.danger, borderColor: softSurface }]}>
+              <Text style={styles.notificationBadgeText}>{unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}</Text>
+            </View>
+          ) : null}
         </Pressable>
       </View>
 
-      <View style={[styles.panel, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+      <View
+        style={[
+          styles.panel,
+          {
+            backgroundColor: softSurface,
+            borderColor: softBorder,
+            shadowColor: softShadow,
+          },
+        ]}>
         <View style={styles.sectionHeader}>
-          <Text style={[styles.sectionTitle, { color: palette.text }]}>Today’s priority</Text>
+          <View style={styles.sectionTitleGroup}>
+            <View style={[styles.sectionIcon, { backgroundColor: isDarkMode ? '#29284B' : '#E9E8FF' }]}>
+              <Ionicons name="flash" size={17} color={palette.accent} />
+            </View>
+            <View>
+              <Text style={[styles.sectionTitle, { color: palette.text }]}>Today’s priority</Text>
+              <Text style={[styles.sectionSubtitle, { color: palette.muter }]}>Your next move, at a glance</Text>
+            </View>
+          </View>
           <Text style={[styles.link, { color: palette.accent }]}>View all</Text>
         </View>
 
         <PriorityStack bookings={todaysBookings} customerMap={customerMap} currencyFormatter={currencyFormatter} palette={palette} />
       </View>
 
+      <View style={styles.snapshotHeader}>
+        <View>
+          <Text style={[styles.sectionTitle, { color: palette.text }]}>Business snapshot</Text>
+          <Text style={[styles.sectionSubtitle, { color: palette.muter }]}>Your numbers in one view</Text>
+        </View>
+        <View style={[styles.snapshotIcon, { backgroundColor: softInset }]}>
+          <Ionicons name="analytics-outline" size={18} color={palette.accent} />
+        </View>
+      </View>
+
       <View style={styles.statsGrid}>
         <StatCard label="Revenue" value={currencyFormatter.format(totalRevenue)} detail="This month" tone="blue" isCurrency />
-        <StatCard label="Upcoming" value={String(upcomingBookings.length)} detail="Bookings from today" tone="green" />
+        <StatCard label="Upcoming" value={String(upcomingBookings.length)} detail={upcomingDetail} tone="green" />
         <StatCard label="Income" value={currencyFormatter.format(totalIncome)} detail="Collected" tone="amber" isCurrency />
         <StatCard label="Expense" value={currencyFormatter.format(totalExpense)} detail="Outstanding" tone="purple" isCurrency />
       </View>
 
-      <View style={[styles.panel, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+      <View
+        style={[
+          styles.panel,
+          {
+            backgroundColor: softSurface,
+            borderColor: softBorder,
+            shadowColor: softShadow,
+          },
+        ]}>
         <View style={styles.sectionHeader}>
-          <Text style={[styles.sectionTitle, { color: palette.text }]}>Reminder queue</Text>
-          <Text style={[styles.link, { color: palette.accent }]}>{reminders.length} active</Text>
+          <View style={styles.sectionTitleGroup}>
+            <View style={[styles.sectionIcon, { backgroundColor: isDarkMode ? '#43341B' : '#FFF2D9' }]}>
+              <Ionicons name="notifications-outline" size={18} color={palette.warning} />
+            </View>
+            <View>
+              <Text style={[styles.sectionTitle, { color: palette.text }]}>Reminder queue</Text>
+              <Text style={[styles.sectionSubtitle, { color: palette.muter }]}>Keep every follow-up on track</Text>
+            </View>
+          </View>
+          <View style={[styles.softCountPill, { backgroundColor: softInset }]}>
+            <Text style={[styles.link, { color: palette.accent }]}>{reminders.length} active</Text>
+          </View>
         </View>
 
-        {reminders.slice(0, 2).map((reminder) => (
-          <View key={reminder.id} style={[styles.reminderRow, { borderBottomColor: palette.border }]}>
-            <View>
-              <Text style={[styles.reminderTitle, { color: palette.text }]}>{reminder.title}</Text>
-              <Text style={[styles.reminderMeta, { color: palette.muter }]}>{reminder.dueDate} • {reminder.channel}</Text>
+        <View style={styles.softList}>
+          {reminders.slice(0, 2).map((reminder, index) => (
+            <View
+              key={reminder.id}
+              style={[
+                styles.reminderRow,
+                { backgroundColor: softInset },
+                index > 0 && styles.softRowSpacing,
+              ]}>
+              <View style={[styles.rowIcon, { backgroundColor: softSurface }]}>
+                <Ionicons name="paper-plane-outline" size={17} color={palette.accent} />
+              </View>
+              <View style={styles.rowCopy}>
+                <Text style={[styles.reminderTitle, { color: palette.text }]}>{reminder.title}</Text>
+                <Text style={[styles.reminderMeta, { color: palette.muter }]}>{reminder.dueDate} • {reminder.channel}</Text>
+              </View>
+              <StatusPill label={reminder.status} tone={reminder.status === 'sent' ? 'green' : reminder.status === 'failed' ? 'red' : 'amber'} />
             </View>
-            <StatusPill label={reminder.status} tone={reminder.status === 'sent' ? 'green' : reminder.status === 'failed' ? 'red' : 'amber'} />
-          </View>
-        ))}
+          ))}
+        </View>
       </View>
 
-      <View style={[styles.panel, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+      <View
+        style={[
+          styles.panel,
+          {
+            backgroundColor: softSurface,
+            borderColor: softBorder,
+            shadowColor: softShadow,
+          },
+        ]}>
         <View style={styles.sectionHeader}>
-          <Text style={[styles.sectionTitle, { color: palette.text }]}>Recent invoices</Text>
+          <View style={styles.sectionTitleGroup}>
+            <View style={[styles.sectionIcon, { backgroundColor: isDarkMode ? '#173A35' : '#DFF7EF' }]}>
+              <Ionicons name="receipt-outline" size={18} color={palette.success} />
+            </View>
+            <View>
+              <Text style={[styles.sectionTitle, { color: palette.text }]}>Recent invoices</Text>
+              <Text style={[styles.sectionSubtitle, { color: palette.muter }]}>Latest billing activity</Text>
+            </View>
+          </View>
           <Text style={[styles.link, { color: palette.accent }]}>Open</Text>
         </View>
 
-        {invoices.slice(0, 3).map((invoice) => {
-          const customer = customerMap.get(invoice.customerId);
-          const tone =
-            invoice.status === 'Paid' ? 'green' : invoice.status === 'Accepted' ? 'blue' : invoice.status === 'Overdue' ? 'amber' : invoice.status === 'Declined' ? 'red' : 'gray';
+        <View style={styles.softList}>
+          {invoices.slice(0, 3).map((invoice, index) => {
+            const customer = customerMap.get(invoice.customerId);
+            const tone =
+              invoice.status === 'Paid' ? 'green' : invoice.status === 'Accepted' ? 'blue' : invoice.status === 'Overdue' ? 'amber' : invoice.status === 'Declined' ? 'red' : 'gray';
 
-          return (
-            <View key={invoice.id} style={[styles.invoiceRow, { borderBottomColor: palette.border }]}>
-              <View>
-                <Text style={[styles.invoiceId, { color: palette.text }]}>{invoice.id}</Text>
-                <Text style={[styles.invoiceCustomer, { color: palette.muter }]}>{customer?.name ?? 'Unknown customer'}</Text>
+            return (
+              <View
+                key={invoice.id}
+                style={[
+                  styles.invoiceRow,
+                  { backgroundColor: softInset },
+                  index > 0 && styles.softRowSpacing,
+                ]}>
+                <View style={[styles.rowIcon, { backgroundColor: softSurface }]}>
+                  <Ionicons name="document-text-outline" size={17} color={palette.accent} />
+                </View>
+                <View style={styles.rowCopy}>
+                  <Text style={[styles.invoiceId, { color: palette.text }]}>{invoice.id}</Text>
+                  <Text style={[styles.invoiceCustomer, { color: palette.muter }]}>{customer?.name ?? 'Unknown customer'}</Text>
+                </View>
+                <View style={styles.invoiceMeta}>
+                  <Text style={[styles.amount, { color: palette.text }]}>{currencyFormatter.format(invoice.amount)}</Text>
+                  <StatusPill label={invoice.status} tone={tone} />
+                </View>
               </View>
-              <View style={styles.invoiceMeta}>
-                <Text style={[styles.amount, { color: palette.text }]}>{currencyFormatter.format(invoice.amount)}</Text>
-                <StatusPill label={invoice.status} tone={tone} />
-              </View>
-            </View>
-          );
-        })}
+            );
+          })}
+        </View>
       </View>
       </ScrollView>
     </SafeAreaView>
@@ -136,98 +249,203 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
+    overflow: 'hidden',
   },
   screenScroll: {
     flex: 1,
   },
   content: {
     paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 90,
+    paddingTop: 14,
+    paddingBottom: 112,
+  },
+  ambientOrb: {
+    position: 'absolute',
+    borderRadius: 999,
+    opacity: 0.72,
+  },
+  ambientOrbTop: {
+    width: 220,
+    height: 220,
+    top: -118,
+    right: -86,
+  },
+  ambientOrbSide: {
+    width: 170,
+    height: 170,
+    top: 370,
+    left: -126,
   },
   topHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 16,
+    marginBottom: 24,
   },
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
+    flex: 1,
+    marginRight: 12,
+  },
+  headerCopy: {
+    flex: 1,
+    minWidth: 0,
   },
   logoWrap: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    marginRight: 12,
+    width: 54,
+    height: 54,
+    borderRadius: 18,
+    marginRight: 14,
     borderWidth: 1,
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    shadowOffset: { width: 6, height: 7 },
+    elevation: 5,
   },
   logoImage: {
-    width: 34,
-    height: 34,
+    width: 38,
+    height: 38,
   },
   eyebrow: {
     fontSize: 12,
     fontWeight: '700',
     letterSpacing: 1,
     textTransform: 'uppercase',
-    marginBottom: 6,
+    marginBottom: 5,
   },
   title: {
-    fontSize: 30,
+    fontSize: 19,
     fontWeight: '800',
+    letterSpacing: -0.35,
   },
   bellButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 2,
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    shadowOffset: { width: 6, height: 7 },
+    elevation: 5,
+  },
+  notificationBadge: {
+    position: 'absolute',
+    top: -3,
+    right: -3,
+    minWidth: 20,
+    height: 20,
+    paddingHorizontal: 4,
+    borderRadius: 10,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  notificationBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '900',
   },
   statsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginTop: 18,
-    marginBottom: 18,
+    marginHorizontal: -6,
+    marginTop: 12,
+    marginBottom: 10,
   },
   panel: {
-    borderRadius: 20,
+    borderRadius: 28,
     borderWidth: 1,
-    padding: 18,
-    marginBottom: 18,
-    shadowColor: '#101828',
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 2,
+    padding: 20,
+    marginBottom: 22,
+    shadowOpacity: 0.16,
+    shadowRadius: 18,
+    shadowOffset: { width: 8, height: 10 },
+    elevation: 5,
   },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 14,
+    marginBottom: 18,
+  },
+  sectionTitleGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 10,
+  },
+  sectionIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 11,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '800',
+    letterSpacing: -0.25,
+  },
+  sectionSubtitle: {
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 2,
   },
   link: {
     fontWeight: '700',
     fontSize: 12,
   },
+  snapshotHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+    marginTop: 2,
+  },
+  snapshotIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  softCountPill: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  softList: {
+    width: '100%',
+  },
+  softRowSpacing: {
+    marginTop: 10,
+  },
   reminderRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
+    minHeight: 66,
+    padding: 11,
+    borderRadius: 18,
+  },
+  rowIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  rowCopy: {
+    flex: 1,
+    minWidth: 0,
+    marginRight: 8,
   },
   reminderTitle: {
     fontSize: 14,
@@ -239,10 +457,10 @@ const styles = StyleSheet.create({
   },
   invoiceRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
+    minHeight: 66,
+    padding: 11,
+    borderRadius: 18,
   },
   invoiceId: {
     fontSize: 14,

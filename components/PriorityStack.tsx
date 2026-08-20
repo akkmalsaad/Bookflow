@@ -16,6 +16,24 @@ function statusTone(status: Booking['status']) {
   return status === 'Confirmed' ? 'blue' : status === 'Completed' ? 'green' : status === 'Inquiry' ? 'amber' : 'red';
 }
 
+function formatBookingDate(dateKey: string) {
+  return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(
+    new Date(`${dateKey}T00:00:00`),
+  );
+}
+
+function formatBookingTime(value?: string) {
+  if (!value || value === 'Not specified') return 'Not specified';
+
+  const match = value.match(/^(\d{1,2}):([0-5]\d)$/);
+  if (!match) return value;
+
+  const hour24 = Number(match[1]);
+  const hour12 = hour24 % 12 || 12;
+  const period = hour24 >= 12 ? 'PM' : 'AM';
+  return `${hour12}:${match[2]} ${period}`;
+}
+
 type PriorityStackProps = {
   bookings: Booking[];
   customerMap: Map<string, Customer>;
@@ -76,7 +94,13 @@ export function PriorityStack({ bookings, customerMap, currencyFormatter, palett
 
             <View style={styles.metaRow}>
               <Ionicons name="calendar-outline" size={16} color={palette.muter} />
-              <Text style={[styles.metaValue, { color: palette.text }]}>{booking.date}</Text>
+              <Text style={[styles.metaValue, { color: palette.text }]}>{formatBookingDate(booking.date)}</Text>
+            </View>
+            <View style={styles.metaRow}>
+              <Ionicons name="time-outline" size={16} color={palette.muter} />
+              <Text style={[styles.metaValue, { color: palette.text }]}>
+                {formatBookingTime(booking.startTime ?? booking.time)} – {formatBookingTime(booking.endTime)}
+              </Text>
             </View>
             <View style={styles.metaRow}>
               <Ionicons name="location-outline" size={16} color={palette.muter} />
@@ -129,7 +153,15 @@ function PriorityCard({ depth, zIndex, palette, onPress, onMeasured, children }:
       onLayout={(event) => onMeasured(event.nativeEvent.layout.height)}>
       <Pressable
         onPress={onPress}
-        style={[styles.listCard, { backgroundColor: palette.surfaceAlt, borderColor: palette.border }]}>
+        style={[
+          styles.listCard,
+          {
+            backgroundColor: palette.surfaceAlt,
+            borderColor: palette.border,
+            shadowColor: palette.background,
+          },
+        ]}>
+        <View style={[styles.cardAccent, { backgroundColor: palette.accent }]} />
         {children}
       </Pressable>
     </Animated.View>
@@ -147,9 +179,24 @@ const styles = StyleSheet.create({
     top: 0,
   },
   listCard: {
-    borderRadius: 16,
+    position: 'relative',
+    borderRadius: 22,
     borderWidth: 1,
-    padding: 14,
+    padding: 16,
+    overflow: 'hidden',
+    shadowOpacity: 0.16,
+    shadowRadius: 10,
+    shadowOffset: { width: 4, height: 6 },
+    elevation: 3,
+  },
+  cardAccent: {
+    position: 'absolute',
+    top: 18,
+    left: 0,
+    width: 4,
+    height: 38,
+    borderTopRightRadius: 4,
+    borderBottomRightRadius: 4,
   },
   listHeader: {
     flexDirection: 'row',

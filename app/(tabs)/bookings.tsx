@@ -9,6 +9,38 @@ import { Booking, getCurrencyFormatter, useAppData } from '@/context/app-data-co
 import { getThemePalette, useTheme } from '@/context/theme-context';
 
 const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const hourOptions = Array.from({ length: 12 }, (_, index) => index + 1);
+const periodOptions = ['AM', 'PM'] as const;
+type TimePeriod = typeof periodOptions[number];
+
+function getTimeParts(value: string) {
+  const [hourValue, minute = '00'] = value.split(':');
+  const hour24 = Number(hourValue);
+
+  return {
+    hour: hour24 % 12 || 12,
+    minute,
+    period: (hour24 >= 12 ? 'PM' : 'AM') as TimePeriod,
+  };
+}
+
+function to24HourTime(hour: number, minute: string, period: TimePeriod) {
+  const hour24 = period === 'AM' ? hour % 12 : (hour % 12) + 12;
+  return `${String(hour24).padStart(2, '0')}:${minute}`;
+}
+
+function formatTime(value: string) {
+  const { hour, minute, period } = getTimeParts(value);
+  return `${hour}:${minute} ${period}`;
+}
+
+function getSuggestedEndTime(startTime: string) {
+  const [hourValue, minuteValue] = startTime.split(':');
+  const totalMinutes = Math.min((Number(hourValue) * 60) + Number(minuteValue) + 60, (23 * 60) + 30);
+  const hour = Math.floor(totalMinutes / 60);
+  const minute = totalMinutes % 60;
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
 
 function getStatusTone(status: string) {
   if (status === 'Confirmed') return 'blue';
@@ -36,9 +68,9 @@ function normalizeTime(value: string) {
 
 function formatDisplayDate(dateString: string) {
   const date = new Date(`${dateString}T00:00:00`);
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
+  return new Intl.DateTimeFormat('en-GB', {
     day: 'numeric',
+    month: 'short',
     year: 'numeric',
   }).format(date);
 }
@@ -65,6 +97,8 @@ export default function BookingsScreen() {
   const [draftPrice, setDraftPrice] = useState(String(packages[0]?.price ?? 0));
   const [draftStartTime, setDraftStartTime] = useState('10:00');
   const [draftEndTime, setDraftEndTime] = useState('11:00');
+  const [openTimeMenu, setOpenTimeMenu] = useState<'start' | 'finish' | null>(null);
+  const [draftMinuteInput, setDraftMinuteInput] = useState('00');
   const [draftLocation, setDraftLocation] = useState('');
   const [formError, setFormError] = useState('');
   const dropdownAnim = useRef(new Animated.Value(0)).current;
@@ -138,6 +172,8 @@ export default function BookingsScreen() {
     setDraftPrice(String(packages[0].price));
     setDraftStartTime('10:00');
     setDraftEndTime('11:00');
+    setOpenTimeMenu(null);
+    setDraftMinuteInput('00');
     setDraftLocation('');
     setDraftNotes('');
     setFormError('');
@@ -151,9 +187,44 @@ export default function BookingsScreen() {
     setShowPackageDropdown(false);
   };
 
+  const updateTimePart = (part: 'hour' | 'minute' | 'period', value: number | string) => {
+    if (!openTimeMenu) return;
+
+    const currentTime = openTimeMenu === 'start' ? draftStartTime : draftEndTime;
+    const currentParts = getTimeParts(currentTime);
+    const nextTime = to24HourTime(
+      part === 'hour' ? Number(value) : currentParts.hour,
+      part === 'minute' ? String(value) : currentParts.minute,
+      part === 'period' ? value as TimePeriod : currentParts.period,
+    );
+
+    if (openTimeMenu === 'start') {
+      setDraftStartTime(nextTime);
+      if (draftEndTime <= nextTime) {
+        setDraftEndTime(getSuggestedEndTime(nextTime));
+      }
+    } else {
+      setDraftEndTime(nextTime);
+    }
+    setFormError('');
+  };
+
+  const toggleTimeMenu = (menu: 'start' | 'finish') => {
+    if (openTimeMenu === menu) {
+      setOpenTimeMenu(null);
+      return;
+    }
+
+    const selectedTime = menu === 'start' ? draftStartTime : draftEndTime;
+    setDraftMinuteInput(getTimeParts(selectedTime).minute);
+    setOpenTimeMenu(menu);
+    setShowCustomerDropdown(false);
+    setShowPackageDropdown(false);
+  };
+
   const handleAddBooking = () => {
     const numericPrice = Number(draftPrice);
-    const isNewCustomerValid = Boolean(newCustomerName.trim() && newCustomerEmail.trim());
+    const isNewCustomerValid = Boolean(newCustomerName.trim());
     const hasValidCustomer = customerMode === 'existing' ? Boolean(selectedCustomerId) : isNewCustomerValid;
     const startTime = normalizeTime(draftStartTime);
     const endTime = normalizeTime(draftEndTime);
@@ -191,6 +262,7 @@ export default function BookingsScreen() {
     }
 
     setShowComposer(false);
+    setOpenTimeMenu(null);
     setDraftNotes('');
     setCustomerQuery('');
     setShowCustomerDropdown(false);
@@ -202,9 +274,17 @@ export default function BookingsScreen() {
   const flatListData: (Booking | { readonly id: 'empty-state'; readonly __empty: true })[] = selectedDayBookings.length > 0
     ? selectedDayBookings
     : [{ id: 'empty-state', __empty: true } as const];
+  const softSurface = isDarkMode ? '#172033' : '#F7F9FD';
+  const softInset = isDarkMode ? '#111A2B' : '#EEF2F8';
+  const softBorder = isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.9)';
+  const softShadow = isDarkMode ? '#020617' : '#A7B4C8';
+  const accentSoft = isDarkMode ? '#29284B' : '#E9E8FF';
+  const hasValidMinuteInput = /^\d{1,2}$/.test(draftMinuteInput) && Number(draftMinuteInput) <= 59;
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]}>
+      <View pointerEvents="none" style={[styles.ambientOrb, styles.ambientOrbTop, { backgroundColor: isDarkMode ? '#293258' : '#E4E6FF' }]} />
+      <View pointerEvents="none" style={[styles.ambientOrb, styles.ambientOrbSide, { backgroundColor: isDarkMode ? '#163B38' : '#DFF7EF' }]} />
       <FlatList
         data={flatListData}
         keyExtractor={(item) => item.id}
@@ -212,23 +292,28 @@ export default function BookingsScreen() {
         ListHeaderComponent={(
           <>
             <View style={styles.headerRow}>
-              <View>
-                <Text style={[styles.eyebrow, { color: palette.accent }]}>Bookings</Text>
-                <Text style={[styles.title, { color: palette.text }]}>Calendar</Text>
+              <View style={styles.headerTitleGroup}>
+                <View style={[styles.headerIcon, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
+                  <Ionicons name="calendar-clear-outline" size={23} color={palette.accent} />
+                </View>
+                <View>
+                  <Text style={[styles.eyebrow, { color: palette.accent }]}>Bookings</Text>
+                  <Text style={[styles.title, { color: palette.text }]}>Calendar</Text>
+                </View>
               </View>
-              <Pressable style={styles.primaryButton} onPress={openComposer}>
+              <Pressable style={[styles.primaryButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]} onPress={openComposer}>
                 <Ionicons name="add" size={18} color="#fff" />
                 <Text style={styles.primaryButtonText}>Add</Text>
               </Pressable>
             </View>
 
-            <View style={[styles.calendarCard, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+            <View style={[styles.calendarCard, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
               <View style={styles.monthHeader}>
-                <Pressable onPress={goToPreviousMonth} style={[styles.arrowButton, { backgroundColor: palette.surfaceAlt }]}>
+                <Pressable onPress={goToPreviousMonth} style={[styles.arrowButton, { backgroundColor: softInset, borderColor: softBorder }]}>
                   <Ionicons name="chevron-back" size={18} color={palette.text} />
                 </Pressable>
                 <Text style={[styles.monthLabel, { color: palette.text }]}>{monthLabel}</Text>
-                <Pressable onPress={goToNextMonth} style={[styles.arrowButton, { backgroundColor: palette.surfaceAlt }]}>
+                <Pressable onPress={goToNextMonth} style={[styles.arrowButton, { backgroundColor: softInset, borderColor: softBorder }]}>
                   <Ionicons name="chevron-forward" size={18} color={palette.text} />
                 </Pressable>
               </View>
@@ -251,27 +336,41 @@ export default function BookingsScreen() {
                       key={`${cell.dateKey}-cell`}
                       style={[
                         styles.dayCell,
-                        cell.isCurrentMonth ? { backgroundColor: palette.surface } : { backgroundColor: palette.surfaceAlt, opacity: 0.7 },
-                        isSelected && { backgroundColor: palette.iconWrap },
+                        cell.isCurrentMonth ? { backgroundColor: softSurface } : { backgroundColor: softInset, opacity: 0.52 },
+                        isSelected && { backgroundColor: palette.accent, shadowColor: palette.accent, shadowOpacity: 0.22, elevation: 3 },
                       ]}
                       onPress={() => setSelectedDate(cell.dateKey)}>
-                      <Text style={[styles.dayNumber, { color: isSelected ? palette.accent : palette.text }]}>
+                      <Text style={[styles.dayNumber, { color: isSelected ? '#FFFFFF' : palette.text }]}>
                         {cell.date.getDate()}
                       </Text>
-                      {hasEvent && <View style={[styles.dot, { backgroundColor: palette.accent }]} />}
+                      {hasEvent && <View style={[styles.dot, { backgroundColor: isSelected ? '#FFFFFF' : palette.accent }]} />}
                     </Pressable>
                   );
                 })}
               </View>
             </View>
 
-            <Text style={[styles.eventsTitle, { color: palette.text, marginTop: 18 }]}>{formatDisplayDate(selectedDate)}</Text>
+            <View style={styles.eventsHeader}>
+              <View style={[styles.eventsIcon, { backgroundColor: accentSoft }]}>
+                <Ionicons name="time-outline" size={18} color={palette.accent} />
+              </View>
+              <View style={styles.eventsHeaderCopy}>
+                <Text style={[styles.eventsEyebrow, { color: palette.muter }]}>Schedule</Text>
+                <Text style={[styles.eventsTitle, { color: palette.text }]}>{formatDisplayDate(selectedDate)}</Text>
+              </View>
+              <View style={[styles.eventCountPill, { backgroundColor: softInset }]}>
+                <Text style={[styles.eventCountText, { color: palette.accent }]}>{selectedDayBookings.length}</Text>
+              </View>
+            </View>
           </>
         )}
         renderItem={({ item }) => {
           if ('__empty' in item) {
             return (
-              <View style={[styles.emptyState, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+              <View style={[styles.emptyState, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
+                <View style={[styles.emptyIcon, { backgroundColor: softInset }]}>
+                  <Ionicons name="calendar-outline" size={24} color={palette.accent} />
+                </View>
                 <Text style={[styles.emptyText, { color: palette.muter }]}>No bookings scheduled for this date.</Text>
               </View>
             );
@@ -282,44 +381,52 @@ export default function BookingsScreen() {
           const statusTone = getStatusTone(item.status);
 
           return (
-            <View style={[styles.card, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+            <View style={[styles.card, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, shadowColor: palette.background }]}>
+              <View style={[styles.cardAccent, { backgroundColor: palette.accent }]} />
               <View style={styles.cardHeader}>
-                <View>
-                  <Text style={[styles.cardTitle, { color: palette.text }]}>{item.title}</Text>
-                  <Text style={[styles.customer, { color: palette.muter }]}>{customer?.name ?? 'Unknown customer'}</Text>
+                <View style={styles.cardHeaderCopy}>
+                  <Text style={[styles.cardTitle, { color: palette.text }]} numberOfLines={1}>{item.title}</Text>
+                  <Text style={[styles.customer, { color: palette.muter }]} numberOfLines={1}>{customer?.name ?? 'Unknown customer'}</Text>
                 </View>
                 <StatusPill label={item.status} tone={statusTone} />
               </View>
 
-              <View style={styles.metaRow}>
-                <Text style={[styles.metaLabel, { color: palette.muter }]}>Date</Text>
-                <Text style={[styles.metaValue, { color: palette.text }]}>{item.date}</Text>
+              <View style={styles.scheduleMetaRow}>
+                <Ionicons name="calendar-outline" size={16} color={palette.muter} />
+                <Text style={[styles.scheduleMetaValue, { color: palette.text }]}>{formatDisplayDate(item.date)}</Text>
               </View>
-              <View style={styles.metaRow}>
-                <Text style={[styles.metaLabel, { color: palette.muter }]}>Time</Text>
-                <Text style={[styles.metaValue, { color: palette.text }]}>
+              <View style={styles.scheduleMetaRow}>
+                <Ionicons name="time-outline" size={16} color={palette.muter} />
+                <Text style={[styles.scheduleMetaValue, { color: palette.text }]}>
                   {item.startTime ?? item.time ?? 'Not specified'} – {item.endTime ?? 'Not specified'}
                 </Text>
               </View>
-              <View style={styles.metaRow}>
-                <Text style={[styles.metaLabel, { color: palette.muter }]}>Location</Text>
-                <Text style={[styles.metaValue, { color: palette.text }]}>{item.location}</Text>
+              <View style={styles.scheduleMetaRow}>
+                <Ionicons name="location-outline" size={16} color={palette.muter} />
+                <Text style={[styles.scheduleMetaValue, { color: palette.text }]} numberOfLines={2}>{item.location}</Text>
               </View>
-              <View style={styles.metaRow}>
-                <Text style={[styles.metaLabel, { color: palette.muter }]}>Package</Text>
-                <Text style={[styles.metaValue, { color: palette.text }]}>{item.packageName}</Text>
-              </View>
-              <View style={[styles.footerRow, { borderTopColor: palette.border }]}>
-                <Text style={[styles.amount, { color: palette.text }]}>{currencyFormatter.format(item.price)}</Text>
-                <Text style={[styles.notes, { color: palette.muter }]}>{item.notes}</Text>
+              <View style={styles.scheduleMetaRow}>
+                <Ionicons name="cube-outline" size={16} color={palette.muter} />
+                <Text style={[styles.scheduleMetaValue, { color: palette.text }]} numberOfLines={1}>{item.packageName}</Text>
               </View>
 
-              {invoice && (
-                <Pressable style={[styles.invoiceButton, { backgroundColor: palette.accent }]} onPress={() => router.push('/(tabs)/invoices')}>
-                  <Ionicons name="document-text-outline" size={16} color="#fff" />
-                  <Text style={styles.invoiceButtonText}>View invoice · {invoice.status}</Text>
-                </Pressable>
-              )}
+              <View style={[styles.scheduleNotes, { backgroundColor: softSurface }]}>
+                <Ionicons name="document-text-outline" size={15} color={palette.muter} />
+                <Text style={[styles.notes, { color: palette.muter }]} numberOfLines={2}>{item.notes}</Text>
+              </View>
+
+              <View style={styles.scheduleFooter}>
+                <View style={styles.schedulePrice}>
+                  <Ionicons name="cash-outline" size={17} color={palette.muter} />
+                  <Text style={[styles.amount, { color: palette.text }]}>{currencyFormatter.format(item.price)}</Text>
+                </View>
+                {invoice && (
+                  <Pressable style={[styles.invoiceButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]} onPress={() => router.push('/(tabs)/invoices')}>
+                    <Ionicons name="document-text-outline" size={15} color="#fff" />
+                    <Text style={styles.invoiceButtonText}>Invoice · {invoice.status}</Text>
+                  </Pressable>
+                )}
+              </View>
             </View>
           );
         }}
@@ -328,10 +435,14 @@ export default function BookingsScreen() {
 
       <Modal visible={showComposer} transparent animationType="slide" onRequestClose={() => setShowComposer(false)}>
         <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+          <View style={[styles.modalCard, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
+            <View style={[styles.modalHandle, { backgroundColor: palette.border }]} />
             <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: palette.text }]}>New booking</Text>
-              <Pressable onPress={() => setShowComposer(false)}>
+              <View>
+                <Text style={[styles.modalEyebrow, { color: palette.accent }]}>Create</Text>
+                <Text style={[styles.modalTitle, { color: palette.text }]}>New booking</Text>
+              </View>
+              <Pressable onPress={() => setShowComposer(false)} style={[styles.closeButton, { backgroundColor: softInset }]}>
                 <Ionicons name="close" size={24} color={palette.text} />
               </Pressable>
             </View>
@@ -351,8 +462,8 @@ export default function BookingsScreen() {
               }}
               style={[
                 styles.dropdownButton,
-                { backgroundColor: palette.surfaceAlt, borderColor: palette.border },
-                showPackageDropdown && { borderColor: palette.accent, backgroundColor: palette.iconWrap },
+                { backgroundColor: softInset, borderColor: softBorder },
+                showPackageDropdown && { borderColor: palette.accent, backgroundColor: accentSoft },
               ]}>
               <View style={styles.packageSelectedCopy}>
                 <Text style={[styles.packageSelectedName, { color: palette.text }]}>{selectedPackage?.name ?? 'Choose a package'}</Text>
@@ -366,7 +477,7 @@ export default function BookingsScreen() {
             </Pressable>
 
             {showPackageDropdown && (
-              <View style={[styles.packageDropdownPanel, { backgroundColor: palette.surfaceAlt, borderColor: palette.border }]}>
+              <View style={[styles.packageDropdownPanel, { backgroundColor: softInset, borderColor: softBorder }]}>
                 <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" style={styles.packageDropdownScroll}>
                   {packages.map((item) => (
                     <Pressable
@@ -374,8 +485,8 @@ export default function BookingsScreen() {
                       onPress={() => handlePackageSelection(item.id)}
                       style={[
                         styles.packageOption,
-                        { backgroundColor: palette.surface, borderColor: palette.border },
-                        selectedPackageId === item.id && { backgroundColor: palette.iconWrap, borderColor: palette.accent },
+                        { backgroundColor: softSurface, borderColor: softBorder },
+                        selectedPackageId === item.id && { backgroundColor: accentSoft, borderColor: palette.accent },
                       ]}>
                       <View style={styles.packageOptionHeader}>
                         <Text style={[styles.packageOptionText, { color: palette.text }]}>{item.name}</Text>
@@ -399,8 +510,8 @@ export default function BookingsScreen() {
                 }}
                 style={[
                   styles.modeButton,
-                  { backgroundColor: palette.surfaceAlt, borderColor: palette.border },
-                  customerMode === 'existing' && { backgroundColor: palette.iconWrap, borderColor: palette.accent },
+                  { backgroundColor: softInset, borderColor: softBorder },
+                  customerMode === 'existing' && { backgroundColor: accentSoft, borderColor: palette.accent },
                 ]}>
                 <Text style={[styles.modeButtonText, { color: customerMode === 'existing' ? palette.accent : palette.text }]}>Existing customer</Text>
               </Pressable>
@@ -412,8 +523,8 @@ export default function BookingsScreen() {
                 }}
                 style={[
                   styles.modeButton,
-                  { backgroundColor: palette.surfaceAlt, borderColor: palette.border },
-                  customerMode === 'new' && { backgroundColor: palette.iconWrap, borderColor: palette.accent },
+                  { backgroundColor: softInset, borderColor: softBorder },
+                  customerMode === 'new' && { backgroundColor: accentSoft, borderColor: palette.accent },
                 ]}>
                 <Text style={[styles.modeButtonText, { color: customerMode === 'new' ? palette.accent : palette.text }]}>Add new customer</Text>
               </Pressable>
@@ -427,7 +538,7 @@ export default function BookingsScreen() {
                     setShowCustomerDropdown((current) => !current);
                     setShowPackageDropdown(false);
                   }}
-                  style={[styles.dropdownButton, { backgroundColor: palette.surfaceAlt, borderColor: palette.border }, showCustomerDropdown && { borderColor: palette.accent, backgroundColor: palette.iconWrap }]}>
+                  style={[styles.dropdownButton, { backgroundColor: softInset, borderColor: softBorder }, showCustomerDropdown && { borderColor: palette.accent, backgroundColor: accentSoft }]}>
                   <Text style={[styles.dropdownText, { color: palette.text }]}>{selectedCustomer ? selectedCustomer.name : 'Choose a customer'}</Text>
                   <Ionicons name={showCustomerDropdown ? 'chevron-up' : 'chevron-down'} size={18} color={palette.text} />
                 </Pressable>
@@ -441,8 +552,8 @@ export default function BookingsScreen() {
                         outputRange: [0, 220],
                       }),
                       opacity: dropdownAnim,
-                      backgroundColor: palette.surfaceAlt,
-                      borderColor: palette.border,
+                      backgroundColor: softInset,
+                      borderColor: softBorder,
                     },
                   ]}>
                   <TextInput
@@ -450,7 +561,7 @@ export default function BookingsScreen() {
                     onChangeText={setCustomerQuery}
                     placeholder="Search customer"
                     placeholderTextColor={palette.muter}
-                    style={[styles.searchInput, { backgroundColor: palette.surface, borderColor: palette.border, color: palette.text }]}
+                    style={[styles.searchInput, { backgroundColor: softSurface, borderColor: softBorder, color: palette.text }]}
                   />
 
                   <View style={styles.dropdownList}>
@@ -463,7 +574,7 @@ export default function BookingsScreen() {
                             setCustomerQuery('');
                             setShowCustomerDropdown(false);
                           }}
-                          style={[styles.selectOption, { backgroundColor: palette.surface, borderColor: palette.border }, selectedCustomerId === customer.id && { backgroundColor: palette.iconWrap, borderColor: palette.accent }]}>
+                          style={[styles.selectOption, { backgroundColor: softSurface, borderColor: softBorder }, selectedCustomerId === customer.id && { backgroundColor: accentSoft, borderColor: palette.accent }]}>
                           <Text style={[styles.selectText, { color: palette.text }]}>{customer.name}</Text>
                           <Text style={[styles.selectSubtext, { color: palette.muter }]}>{customer.email}</Text>
                         </Pressable>
@@ -480,20 +591,20 @@ export default function BookingsScreen() {
                 <TextInput
                   value={newCustomerName}
                   onChangeText={setNewCustomerName}
-                  placeholder="Jane Smith"
+                  placeholder="Siti Nur Izzah"
                   placeholderTextColor={palette.muter}
-                  style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
+                  style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
                 />
 
                 <Text style={[styles.fieldLabel, { color: palette.muter }]}>Customer email</Text>
                 <TextInput
                   value={newCustomerEmail}
                   onChangeText={setNewCustomerEmail}
-                  placeholder="jane@example.com"
+                  placeholder="siti@example.my"
                   placeholderTextColor={palette.muter}
                   keyboardType="email-address"
                   autoCapitalize="none"
-                  style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
+                  style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
                 />
 
                 <Text style={[styles.fieldLabel, { color: palette.muter }]}>Customer phone</Text>
@@ -503,7 +614,7 @@ export default function BookingsScreen() {
                   placeholder="+60 12-345 6789"
                   placeholderTextColor={palette.muter}
                   keyboardType="phone-pad"
-                  style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
+                  style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
                 />
 
                 <Text style={[styles.fieldLabel, { color: palette.muter }]}>Customer location</Text>
@@ -512,7 +623,7 @@ export default function BookingsScreen() {
                   onChangeText={setNewCustomerLocation}
                   placeholder="Kuala Lumpur"
                   placeholderTextColor={palette.muter}
-                  style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
+                  style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
                 />
               </>
             )}
@@ -524,38 +635,149 @@ export default function BookingsScreen() {
               keyboardType="numeric"
               placeholder="0"
               placeholderTextColor={palette.muter}
-              style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
+              style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
             />
 
             <Text style={[styles.fieldLabel, { color: palette.muter }]}>Event date</Text>
             <TextInput
               value={selectedDate}
               editable={false}
-              style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.muter, opacity: 0.8 }]}
+              style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.muter, opacity: 0.8 }]}
             />
 
             <View style={styles.timeRow}>
               <View style={styles.timeField}>
                 <Text style={[styles.fieldLabel, { color: palette.muter }]}>Start time</Text>
-                <TextInput
-                  value={draftStartTime}
-                  onChangeText={setDraftStartTime}
-                  placeholder="10:00"
-                  placeholderTextColor={palette.muter}
-                  style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
-                />
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Choose start time, currently ${formatTime(draftStartTime)}`}
+                  onPress={() => toggleTimeMenu('start')}
+                  style={[
+                    styles.timeSelectButton,
+                    { backgroundColor: softInset, borderColor: softBorder },
+                    openTimeMenu === 'start' && { backgroundColor: accentSoft, borderColor: palette.accent },
+                  ]}>
+                  <Ionicons name="time-outline" size={18} color={palette.accent} />
+                  <Text style={[styles.timeSelectText, { color: palette.text }]}>{formatTime(draftStartTime)}</Text>
+                  <Ionicons name={openTimeMenu === 'start' ? 'chevron-up' : 'chevron-down'} size={16} color={palette.muter} />
+                </Pressable>
               </View>
               <View style={styles.timeField}>
                 <Text style={[styles.fieldLabel, { color: palette.muter }]}>Finish time</Text>
-                <TextInput
-                  value={draftEndTime}
-                  onChangeText={setDraftEndTime}
-                  placeholder="11:00"
-                  placeholderTextColor={palette.muter}
-                  style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
-                />
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Choose finish time, currently ${formatTime(draftEndTime)}`}
+                  onPress={() => toggleTimeMenu('finish')}
+                  style={[
+                    styles.timeSelectButton,
+                    { backgroundColor: softInset, borderColor: softBorder },
+                    openTimeMenu === 'finish' && { backgroundColor: accentSoft, borderColor: palette.accent },
+                  ]}>
+                  <Ionicons name="time-outline" size={18} color={palette.accent} />
+                  <Text style={[styles.timeSelectText, { color: palette.text }]}>{formatTime(draftEndTime)}</Text>
+                  <Ionicons name={openTimeMenu === 'finish' ? 'chevron-up' : 'chevron-down'} size={16} color={palette.muter} />
+                </Pressable>
               </View>
             </View>
+
+            {openTimeMenu ? (
+              <View style={[styles.timeMenu, { backgroundColor: softInset, borderColor: softBorder }]}>
+                <View style={styles.timeMenuHeader}>
+                  <Text style={[styles.timeMenuTitle, { color: palette.text }]}>Choose {openTimeMenu === 'start' ? 'start' : 'finish'} time</Text>
+                  <Text style={[styles.timeMenuValue, { color: palette.accent }]}>
+                    {formatTime(openTimeMenu === 'start' ? draftStartTime : draftEndTime)}
+                  </Text>
+                </View>
+                <Text style={[styles.timeGroupLabel, { color: palette.muter }]}>Hour</Text>
+                <View style={styles.hourOptions}>
+                  {hourOptions.map((hour) => {
+                    const currentParts = getTimeParts(openTimeMenu === 'start' ? draftStartTime : draftEndTime);
+                    const isSelected = currentParts.hour === hour;
+                    return (
+                      <Pressable
+                        key={hour}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: isSelected }}
+                        onPress={() => updateTimePart('hour', hour)}
+                        style={[
+                          styles.hourOption,
+                          { backgroundColor: softSurface, borderColor: softBorder },
+                          isSelected && { backgroundColor: accentSoft, borderColor: palette.accent },
+                        ]}>
+                        <Text style={[styles.timeOptionText, { color: isSelected ? palette.accent : palette.text }]}>{hour}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                <View style={styles.timeChoiceRow}>
+                  <View style={styles.timeChoiceGroup}>
+                    <Text style={[styles.timeGroupLabel, { color: palette.muter }]}>Minutes</Text>
+                    <TextInput
+                      accessibilityLabel="Enter minutes"
+                      value={draftMinuteInput}
+                      onChangeText={(value) => {
+                        const digits = value.replace(/\D/g, '').slice(0, 2);
+                        setDraftMinuteInput(digits);
+                        if (digits && Number(digits) <= 59) {
+                          updateTimePart('minute', digits.padStart(2, '0'));
+                        }
+                      }}
+                      keyboardType="number-pad"
+                      maxLength={2}
+                      selectTextOnFocus
+                      placeholder="00"
+                      placeholderTextColor={palette.muter}
+                      style={[styles.manualMinuteInput, { backgroundColor: softSurface, borderColor: hasValidMinuteInput ? softBorder : '#DC2626', color: palette.text }]}
+                    />
+                  </View>
+
+                  <View style={styles.timeChoiceGroup}>
+                    <Text style={[styles.timeGroupLabel, { color: palette.muter }]}>Period</Text>
+                    <View style={styles.compactOptions}>
+                      {periodOptions.map((period) => {
+                        const isSelected = getTimeParts(openTimeMenu === 'start' ? draftStartTime : draftEndTime).period === period;
+                        return (
+                          <Pressable
+                            key={period}
+                            accessibilityRole="button"
+                            accessibilityState={{ selected: isSelected }}
+                            onPress={() => updateTimePart('period', period)}
+                            style={[
+                              styles.compactOption,
+                              { backgroundColor: softSurface, borderColor: softBorder },
+                              isSelected && { backgroundColor: accentSoft, borderColor: palette.accent },
+                            ]}>
+                            <Text style={[styles.timeOptionText, { color: isSelected ? palette.accent : palette.text }]}>{period}</Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+                </View>
+
+                {!hasValidMinuteInput ? (
+                  <Text style={styles.timeRangeError}>Enter minutes from 00 to 59.</Text>
+                ) : draftEndTime <= draftStartTime ? (
+                  <Text style={styles.timeRangeError}>Finish time must be later than start time.</Text>
+                ) : null}
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: !hasValidMinuteInput || draftEndTime <= draftStartTime }}
+                  disabled={!hasValidMinuteInput || draftEndTime <= draftStartTime}
+                  onPress={() => {
+                    updateTimePart('minute', draftMinuteInput.padStart(2, '0'));
+                    setOpenTimeMenu(null);
+                  }}
+                  style={[
+                    styles.timeDoneButton,
+                    { backgroundColor: palette.accent },
+                    (!hasValidMinuteInput || draftEndTime <= draftStartTime) && styles.timeDoneButtonDisabled,
+                  ]}>
+                  <Text style={styles.timeDoneButtonText}>Done</Text>
+                </Pressable>
+              </View>
+            ) : null}
 
             <Text style={[styles.fieldLabel, { color: palette.muter }]}>Event location</Text>
             <TextInput
@@ -563,7 +785,7 @@ export default function BookingsScreen() {
               onChangeText={setDraftLocation}
               placeholder="Venue or client location"
               placeholderTextColor={palette.muter}
-              style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
+              style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
             />
 
             <Text style={[styles.fieldLabel, { color: palette.muter }]}>Notes</Text>
@@ -573,17 +795,17 @@ export default function BookingsScreen() {
               placeholder="Wedding details or client notes"
               placeholderTextColor={palette.muter}
               multiline
-              style={[styles.input, styles.notesInput, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
+              style={[styles.input, styles.notesInput, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
             />
 
-            <View style={[styles.invoiceNotice, { backgroundColor: palette.iconWrap, borderColor: palette.accent }]}>
+            <View style={[styles.invoiceNotice, { backgroundColor: accentSoft, borderColor: palette.accent }]}>
               <Ionicons name="document-text-outline" size={18} color={palette.accent} />
               <Text style={[styles.invoiceNoticeText, { color: palette.text }]}>A draft invoice will be created automatically from this booking.</Text>
             </View>
 
             {formError ? <Text style={styles.formError}>{formError}</Text> : null}
 
-            <Pressable style={styles.submitButton} onPress={handleAddBooking}>
+            <Pressable style={[styles.submitButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]} onPress={handleAddBooking}>
               <Text style={styles.submitButtonText}>Save booking &amp; create invoice</Text>
             </Pressable>
             </ScrollView>
@@ -597,36 +819,75 @@ export default function BookingsScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
+    overflow: 'hidden',
+  },
+  ambientOrb: {
+    position: 'absolute',
+    borderRadius: 999,
+    opacity: 0.72,
+  },
+  ambientOrbTop: {
+    width: 220,
+    height: 220,
+    top: -118,
+    right: -86,
+  },
+  ambientOrbSide: {
+    width: 170,
+    height: 170,
+    top: 430,
+    left: -126,
   },
   listContent: {
     paddingHorizontal: 20,
-    paddingTop: 12,
+    paddingTop: 14,
     paddingBottom: 120,
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 14,
+    marginBottom: 24,
+  },
+  headerTitleGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerIcon: {
+    width: 54,
+    height: 54,
+    borderRadius: 18,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    shadowOffset: { width: 6, height: 7 },
+    elevation: 5,
   },
   eyebrow: {
     fontSize: 12,
     fontWeight: '700',
     letterSpacing: 1,
     textTransform: 'uppercase',
-    marginBottom: 6,
+    marginBottom: 5,
   },
   title: {
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: '800',
+    letterSpacing: -0.5,
   },
   primaryButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#111827',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    borderRadius: 16,
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    shadowOpacity: 0.24,
+    shadowRadius: 12,
+    shadowOffset: { width: 4, height: 7 },
+    elevation: 5,
   },
   primaryButtonText: {
     color: '#fff',
@@ -635,47 +896,46 @@ const styles = StyleSheet.create({
   },
   calendarCard: {
     borderWidth: 1,
-    borderRadius: 22,
+    borderRadius: 28,
     paddingHorizontal: 14,
-    paddingTop: 14,
-    paddingBottom: 10,
-    shadowColor: '#101828',
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 2,
+    paddingTop: 18,
+    paddingBottom: 14,
+    shadowOpacity: 0.16,
+    shadowRadius: 18,
+    shadowOffset: { width: 8, height: 10 },
+    elevation: 5,
   },
   monthHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: 18,
     paddingHorizontal: 6,
   },
   arrowButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
-    backgroundColor: '#F3F4F6',
+    width: 38,
+    height: 38,
+    borderRadius: 13,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
   monthLabel: {
     fontSize: 18,
     fontWeight: '800',
-    color: '#111827',
+    letterSpacing: -0.25,
   },
   weekRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 8,
+    marginBottom: 10,
   },
   weekday: {
     width: '14.28%',
     textAlign: 'center',
     fontSize: 12,
     fontWeight: '700',
-    color: '#6B7280',
+    letterSpacing: 0.35,
   },
   grid: {
     flexDirection: 'row',
@@ -683,151 +943,215 @@ const styles = StyleSheet.create({
   },
   dayCell: {
     width: '14.28%',
-    height: 52,
+    height: 48,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 16,
-    marginBottom: 8,
+    borderRadius: 15,
+    marginBottom: 6,
     position: 'relative',
-  },
-  dayCellCurrent: {
-    backgroundColor: '#fff',
-  },
-  dayCellMuted: {
-    backgroundColor: '#F9FAFB',
-    opacity: 0.5,
-  },
-  dayCellSelected: {
-    backgroundColor: '#EEF2FF',
+    shadowOpacity: 0,
+    shadowRadius: 7,
+    shadowOffset: { width: 2, height: 4 },
+    elevation: 0,
   },
   dayNumber: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#111827',
-  },
-  dayNumberSelected: {
-    color: '#312E81',
   },
   dot: {
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#4F46E5',
     position: 'absolute',
-    bottom: 8,
+    bottom: 6,
   },
-  dotSelected: {
-    backgroundColor: '#312E81',
+  eventsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 24,
+    marginBottom: 14,
+    paddingHorizontal: 4,
   },
-  eventsSection: {
-    marginTop: 18,
-    marginBottom: 24,
+  eventsIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 11,
+  },
+  eventsHeaderCopy: {
+    flex: 1,
+  },
+  eventsEyebrow: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginBottom: 2,
   },
   eventsTitle: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '800',
-    color: '#111827',
-    marginBottom: 12,
+    letterSpacing: -0.2,
+  },
+  eventCountPill: {
+    minWidth: 34,
+    height: 34,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 9,
+  },
+  eventCountText: {
+    fontSize: 13,
+    fontWeight: '800',
   },
   emptyState: {
     borderWidth: 1,
-    borderRadius: 18,
-    padding: 18,
+    borderRadius: 24,
+    padding: 22,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 90,
+    minHeight: 132,
+    shadowOpacity: 0.13,
+    shadowRadius: 15,
+    shadowOffset: { width: 6, height: 8 },
+    elevation: 4,
+  },
+  emptyIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
   },
   emptyText: {
     fontSize: 14,
     fontWeight: '600',
   },
-  list: {
-    paddingBottom: 80,
-  },
   card: {
-    borderRadius: 18,
+    position: 'relative',
+    borderRadius: 22,
     borderWidth: 1,
-    padding: 18,
+    padding: 16,
     marginBottom: 14,
-    shadowColor: '#101828',
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 2,
+    shadowOpacity: 0.16,
+    shadowRadius: 10,
+    shadowOffset: { width: 4, height: 6 },
+    elevation: 3,
+  },
+  cardAccent: {
+    position: 'absolute',
+    top: 18,
+    left: 0,
+    width: 4,
+    height: 38,
+    borderTopRightRadius: 4,
+    borderBottomRightRadius: 4,
   },
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 12,
+    marginBottom: 10,
+  },
+  cardHeaderCopy: {
+    flex: 1,
+    marginRight: 12,
   },
   cardTitle: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '700',
     marginBottom: 4,
   },
   customer: {
-    fontSize: 13,
+    fontSize: 12,
   },
-  metaRow: {
+  scheduleMetaRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 8,
   },
-  metaLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  metaValue: {
-    fontSize: 12,
-    fontWeight: '600',
-    textAlign: 'right',
+  scheduleMetaValue: {
     flex: 1,
-    marginLeft: 14,
+    marginLeft: 8,
+    fontSize: 13,
+    fontWeight: '600',
   },
-  footerRow: {
+  scheduleNotes: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    borderRadius: 12,
+    padding: 10,
+    marginTop: 2,
+  },
+  scheduleFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     marginTop: 12,
-    borderTopColor: '#E5E7EB',
-    borderTopWidth: 1,
-    paddingTop: 12,
+  },
+  schedulePrice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 1,
+    marginRight: 10,
   },
   amount: {
-    fontSize: 18,
+    fontSize: 14,
     fontWeight: '800',
-    marginBottom: 8,
+    marginLeft: 8,
   },
   notes: {
+    flex: 1,
     fontSize: 12,
     lineHeight: 18,
+    marginLeft: 8,
   },
   invoiceButton: {
-    marginTop: 14,
-    backgroundColor: '#111827',
-    borderRadius: 10,
-    paddingVertical: 10,
+    borderRadius: 12,
+    paddingHorizontal: 11,
+    paddingVertical: 9,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    shadowOffset: { width: 3, height: 6 },
+    elevation: 4,
   },
   invoiceButtonText: {
     color: '#fff',
     fontWeight: '700',
-    fontSize: 13,
-    marginLeft: 6,
+    fontSize: 12,
+    marginLeft: 5,
   },
   modalBackdrop: {
     flex: 1,
     justifyContent: 'flex-end',
-    backgroundColor: 'rgba(15, 23, 42, 0.5)',
+    backgroundColor: 'rgba(15, 23, 42, 0.58)',
   },
   modalCard: {
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
     borderWidth: 1,
     paddingHorizontal: 20,
-    paddingTop: 18,
+    paddingTop: 10,
     paddingBottom: 28,
     maxHeight: '92%',
+    shadowOpacity: 0.32,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: -8 },
+    elevation: 14,
+  },
+  modalHandle: {
+    width: 42,
+    height: 5,
+    borderRadius: 3,
+    alignSelf: 'center',
+    marginBottom: 10,
   },
   modalScrollContent: {
     paddingBottom: 4,
@@ -836,25 +1160,40 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 14,
+    marginBottom: 10,
   },
   modalTitle: {
-    fontSize: 20,
+    fontSize: 22,
+    fontWeight: '900',
+    letterSpacing: -0.4,
+  },
+  modalEyebrow: {
+    fontSize: 10,
     fontWeight: '800',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    marginBottom: 3,
+  },
+  closeButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   fieldLabel: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
-    letterSpacing: 0.5,
+    letterSpacing: 0.65,
     marginBottom: 8,
-    marginTop: 12,
+    marginTop: 14,
     textTransform: 'uppercase',
   },
   input: {
     borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     fontSize: 14,
   },
   timeRow: {
@@ -864,6 +1203,117 @@ const styles = StyleSheet.create({
   timeField: {
     flex: 1,
   },
+  timeSelectButton: {
+    minHeight: 48,
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  timeSelectText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  timeMenu: {
+    borderWidth: 1,
+    borderRadius: 18,
+    marginTop: 10,
+    padding: 10,
+  },
+  timeMenuHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+    paddingBottom: 9,
+  },
+  timeMenuTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  timeMenuValue: {
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  timeGroupLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.7,
+    marginBottom: 7,
+    marginTop: 4,
+    textTransform: 'uppercase',
+  },
+  hourOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  hourOption: {
+    width: '14.5%',
+    minHeight: 38,
+    borderWidth: 1,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timeChoiceRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 8,
+  },
+  timeChoiceGroup: {
+    flex: 1,
+  },
+  compactOptions: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  manualMinuteInput: {
+    minHeight: 42,
+    borderWidth: 1,
+    borderRadius: 11,
+    paddingHorizontal: 12,
+    fontSize: 14,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  compactOption: {
+    flex: 1,
+    minHeight: 42,
+    borderWidth: 1,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timeOptionText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  timeDoneButton: {
+    minHeight: 42,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 12,
+  },
+  timeDoneButtonDisabled: {
+    opacity: 0.42,
+  },
+  timeDoneButtonText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  timeRangeError: {
+    color: '#DC2626',
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 10,
+    textAlign: 'center',
+  },
   modeRow: {
     flexDirection: 'row',
     gap: 10,
@@ -872,9 +1322,9 @@ const styles = StyleSheet.create({
   modeButton: {
     flex: 1,
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 16,
     paddingHorizontal: 8,
-    paddingVertical: 10,
+    paddingVertical: 12,
     alignItems: 'center',
   },
   modeButtonText: {
@@ -888,10 +1338,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    borderRadius: 12,
-    backgroundColor: '#F9FAFB',
-    paddingHorizontal: 12,
-    paddingVertical: 12,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
     marginBottom: 8,
   },
   dropdownButtonActive: {
@@ -906,9 +1355,7 @@ const styles = StyleSheet.create({
   dropdownPanel: {
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 12,
-    backgroundColor: '#F9FAFB',
+    borderRadius: 18,
     marginBottom: 12,
   },
   dropdownList: {
@@ -917,21 +1364,17 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 10,
-    backgroundColor: '#fff',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     margin: 8,
     color: '#111827',
   },
   selectOption: {
     borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 10,
-    backgroundColor: '#fff',
+    borderRadius: 14,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 11,
     marginBottom: 8,
   },
   selectOptionSelected: {
@@ -954,17 +1397,17 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   notesInput: {
-    minHeight: 80,
+    minHeight: 92,
     textAlignVertical: 'top',
   },
   invoiceNotice: {
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 17,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginTop: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginTop: 16,
   },
   invoiceNoticeText: {
     flex: 1,
@@ -992,7 +1435,7 @@ const styles = StyleSheet.create({
   },
   packageDropdownPanel: {
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 18,
     padding: 8,
     marginBottom: 8,
   },
@@ -1001,7 +1444,7 @@ const styles = StyleSheet.create({
   },
   packageOption: {
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 14,
     paddingHorizontal: 12,
     paddingVertical: 10,
     marginBottom: 8,
@@ -1021,11 +1464,14 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   submitButton: {
-    marginTop: 16,
-    backgroundColor: '#111827',
-    borderRadius: 12,
-    paddingVertical: 14,
+    marginTop: 18,
+    borderRadius: 17,
+    paddingVertical: 15,
     alignItems: 'center',
+    shadowOpacity: 0.24,
+    shadowRadius: 12,
+    shadowOffset: { width: 4, height: 7 },
+    elevation: 5,
   },
   submitButtonText: {
     color: '#fff',

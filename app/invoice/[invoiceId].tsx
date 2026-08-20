@@ -29,11 +29,15 @@ function formatEventDate(date?: string) {
   }).format(parsedDate);
 }
 
+function getProfileValue(value: string) {
+  return value.trim() || 'Not provided';
+}
+
 export default function InvoiceAcceptanceScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ invoiceId?: string }>();
   const { isDarkMode } = useTheme();
-  const { invoices, customers, bookings, packages, updateInvoiceStatus, currency } = useAppData();
+  const { invoices, customers, bookings, packages, businessProfile, updateInvoiceStatus, currency } = useAppData();
   const palette = getThemePalette(isDarkMode);
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const invoice = invoices.find((item) => item.id === params.invoiceId);
@@ -75,6 +79,26 @@ export default function InvoiceAcceptanceScreen() {
             <Text style={[styles.title, { color: palette.text }]}>{invoice.id}</Text>
           </View>
           <StatusPill label={invoice.status} tone={getInvoiceTone(invoice.status)} />
+        </View>
+
+        <View style={[styles.card, { backgroundColor: palette.surface, borderColor: palette.border, shadowColor: isDarkMode ? '#020617' : '#101828' }]}>
+          <Text style={[styles.sectionLabel, { color: palette.muter }]}>Business details</Text>
+          <View style={styles.detailRow}>
+            <Text style={[styles.detailLabel, { color: palette.muter }]}>Business name</Text>
+            <Text style={[styles.detailValue, { color: palette.text }]}>{getProfileValue(businessProfile.name)}</Text>
+          </View>
+          <View style={styles.detailRow}>
+            <Text style={[styles.detailLabel, { color: palette.muter }]}>Contact number</Text>
+            <Text style={[styles.detailValue, { color: palette.text }]}>{getProfileValue(businessProfile.phone)}</Text>
+          </View>
+          <View style={styles.detailRow}>
+            <Text style={[styles.detailLabel, { color: palette.muter }]}>Email</Text>
+            <Text style={[styles.detailValue, { color: palette.text }]}>{getProfileValue(businessProfile.email)}</Text>
+          </View>
+          <View style={[styles.detailRow, styles.lastDetailRow]}>
+            <Text style={[styles.detailLabel, { color: palette.muter }]}>Address</Text>
+            <Text style={[styles.detailValue, { color: palette.text }]}>{getProfileValue(businessProfile.address)}</Text>
+          </View>
         </View>
 
         <View style={[styles.card, { backgroundColor: palette.surface, borderColor: palette.border, shadowColor: isDarkMode ? '#020617' : '#101828' }]}>
@@ -228,6 +252,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     marginBottom: 11,
+  },
+  lastDetailRow: {
+    marginBottom: 0,
   },
   detailLabel: {
     fontSize: 13,

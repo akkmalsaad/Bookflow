@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Linking from 'expo-linking';
 import { useRouter } from 'expo-router';
-import { Alert, Animated, FlatList, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Animated, FlatList, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -31,6 +31,11 @@ export default function InvoicesScreen() {
   const [draftAmount, setDraftAmount] = useState(invoiceDraft ? String(invoiceDraft.amount) : packages[0] ? String(packages[0].price) : '');
   const [draftDueDate, setDraftDueDate] = useState(invoiceDraft?.dueDate ?? new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10));
   const dropdownAnim = useRef(new Animated.Value(0)).current;
+  const softSurface = isDarkMode ? '#172033' : '#F7F9FD';
+  const softInset = isDarkMode ? '#111A2B' : '#EEF2F8';
+  const softBorder = isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.9)';
+  const softShadow = isDarkMode ? '#020617' : '#A7B4C8';
+  const accentSoft = isDarkMode ? '#29284B' : '#E9E8FF';
 
   const selectedPackage = packages.find((item) => item.id === selectedPackageId) ?? null;
   const selectedCustomer = customers.find((customer) => customer.id === selectedCustomerId) ?? null;
@@ -152,13 +157,20 @@ export default function InvoicesScreen() {
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]}>
+      <View pointerEvents="none" style={[styles.ambientOrb, styles.ambientOrbTop, { backgroundColor: isDarkMode ? '#293258' : '#E4E6FF' }]} />
+      <View pointerEvents="none" style={[styles.ambientOrb, styles.ambientOrbSide, { backgroundColor: isDarkMode ? '#163B38' : '#DFF7EF' }]} />
       <View style={styles.headerRow}>
-        <View>
-          <Text style={[styles.eyebrow, { color: palette.accent }]}>Invoices</Text>
-          <Text style={[styles.title, { color: palette.text }]}>Client billing</Text>
+        <View style={styles.headerTitleGroup}>
+          <View style={[styles.headerIcon, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
+            <Ionicons name="receipt-outline" size={23} color={palette.accent} />
+          </View>
+          <View style={styles.headerCopy}>
+            <Text style={[styles.eyebrow, { color: palette.accent }]}>Invoices</Text>
+            <Text style={[styles.title, { color: palette.text }]} numberOfLines={1}>Client billing</Text>
+          </View>
         </View>
         <Pressable
-          style={styles.primaryButton}
+          style={[styles.primaryButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]}
           onPress={() => {
             setInvoiceDraft(null);
             setSelectedPackageId(packages[0]?.id ?? '');
@@ -181,42 +193,68 @@ export default function InvoicesScreen() {
             item.status === 'Paid' ? 'green' : item.status === 'Accepted' ? 'blue' : item.status === 'Overdue' ? 'amber' : item.status === 'Declined' ? 'red' : 'gray';
 
           return (
-            <View style={[styles.card, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+            <View style={[styles.card, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
+              <View style={[styles.cardAccent, { backgroundColor: palette.accent }]} />
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={`Open invoice ${item.id}`}
                 onPress={() => router.push({ pathname: '/invoice/[invoiceId]', params: { invoiceId: item.id } })}
                 style={({ pressed }) => pressed && styles.cardPressed}>
                 <View style={styles.cardHeader}>
-                  <View>
+                  <View style={[styles.invoiceIcon, { backgroundColor: accentSoft }]}>
+                    <Ionicons name="document-text-outline" size={20} color={palette.accent} />
+                  </View>
+                  <View style={styles.cardHeaderCopy}>
                     <Text style={[styles.cardTitle, { color: palette.text }]}>{item.id}</Text>
-                    <Text style={[styles.customer, { color: palette.muter }]}>{customer?.name ?? 'Unknown customer'}</Text>
+                    <Text style={[styles.customer, { color: palette.muter }]} numberOfLines={1}>{customer?.name ?? 'Unknown customer'}</Text>
                   </View>
                   <StatusPill label={item.status} tone={tone} />
                 </View>
-                <View style={styles.metaRow}>
-                  <Text style={[styles.metaLabel, { color: palette.muter }]}>Due date</Text>
-                  <Text style={[styles.metaValue, { color: palette.text }]}>{item.dueDate}</Text>
+
+                <View style={[styles.metaPanel, { backgroundColor: softInset }]}>
+                  <View style={styles.metaRow}>
+                    <View style={[styles.metaIcon, { backgroundColor: softSurface }]}>
+                      <Ionicons name="calendar-outline" size={16} color={palette.accent} />
+                    </View>
+                    <View style={styles.metaCopy}>
+                      <Text style={[styles.metaLabel, { color: palette.muter }]}>Due date</Text>
+                      <Text style={[styles.metaValue, { color: palette.text }]}>{item.dueDate}</Text>
+                    </View>
+                  </View>
+                  <View style={[styles.metaRow, styles.metaRowLast]}>
+                    <View style={[styles.metaIcon, { backgroundColor: softSurface }]}>
+                      <Ionicons name="paper-plane-outline" size={16} color={palette.accent} />
+                    </View>
+                    <View style={styles.metaCopy}>
+                      <Text style={[styles.metaLabel, { color: palette.muter }]}>Sent</Text>
+                      <Text style={[styles.metaValue, { color: palette.text }]}>{item.sentAt}</Text>
+                    </View>
+                  </View>
                 </View>
-                <View style={styles.metaRow}>
-                  <Text style={[styles.metaLabel, { color: palette.muter }]}>Sent</Text>
-                  <Text style={[styles.metaValue, { color: palette.text }]}>{item.sentAt}</Text>
+
+                <View style={styles.amountRow}>
+                  <View>
+                    <Text style={[styles.amountLabel, { color: palette.muter }]}>Invoice total</Text>
+                    <Text style={[styles.amount, { color: palette.text }]}>{currencyFormatter.format(item.amount)}</Text>
+                  </View>
+                  <View style={[styles.detailArrow, { backgroundColor: accentSoft }]}>
+                    <Ionicons name="chevron-forward" size={18} color={palette.accent} />
+                  </View>
                 </View>
-                <Text style={[styles.amount, { color: palette.text }]}>{currencyFormatter.format(item.amount)}</Text>
               </Pressable>
 
               {item.status !== 'Paid' && (
                 <View style={styles.actionRow}>
-                  <Pressable style={styles.linkButton} onPress={() => handleShareInvoice(item)}>
+                  <Pressable style={[styles.linkButton, styles.actionButtonShadow]} onPress={() => handleShareInvoice(item)}>
                     <Ionicons name="logo-whatsapp" size={17} color="#fff" />
                     <Text style={styles.linkButtonText}>Send invoice</Text>
                   </Pressable>
                   {item.status === 'Accepted' ? (
-                    <Pressable style={styles.paymentButton} onPress={() => updateInvoiceStatus(item.id, 'Paid')}>
+                    <Pressable style={[styles.paymentButton, styles.actionButtonShadow]} onPress={() => updateInvoiceStatus(item.id, 'Paid')}>
                       <Text style={styles.paymentButtonText}>Payment done</Text>
                     </Pressable>
                   ) : (
-                    <Pressable style={styles.acceptButton} onPress={() => updateInvoiceStatus(item.id, 'Accepted')}>
+                    <Pressable style={[styles.acceptButton, styles.actionButtonShadow, { backgroundColor: palette.accent }]} onPress={() => updateInvoiceStatus(item.id, 'Accepted')}>
                       <Text style={styles.acceptButtonText}>Accept</Text>
                     </Pressable>
                   )}
@@ -229,31 +267,49 @@ export default function InvoicesScreen() {
 
       <Modal visible={showComposer} transparent animationType="slide" onRequestClose={() => setShowComposer(false)}>
         <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+          <View style={[styles.modalCard, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
+            <View style={[styles.modalHandle, { backgroundColor: palette.border }]} />
             <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: palette.text }]}>New invoice</Text>
-              <Pressable onPress={() => {
-                setInvoiceDraft(null);
-                setSelectedPackageId(packages[0]?.id ?? '');
-                setUsePackagePrice(Boolean(packages.length));
-                setDraftAmount(packages[0] ? String(packages[0].price) : '');
-                setShowComposer(false);
-              }}>
+              <View>
+                <Text style={[styles.modalEyebrow, { color: palette.accent }]}>Create</Text>
+                <Text style={[styles.modalTitle, { color: palette.text }]}>New invoice</Text>
+              </View>
+              <Pressable
+                style={[styles.closeButton, { backgroundColor: softInset }]}
+                onPress={() => {
+                  setInvoiceDraft(null);
+                  setSelectedPackageId(packages[0]?.id ?? '');
+                  setUsePackagePrice(Boolean(packages.length));
+                  setDraftAmount(packages[0] ? String(packages[0].price) : '');
+                  setShowComposer(false);
+                }}>
                 <Ionicons name="close" size={24} color={palette.text} />
               </Pressable>
             </View>
 
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={styles.modalScrollContent}>
             <Text style={[styles.fieldLabel, { color: palette.muter }]}>Customer source</Text>
             <View style={styles.modeRow}>
               <Pressable
                 onPress={() => setCustomerMode('existing')}
-                style={[styles.modeButton, customerMode === 'existing' && styles.modeButtonActive]}>
-                <Text style={[styles.modeButtonText, customerMode === 'existing' && styles.modeButtonTextActive]}>Existing customer</Text>
+                style={[
+                  styles.modeButton,
+                  { backgroundColor: softInset, borderColor: softBorder },
+                  customerMode === 'existing' && { backgroundColor: accentSoft, borderColor: palette.accent },
+                ]}>
+                <Text style={[styles.modeButtonText, { color: customerMode === 'existing' ? palette.accent : palette.text }]}>Existing customer</Text>
               </Pressable>
               <Pressable
                 onPress={() => setCustomerMode('manual')}
-                style={[styles.modeButton, customerMode === 'manual' && styles.modeButtonActive]}>
-                <Text style={[styles.modeButtonText, customerMode === 'manual' && styles.modeButtonTextActive]}>Manual entry</Text>
+                style={[
+                  styles.modeButton,
+                  { backgroundColor: softInset, borderColor: softBorder },
+                  customerMode === 'manual' && { backgroundColor: accentSoft, borderColor: palette.accent },
+                ]}>
+                <Text style={[styles.modeButtonText, { color: customerMode === 'manual' ? palette.accent : palette.text }]}>Manual entry</Text>
               </Pressable>
             </View>
 
@@ -262,7 +318,7 @@ export default function InvoicesScreen() {
                 <Text style={[styles.fieldLabel, { color: palette.muter }]}>Select customer</Text>
                 <Pressable
                   onPress={() => setShowCustomerDropdown((current) => !current)}
-                  style={[styles.dropdownButton, { backgroundColor: palette.surfaceAlt, borderColor: palette.border }, showCustomerDropdown && { borderColor: palette.accent, backgroundColor: palette.iconWrap }]}>
+                  style={[styles.dropdownButton, { backgroundColor: softInset, borderColor: softBorder }, showCustomerDropdown && { borderColor: palette.accent, backgroundColor: accentSoft }]}>
                   <Text style={[styles.dropdownText, { color: palette.text }]}>{selectedCustomer ? selectedCustomer.name : 'Choose a customer'}</Text>
                   <Ionicons name={showCustomerDropdown ? 'chevron-up' : 'chevron-down'} size={18} color={palette.text} />
                 </Pressable>
@@ -276,8 +332,8 @@ export default function InvoicesScreen() {
                         outputRange: [0, 220],
                       }),
                       opacity: dropdownAnim,
-                      backgroundColor: palette.surfaceAlt,
-                      borderColor: palette.border,
+                      backgroundColor: softInset,
+                      borderColor: softBorder,
                     },
                   ]}>
                   <TextInput
@@ -285,7 +341,7 @@ export default function InvoicesScreen() {
                     onChangeText={setCustomerQuery}
                     placeholder="Search customer"
                     placeholderTextColor={palette.muter}
-                    style={[styles.searchInput, { backgroundColor: palette.surface, borderColor: palette.border, color: palette.text }]}
+                    style={[styles.searchInput, { backgroundColor: softSurface, borderColor: softBorder, color: palette.text }]}
                   />
 
                   <View style={styles.dropdownList}>
@@ -298,7 +354,7 @@ export default function InvoicesScreen() {
                             setCustomerQuery('');
                             setShowCustomerDropdown(false);
                           }}
-                          style={[styles.selectOption, { backgroundColor: palette.surface, borderColor: palette.border }, selectedCustomerId === customer.id && { backgroundColor: palette.iconWrap, borderColor: palette.accent }]}>
+                          style={[styles.selectOption, { backgroundColor: softSurface, borderColor: softBorder }, selectedCustomerId === customer.id && { backgroundColor: accentSoft, borderColor: palette.accent }]}>
                           <Text style={[styles.selectText, { color: palette.text }]}>{customer.name}</Text>
                           <Text style={[styles.selectSubtext, { color: palette.muter }]}>{customer.email}</Text>
                         </Pressable>
@@ -312,13 +368,13 @@ export default function InvoicesScreen() {
             ) : (
               <>
                 <Text style={[styles.fieldLabel, { color: palette.muter }]}>Customer name</Text>
-                <TextInput value={manualName} onChangeText={setManualName} style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]} placeholder="Jane Smith" placeholderTextColor={palette.muter} />
+                <TextInput value={manualName} onChangeText={setManualName} style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]} placeholder="Siti Nur Izzah" placeholderTextColor={palette.muter} />
 
                 <Text style={[styles.fieldLabel, { color: palette.muter }]}>Customer email</Text>
-                <TextInput value={manualEmail} onChangeText={setManualEmail} style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]} placeholder="jane@example.com" keyboardType="email-address" placeholderTextColor={palette.muter} />
+                <TextInput value={manualEmail} onChangeText={setManualEmail} style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]} placeholder="siti@example.my" keyboardType="email-address" placeholderTextColor={palette.muter} />
 
                 <Text style={[styles.fieldLabel, { color: palette.muter }]}>Customer phone</Text>
-                <TextInput value={manualPhone} onChangeText={setManualPhone} style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]} placeholder="+1 (555) 123-4567" placeholderTextColor={palette.muter} />
+                <TextInput value={manualPhone} onChangeText={setManualPhone} style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]} placeholder="+60 12-345 6789" placeholderTextColor={palette.muter} />
               </>
             )}
 
@@ -330,14 +386,14 @@ export default function InvoicesScreen() {
                   setUsePackagePrice(false);
                   setDraftAmount('');
                 }}
-                style={[styles.selectOption, { backgroundColor: palette.surface, borderColor: palette.border }, !usePackagePrice && { backgroundColor: palette.iconWrap, borderColor: palette.accent }]}>
+                style={[styles.selectOption, { backgroundColor: softInset, borderColor: softBorder }, !usePackagePrice && { backgroundColor: accentSoft, borderColor: palette.accent }]}>
                 <Text style={[styles.selectText, { color: palette.text }]}>Custom amount</Text>
               </Pressable>
               {packages.map((item) => (
                 <Pressable
                   key={item.id}
                   onPress={() => handlePackageSelection(item.id)}
-                  style={[styles.selectOption, { backgroundColor: palette.surface, borderColor: palette.border }, selectedPackageId === item.id && { backgroundColor: palette.iconWrap, borderColor: palette.accent }]}>
+                  style={[styles.selectOption, { backgroundColor: softInset, borderColor: softBorder }, selectedPackageId === item.id && { backgroundColor: accentSoft, borderColor: palette.accent }]}>
                   <Text style={[styles.selectText, { color: palette.text }]}>
                     {item.name} · <Text style={styles.inlineCurrency}>{currencyFormatter.format(item.price)}</Text>
                   </Text>
@@ -350,7 +406,7 @@ export default function InvoicesScreen() {
               value={draftAmount}
               onChangeText={setDraftAmount}
               keyboardType="numeric"
-              style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }, usePackagePrice && selectedPackageId ? styles.inputDisabled : null]}
+              style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }, usePackagePrice && selectedPackageId ? styles.inputDisabled : null]}
               placeholder="2500"
               placeholderTextColor={palette.muter}
               editable={!usePackagePrice || !selectedPackageId}
@@ -360,14 +416,15 @@ export default function InvoicesScreen() {
             <TextInput
               value={draftDueDate}
               onChangeText={setDraftDueDate}
-              style={[styles.input, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.text }]}
+              style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
               placeholder="YYYY-MM-DD"
               placeholderTextColor={palette.muter}
             />
 
-            <Pressable style={styles.submitButton} onPress={handleCreateInvoice}>
+            <Pressable style={[styles.submitButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]} onPress={handleCreateInvoice}>
               <Text style={styles.submitButtonText}>Save invoice</Text>
             </Pressable>
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -378,33 +435,78 @@ export default function InvoicesScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
+    overflow: 'hidden',
     paddingHorizontal: 20,
-    paddingTop: 12,
+    paddingTop: 14,
+  },
+  ambientOrb: {
+    position: 'absolute',
+    borderRadius: 999,
+    opacity: 0.72,
+  },
+  ambientOrbTop: {
+    width: 220,
+    height: 220,
+    top: -118,
+    right: -86,
+  },
+  ambientOrbSide: {
+    width: 170,
+    height: 170,
+    top: 430,
+    left: -126,
   },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 18,
+    marginBottom: 24,
+  },
+  headerTitleGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 12,
+  },
+  headerIcon: {
+    width: 54,
+    height: 54,
+    borderRadius: 18,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    shadowOffset: { width: 6, height: 7 },
+    elevation: 5,
+  },
+  headerCopy: {
+    flex: 1,
+    minWidth: 0,
   },
   eyebrow: {
     textTransform: 'uppercase',
     fontSize: 12,
     fontWeight: '700',
     letterSpacing: 1,
-    marginBottom: 6,
+    marginBottom: 5,
   },
   title: {
-    fontSize: 28,
+    fontSize: 19,
     fontWeight: '800',
+    letterSpacing: -0.45,
   },
   primaryButton: {
     alignItems: 'center',
     flexDirection: 'row',
-    backgroundColor: '#111827',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    borderRadius: 16,
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    shadowOpacity: 0.24,
+    shadowRadius: 12,
+    shadowOffset: { width: 4, height: 7 },
+    elevation: 5,
   },
   primaryButtonText: {
     color: '#fff',
@@ -412,18 +514,27 @@ const styles = StyleSheet.create({
     marginLeft: 6,
   },
   list: {
-    paddingBottom: 100,
+    paddingBottom: 116,
   },
   card: {
-    backgroundColor: '#fff',
-    borderRadius: 18,
-    padding: 18,
-    marginBottom: 14,
-    shadowColor: '#101828',
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 2,
+    position: 'relative',
+    borderRadius: 26,
+    borderWidth: 1,
+    padding: 20,
+    marginBottom: 16,
+    shadowOpacity: 0.16,
+    shadowRadius: 18,
+    shadowOffset: { width: 8, height: 10 },
+    elevation: 5,
+  },
+  cardAccent: {
+    position: 'absolute',
+    top: 23,
+    left: 0,
+    width: 4,
+    height: 40,
+    borderTopRightRadius: 4,
+    borderBottomRightRadius: 4,
   },
   cardPressed: {
     opacity: 0.7,
@@ -431,52 +542,109 @@ const styles = StyleSheet.create({
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 12,
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  invoiceIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  cardHeaderCopy: {
+    flex: 1,
+    minWidth: 0,
+    marginRight: 10,
   },
   cardTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#111827',
+    fontSize: 17,
+    fontWeight: '800',
+    letterSpacing: -0.25,
     marginBottom: 4,
   },
   customer: {
-    color: '#6B7280',
-    fontSize: 13,
+    fontSize: 12,
+  },
+  metaPanel: {
+    borderRadius: 18,
+    padding: 10,
   },
   metaRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 8,
   },
+  metaRowLast: {
+    marginBottom: 0,
+  },
+  metaIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  metaCopy: {
+    flex: 1,
+  },
   metaLabel: {
-    color: '#6B7280',
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.45,
+    textTransform: 'uppercase',
+    marginBottom: 3,
   },
   metaValue: {
-    color: '#111827',
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  amountRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 16,
+  },
+  amountLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.55,
+    textTransform: 'uppercase',
+    marginBottom: 4,
   },
   amount: {
-    marginTop: 10,
     fontSize: 22,
-    color: '#111827',
-    fontWeight: '800',
+    fontWeight: '900',
+    letterSpacing: -0.45,
+  },
+  detailArrow: {
+    width: 38,
+    height: 38,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   actionRow: {
-    marginTop: 16,
+    marginTop: 14,
     flexDirection: 'row',
     gap: 10,
+  },
+  actionButtonShadow: {
+    shadowColor: '#020617',
+    shadowOpacity: 0.14,
+    shadowRadius: 9,
+    shadowOffset: { width: 3, height: 5 },
+    elevation: 3,
   },
   linkButton: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 10,
-    borderRadius: 10,
+    paddingVertical: 12,
+    borderRadius: 15,
     backgroundColor: '#128C7E',
   },
   linkButtonText: {
@@ -487,9 +655,8 @@ const styles = StyleSheet.create({
   acceptButton: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: 10,
-    borderRadius: 10,
-    backgroundColor: '#111827',
+    paddingVertical: 12,
+    borderRadius: 15,
   },
   acceptButtonText: {
     color: '#fff',
@@ -498,8 +665,8 @@ const styles = StyleSheet.create({
   paymentButton: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: 10,
-    borderRadius: 10,
+    paddingVertical: 12,
+    borderRadius: 15,
     backgroundColor: '#117A4C',
   },
   paymentButtonText: {
@@ -508,33 +675,64 @@ const styles = StyleSheet.create({
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.42)',
-    justifyContent: 'center',
-    padding: 20,
+    backgroundColor: 'rgba(15, 23, 42, 0.58)',
+    justifyContent: 'flex-end',
   },
   modalCard: {
-    backgroundColor: '#fff',
-    borderRadius: 22,
-    padding: 20,
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    borderWidth: 1,
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 28,
+    maxHeight: '92%',
+    shadowOpacity: 0.32,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: -8 },
+    elevation: 14,
+  },
+  modalHandle: {
+    width: 42,
+    height: 5,
+    borderRadius: 3,
+    alignSelf: 'center',
+    marginBottom: 10,
+  },
+  modalScrollContent: {
+    paddingBottom: 4,
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 10,
   },
   modalTitle: {
     fontSize: 22,
+    fontWeight: '900',
+    letterSpacing: -0.4,
+  },
+  modalEyebrow: {
+    fontSize: 10,
     fontWeight: '800',
-    color: '#111827',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    marginBottom: 3,
+  },
+  closeButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   fieldLabel: {
-    color: '#4B5563',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
-    marginBottom: 6,
+    marginBottom: 8,
+    marginTop: 14,
     textTransform: 'uppercase',
-    letterSpacing: 0.8,
+    letterSpacing: 0.65,
   },
   modeRow: {
     flexDirection: 'row',
@@ -544,22 +742,13 @@ const styles = StyleSheet.create({
   modeButton: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 12,
-    paddingVertical: 10,
+    borderRadius: 16,
+    paddingVertical: 12,
     alignItems: 'center',
-    backgroundColor: '#F9FAFB',
-  },
-  modeButtonActive: {
-    backgroundColor: '#EEF2FF',
-    borderColor: '#A5B4FC',
   },
   modeButtonText: {
-    color: '#374151',
     fontWeight: '700',
-  },
-  modeButtonTextActive: {
-    color: '#312E81',
+    fontSize: 13,
   },
   selectWrap: {
     gap: 8,
@@ -567,42 +756,28 @@ const styles = StyleSheet.create({
   },
   selectOption: {
     borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 10,
+    borderRadius: 14,
     paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  selectOptionSelected: {
-    backgroundColor: '#EEF2FF',
-    borderColor: '#A5B4FC',
+    paddingVertical: 11,
   },
   dropdownButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
     marginBottom: 12,
-    backgroundColor: '#fff',
-  },
-  dropdownButtonActive: {
-    borderColor: '#A5B4FC',
-    backgroundColor: '#EEF2FF',
   },
   dropdownText: {
-    color: '#111827',
     fontWeight: '600',
     flex: 1,
   },
   dropdownPanel: {
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 12,
-    backgroundColor: '#F9FAFB',
+    borderRadius: 18,
     marginBottom: 12,
   },
   dropdownList: {
@@ -611,52 +786,46 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     margin: 8,
-    backgroundColor: '#fff',
-    color: '#111827',
   },
   selectText: {
-    color: '#111827',
     fontWeight: '600',
   },
   inlineCurrency: {
     fontSize: 12,
   },
   selectSubtext: {
-    color: '#6B7280',
     fontSize: 12,
     marginTop: 2,
   },
   emptySearchText: {
-    color: '#6B7280',
     fontSize: 12,
     paddingVertical: 10,
     textAlign: 'center',
   },
   input: {
     borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: 12,
-    color: '#111827',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 8,
     fontSize: 14,
   },
   inputDisabled: {
-    backgroundColor: '#F3F4F6',
-    color: '#6B7280',
+    opacity: 0.62,
   },
   submitButton: {
-    marginTop: 8,
-    backgroundColor: '#111827',
-    borderRadius: 12,
-    paddingVertical: 12,
+    marginTop: 18,
+    borderRadius: 17,
+    paddingVertical: 15,
     alignItems: 'center',
+    shadowOpacity: 0.24,
+    shadowRadius: 12,
+    shadowOffset: { width: 4, height: 7 },
+    elevation: 5,
   },
   submitButtonText: {
     color: '#fff',

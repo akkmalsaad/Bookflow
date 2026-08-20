@@ -181,7 +181,7 @@ const initialPackages: PackageOption[] = [
 ];
 
 const initialReminders: Reminder[] = [
-  { id: 'rem-1', title: 'Wedding reminder', dueDate: '2026-08-16', channel: 'email', status: 'scheduled' },
+  { id: 'rem-1', title: 'Akad nikah reminder', dueDate: '2026-08-16', channel: 'email', status: 'scheduled' },
   { id: 'rem-2', title: 'Invoice follow-up', dueDate: '2026-08-10', channel: 'whatsapp', status: 'scheduled' },
   { id: 'rem-3', title: 'Booking confirmation', dueDate: '2026-08-20', channel: 'sms', status: 'sent' },
 ];
@@ -190,7 +190,7 @@ const initialNotifications: AppNotification[] = [
   {
     id: 'notification-1',
     title: 'Invoice accepted',
-    message: 'Nadia Brooks accepted invoice inv-103.',
+    message: 'Priya Nair accepted invoice inv-103.',
     createdAt: '2026-08-13T09:30:00.000Z',
     isOpened: false,
     type: 'invoice',
@@ -198,7 +198,7 @@ const initialNotifications: AppNotification[] = [
   {
     id: 'notification-2',
     title: 'Invoice overdue',
-    message: 'Invoice inv-104 for Milo Chen is now overdue.',
+    message: 'Invoice inv-104 for Daniel Tan Wei Ming is now overdue.',
     createdAt: '2026-08-12T08:15:00.000Z',
     isOpened: false,
     type: 'invoice',
@@ -206,7 +206,7 @@ const initialNotifications: AppNotification[] = [
   {
     id: 'notification-3',
     title: 'Booking coming up',
-    message: 'Wedding Coverage is scheduled for August 18.',
+    message: 'Akad Nikah & Reception is scheduled for 18 August.',
     createdAt: '2026-08-11T04:00:00.000Z',
     isOpened: true,
     type: 'booking',
@@ -302,7 +302,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           !safeTitle ||
           Number.isNaN(booking.price) ||
           booking.price <= 0 ||
-          (!existingCustomer && (!safeNewCustomerName || !safeNewCustomerEmail))
+          (!existingCustomer && !safeNewCustomerName)
         ) {
           return null;
         }

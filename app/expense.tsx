@@ -7,8 +7,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { FinanceEntry, getCurrencyFormatter, useAppData } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 
-const CATEGORY_COLORS = ['#4F46E5', '#0EA5E9', '#10B981', '#F59E0B', '#EC4899', '#8B5CF6', '#14B8A6', '#EF4444'];
-const ICON_GREEN = '#1DAA72';
+const CATEGORY_COLORS = ['#E11D48', '#F59E0B', '#8B5CF6', '#0EA5E9', '#EC4899', '#10B981', '#F97316', '#4F46E5'];
+const ICON_RED = '#E11D48';
+const AMOUNT_RED = '#B42318';
+const GOOD_GREEN = '#1DAA72';
 
 function getMonthKey(date: Date) {
   const year = date.getFullYear();
@@ -100,7 +102,7 @@ function SoftRow({
   );
 }
 
-export default function IncomeScreen() {
+export default function ExpenseScreen() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
   const { financeEntries, currency } = useAppData();
@@ -108,29 +110,29 @@ export default function IncomeScreen() {
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const tone = softTone(isDarkMode);
 
-  const incomeEntries = useMemo(
+  const expenseEntries = useMemo(
     () =>
       financeEntries
-        .filter((entry) => entry.type === 'income')
+        .filter((entry) => entry.type === 'expense')
         .sort((a, b) => (a.date < b.date ? 1 : -1)),
     [financeEntries],
   );
 
-  const totalIncome = incomeEntries.reduce((sum, entry) => sum + entry.amount, 0);
-  const averageIncome = incomeEntries.length ? totalIncome / incomeEntries.length : 0;
+  const totalExpense = expenseEntries.reduce((sum, entry) => sum + entry.amount, 0);
+  const averageExpense = expenseEntries.length ? totalExpense / expenseEntries.length : 0;
 
   const highestEntry = useMemo(
     () =>
-      incomeEntries.reduce<FinanceEntry | null>(
+      expenseEntries.reduce<FinanceEntry | null>(
         (max, entry) => (!max || entry.amount > max.amount ? entry : max),
         null,
       ),
-    [incomeEntries],
+    [expenseEntries],
   );
 
   const categoryBreakdown = useMemo(() => {
     const totals = new Map<string, number>();
-    incomeEntries.forEach((entry) => {
+    expenseEntries.forEach((entry) => {
       totals.set(entry.category, (totals.get(entry.category) ?? 0) + entry.amount);
     });
 
@@ -138,20 +140,20 @@ export default function IncomeScreen() {
       .map(([category, amount], index) => ({
         category,
         amount,
-        percent: totalIncome > 0 ? amount / totalIncome : 0,
+        percent: totalExpense > 0 ? amount / totalExpense : 0,
         color: CATEGORY_COLORS[index % CATEGORY_COLORS.length],
       }))
       .sort((a, b) => b.amount - a.amount);
-  }, [incomeEntries, totalIncome]);
+  }, [expenseEntries, totalExpense]);
 
   const monthlyTotals = useMemo(() => {
     const totals = new Map<string, number>();
-    incomeEntries.forEach((entry) => {
+    expenseEntries.forEach((entry) => {
       const monthKey = entry.date.slice(0, 7);
       totals.set(monthKey, (totals.get(monthKey) ?? 0) + entry.amount);
     });
     return totals;
-  }, [incomeEntries]);
+  }, [expenseEntries]);
 
   const monthlyTrend = useMemo(() => {
     const now = new Date();
@@ -199,14 +201,14 @@ export default function IncomeScreen() {
 
         <View style={styles.headerCopy}>
           <Text style={[styles.eyebrow, { color: palette.accent }]}>Finance</Text>
-          <Text style={[styles.title, { color: palette.text }]}>Income breakdown</Text>
+          <Text style={[styles.title, { color: palette.text }]}>Expense breakdown</Text>
         </View>
       </View>
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <SoftCard isDarkMode={isDarkMode} style={styles.heroOuter}>
           <View style={styles.heroTopRow}>
-            <Text style={[styles.heroLabel, { color: palette.muter }]}>Total income</Text>
+            <Text style={[styles.heroLabel, { color: palette.muter }]}>Total expense</Text>
             {monthlyDelta ? (
               <View
                 style={[
@@ -214,34 +216,34 @@ export default function IncomeScreen() {
                   {
                     backgroundColor:
                       monthlyDelta.kind === 'new' || monthlyDelta.value >= 0
-                        ? 'rgba(29, 170, 114, 0.16)'
-                        : 'rgba(225, 29, 72, 0.14)',
+                        ? 'rgba(225, 29, 72, 0.14)'
+                        : 'rgba(29, 170, 114, 0.16)',
                   },
                 ]}>
                 <Ionicons
                   name={monthlyDelta.kind === 'new' || monthlyDelta.value >= 0 ? 'arrow-up' : 'arrow-down'}
                   size={11}
-                  color={monthlyDelta.kind === 'new' || monthlyDelta.value >= 0 ? ICON_GREEN : palette.danger}
+                  color={monthlyDelta.kind === 'new' || monthlyDelta.value >= 0 ? ICON_RED : GOOD_GREEN}
                 />
                 <Text
                   style={[
                     styles.deltaChipText,
-                    { color: monthlyDelta.kind === 'new' || monthlyDelta.value >= 0 ? ICON_GREEN : palette.danger },
+                    { color: monthlyDelta.kind === 'new' || monthlyDelta.value >= 0 ? ICON_RED : GOOD_GREEN },
                   ]}>
                   {monthlyDelta.kind === 'new' ? 'New this month' : `${Math.abs(Math.round(monthlyDelta.value))}% vs last month`}
                 </Text>
               </View>
             ) : null}
           </View>
-          <Text style={[styles.heroValue, { color: palette.text }]}>{currencyFormatter.format(totalIncome)}</Text>
+          <Text style={[styles.heroValue, { color: palette.text }]}>{currencyFormatter.format(totalExpense)}</Text>
           <View style={styles.heroStatsRow}>
             <View style={styles.heroStat}>
               <Text style={[styles.heroStatLabel, { color: palette.muter }]}>Transactions</Text>
-              <Text style={[styles.heroStatValue, { color: palette.text }]}>{incomeEntries.length}</Text>
+              <Text style={[styles.heroStatValue, { color: palette.text }]}>{expenseEntries.length}</Text>
             </View>
             <View style={styles.heroStat}>
               <Text style={[styles.heroStatLabel, { color: palette.muter }]}>Average</Text>
-              <Text style={[styles.heroStatValue, { color: palette.text }]}>{currencyFormatter.format(averageIncome)}</Text>
+              <Text style={[styles.heroStatValue, { color: palette.text }]}>{currencyFormatter.format(averageExpense)}</Text>
             </View>
             <View style={styles.heroStat}>
               <Text style={[styles.heroStatLabel, { color: palette.muter }]}>Highest</Text>
@@ -252,12 +254,12 @@ export default function IncomeScreen() {
           </View>
         </SoftCard>
 
-        {incomeEntries.length === 0 ? (
+        {expenseEntries.length === 0 ? (
           <SoftCard isDarkMode={isDarkMode} contentStyle={styles.emptyContent}>
-            <Ionicons name="trending-up-outline" size={30} color={palette.muter} />
-            <Text style={[styles.emptyTitle, { color: palette.text }]}>No income recorded yet</Text>
+            <Ionicons name="trending-down-outline" size={30} color={palette.muter} />
+            <Text style={[styles.emptyTitle, { color: palette.text }]}>No expenses recorded yet</Text>
             <Text style={[styles.emptyMessage, { color: palette.muter }]}>
-              Income transactions you add will appear here with a full breakdown.
+              Expense transactions you add will appear here with a full breakdown.
             </Text>
           </SoftCard>
         ) : (
@@ -283,8 +285,8 @@ export default function IncomeScreen() {
                         {item.category}
                       </Text>
                       {index === 0 ? (
-                        <View style={[styles.topBadge, { backgroundColor: 'rgba(29, 170, 114, 0.16)' }]}>
-                          <Text style={[styles.topBadgeText, { color: ICON_GREEN }]}>Top</Text>
+                        <View style={[styles.topBadge, { backgroundColor: 'rgba(225, 29, 72, 0.14)' }]}>
+                          <Text style={[styles.topBadgeText, { color: ICON_RED }]}>Top</Text>
                         </View>
                       ) : null}
                     </View>
@@ -311,7 +313,7 @@ export default function IncomeScreen() {
                           styles.barFill,
                           {
                             height: `${Math.max(item.ratio * 100, 4)}%`,
-                            backgroundColor: item.isCurrent ? palette.accent : `${palette.accent}45`,
+                            backgroundColor: item.isCurrent ? palette.danger : `${palette.danger}45`,
                           },
                         ]}
                       />
@@ -319,7 +321,7 @@ export default function IncomeScreen() {
                     <Text
                       style={[
                         styles.barLabel,
-                        { color: item.isCurrent ? palette.accent : palette.muter, fontWeight: item.isCurrent ? '800' : '700' },
+                        { color: item.isCurrent ? palette.danger : palette.muter, fontWeight: item.isCurrent ? '800' : '700' },
                       ]}>
                       {formatMonthLabel(item.month)}
                     </Text>
@@ -330,11 +332,11 @@ export default function IncomeScreen() {
 
             <Text style={[styles.sectionTitle, { color: palette.text }]}>Transactions</Text>
             <View style={styles.list}>
-              {incomeEntries.map((item) => (
+              {expenseEntries.map((item) => (
                 <SoftRow key={item.id} isDarkMode={isDarkMode} style={styles.entryCard}>
                   <View style={styles.entryLeft}>
-                    <View style={[styles.iconBadge, { backgroundColor: isDarkMode ? 'rgba(29, 170, 114, 0.18)' : 'rgba(29, 170, 114, 0.14)' }]}>
-                      <Ionicons name="trending-up" size={16} color={ICON_GREEN} />
+                    <View style={[styles.iconBadge, { backgroundColor: isDarkMode ? 'rgba(225, 29, 72, 0.2)' : 'rgba(225, 29, 72, 0.12)' }]}>
+                      <Ionicons name="trending-down" size={16} color={ICON_RED} />
                     </View>
                     <View style={styles.entryCopy}>
                       <Text style={[styles.entryCategory, { color: palette.text }]}>{item.category}</Text>
@@ -344,7 +346,7 @@ export default function IncomeScreen() {
                     </View>
                   </View>
                   <View style={styles.entryRight}>
-                    <Text style={styles.amount}>+{currencyFormatter.format(item.amount)}</Text>
+                    <Text style={styles.amount}>-{currencyFormatter.format(item.amount)}</Text>
                     <Text style={[styles.date, { color: palette.muter }]}>{formatEntryDate(item.date)}</Text>
                   </View>
                 </SoftRow>
@@ -607,7 +609,7 @@ const styles = StyleSheet.create({
   amount: {
     fontSize: 13,
     fontWeight: '800',
-    color: '#117A4C',
+    color: AMOUNT_RED,
     marginBottom: 4,
   },
   date: {
