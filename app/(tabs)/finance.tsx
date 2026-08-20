@@ -155,7 +155,7 @@ export default function FinanceScreen() {
               </View>
               <View style={styles.entryCopy}>
                 <Text style={[styles.entryCategory, { color: palette.text }]} numberOfLines={1}>{item.category}</Text>
-                <Text style={[styles.entryDescription, { color: palette.muter }]} numberOfLines={2}>{item.description}</Text>
+                <Text style={[styles.entryDescription, { color: palette.muter }]} numberOfLines={3}>{item.description}</Text>
               </View>
             </View>
             <View style={styles.entryRight}>
@@ -476,6 +476,8 @@ const styles = StyleSheet.create({
   },
   entryDescription: {
     fontSize: 12,
+    lineHeight: 16,
+    height: 48,
   },
   entryRight: {
     alignItems: 'flex-end',

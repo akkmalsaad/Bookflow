@@ -53,6 +53,7 @@ export type Invoice = {
   bookingId: string;
   customerId: string;
   amount: number;
+  depositPaid?: number;
   dueDate: string;
   status: 'Draft' | 'Sent' | 'Accepted' | 'Declined' | 'Paid' | 'Overdue' | 'Cancelled';
   sentAt: string;
@@ -146,11 +147,13 @@ type AppDataContextValue = {
   addInvoice: (invoice: Omit<Invoice, 'id'>) => void;
   setInvoiceDraft: (draft: InvoiceDraftPrefill | null) => void;
   updateInvoiceStatus: (invoiceId: string, status: Invoice['status']) => void;
+  updateInvoiceDeposit: (invoiceId: string, depositPaid: number) => boolean;
   addFinanceEntry: (entry: Omit<FinanceEntry, 'id'>) => void;
   addReminder: (reminder: Omit<Reminder, 'id'>) => void;
   markReminderSent: (reminderId: string) => void;
   markNotificationOpened: (notificationId: string) => void;
   markAllNotificationsOpened: () => void;
+  deleteAllData: () => void;
 };
 
 const initialPackages: PackageOption[] = [
@@ -429,6 +432,63 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           ]);
         }
       },
+      updateInvoiceDeposit: (invoiceId: string, depositPaid: number) => {
+        const invoice = invoices.find((item) => item.id === invoiceId);
+
+        if (!invoice || !Number.isFinite(depositPaid) || depositPaid <= 0 || depositPaid > invoice.amount) {
+          return false;
+        }
+
+        setInvoices((current) =>
+          current.map((item) =>
+            item.id === invoiceId
+              ? {
+                  ...item,
+                  depositPaid,
+                  status: depositPaid === item.amount ? 'Paid' : item.status,
+                }
+            : item,
+          ),
+        );
+
+        const client = customers.find((customer) => customer.id === invoice.customerId);
+        const isFullPayment = depositPaid === invoice.amount;
+        const paymentCategory = isFullPayment ? 'Full payment' : 'Invoice deposit';
+        const paymentLabel = isFullPayment ? 'Full payment received' : 'Deposit received';
+        const depositDescription = client
+          ? `${paymentLabel} ${client.name}\nFor Invoice ${invoiceId}`
+          : `${paymentLabel}\nFor Invoice ${invoiceId}`;
+        const depositEntryId = `fin-deposit-${invoiceId}`;
+        setFinanceEntries((current) => {
+          const existingDeposit = current.find((entry) => entry.id === depositEntryId);
+
+          if (existingDeposit) {
+            return current.map((entry) =>
+              entry.id === depositEntryId
+                ? {
+                    ...entry,
+                    amount: depositPaid,
+                    category: paymentCategory,
+                    description: depositDescription,
+                  }
+                : entry,
+            );
+          }
+
+          return [
+            {
+              id: depositEntryId,
+              category: paymentCategory,
+              amount: depositPaid,
+              date: new Date().toISOString().slice(0, 10),
+              description: depositDescription,
+              type: 'income',
+            },
+            ...current,
+          ];
+        });
+        return true;
+      },
       addFinanceEntry: (entry: Omit<FinanceEntry, 'id'>) => {
         setFinanceEntries((current) => [
           {
@@ -459,6 +519,18 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       },
       markAllNotificationsOpened: () => {
         setNotifications((current) => current.map((item) => ({ ...item, isOpened: true })));
+      },
+      deleteAllData: () => {
+        setPackages([]);
+        setCustomers([]);
+        setBookings([]);
+        setInvoices([]);
+        setFinanceEntries([]);
+        setReminders([]);
+        setNotifications([]);
+        setInvoiceDraft(null);
+        setBusinessProfile({ name: '', nature: '', phone: '', email: '', address: '' });
+        setCurrency('MYR');
       },
     }),
     [bookings, businessProfile, currency, customers, financeEntries, invoiceDraft, invoices, notifications, packages, reminders],

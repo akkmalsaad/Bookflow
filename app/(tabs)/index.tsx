@@ -24,12 +24,13 @@ function formatShortDate(dateKey: string) {
 export default function HomeScreen() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
-  const { bookings, customers, invoices, reminders, notifications, currency, businessProfile } = useAppData();
+  const { bookings, customers, financeEntries, invoices, reminders, notifications, currency, businessProfile } = useAppData();
   const palette = getThemePalette(isDarkMode);
   const unreadNotificationCount = notifications.filter((notification) => !notification.isOpened).length;
   const hasUnreadNotifications = unreadNotificationCount > 0;
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const todayKey = getLocalDateKey(new Date());
+  const currentMonthKey = todayKey.slice(0, 7);
   const todaysBookings = bookings.filter((booking) => booking.date === todayKey);
   const upcomingBookings = bookings.filter((booking) => booking.date >= todayKey && booking.status !== 'Cancelled');
   const nextBookingDate = upcomingBookings.reduce<string | null>(
@@ -38,9 +39,14 @@ export default function HomeScreen() {
   );
   const upcomingDetail = nextBookingDate ? `Next: ${formatShortDate(nextBookingDate)}` : 'No bookings scheduled';
   const customerMap = new Map(customers.map((customer) => [customer.id, customer]));
-  const totalRevenue = bookings.reduce((sum, booking) => sum + booking.price, 0);
-  const totalIncome = invoices.filter((invoice) => invoice.status === 'Paid' || invoice.status === 'Accepted').reduce((sum, invoice) => sum + invoice.amount, 0);
-  const totalExpense = invoices.filter((invoice) => invoice.status === 'Overdue' || invoice.status === 'Declined').reduce((sum, invoice) => sum + invoice.amount, 0);
+  const currentMonthTransactions = financeEntries.filter((entry) => entry.date.startsWith(currentMonthKey));
+  const totalRevenue = currentMonthTransactions
+    .filter((entry) => entry.type === 'income')
+    .reduce((sum, entry) => sum + entry.amount, 0);
+  const totalExpense = currentMonthTransactions
+    .filter((entry) => entry.type === 'expense')
+    .reduce((sum, entry) => sum + entry.amount, 0);
+  const totalIncome = totalRevenue - totalExpense;
   const softSurface = isDarkMode ? '#172033' : '#F7F9FD';
   const softInset = isDarkMode ? '#111A2B' : '#EEF2F8';
   const softBorder = isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.9)';
@@ -117,7 +123,6 @@ export default function HomeScreen() {
             </View>
             <View>
               <Text style={[styles.sectionTitle, { color: palette.text }]}>Today’s priority</Text>
-              <Text style={[styles.sectionSubtitle, { color: palette.muter }]}>Your next move, at a glance</Text>
             </View>
           </View>
           <Text style={[styles.link, { color: palette.accent }]}>View all</Text>
@@ -129,7 +134,6 @@ export default function HomeScreen() {
       <View style={styles.snapshotHeader}>
         <View>
           <Text style={[styles.sectionTitle, { color: palette.text }]}>Business snapshot</Text>
-          <Text style={[styles.sectionSubtitle, { color: palette.muter }]}>Your numbers in one view</Text>
         </View>
         <View style={[styles.snapshotIcon, { backgroundColor: softInset }]}>
           <Ionicons name="analytics-outline" size={18} color={palette.accent} />
@@ -139,8 +143,8 @@ export default function HomeScreen() {
       <View style={styles.statsGrid}>
         <StatCard label="Revenue" value={currencyFormatter.format(totalRevenue)} detail="This month" tone="blue" isCurrency />
         <StatCard label="Upcoming" value={String(upcomingBookings.length)} detail={upcomingDetail} tone="green" />
-        <StatCard label="Income" value={currencyFormatter.format(totalIncome)} detail="Collected" tone="amber" isCurrency />
-        <StatCard label="Expense" value={currencyFormatter.format(totalExpense)} detail="Outstanding" tone="purple" isCurrency />
+        <StatCard label="Income" value={currencyFormatter.format(totalIncome)} detail="After expenses" tone="amber" isCurrency />
+        <StatCard label="Expense" value={currencyFormatter.format(totalExpense)} detail="This month" tone="purple" isCurrency />
       </View>
 
       <View
@@ -159,7 +163,6 @@ export default function HomeScreen() {
             </View>
             <View>
               <Text style={[styles.sectionTitle, { color: palette.text }]}>Reminder queue</Text>
-              <Text style={[styles.sectionSubtitle, { color: palette.muter }]}>Keep every follow-up on track</Text>
             </View>
           </View>
           <View style={[styles.softCountPill, { backgroundColor: softInset }]}>
@@ -205,7 +208,6 @@ export default function HomeScreen() {
             </View>
             <View>
               <Text style={[styles.sectionTitle, { color: palette.text }]}>Recent invoices</Text>
-              <Text style={[styles.sectionSubtitle, { color: palette.muter }]}>Latest billing activity</Text>
             </View>
           </View>
           <Text style={[styles.link, { color: palette.accent }]}>Open</Text>

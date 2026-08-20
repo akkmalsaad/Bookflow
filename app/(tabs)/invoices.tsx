@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Linking from 'expo-linking';
 import { useRouter } from 'expo-router';
-import { Alert, Animated, FlatList, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Animated, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -12,7 +12,7 @@ import { getThemePalette, useTheme } from '@/context/theme-context';
 export default function InvoicesScreen() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
-  const { customers, invoices, packages, addCustomer, addInvoice, invoiceDraft, setInvoiceDraft, updateInvoiceStatus, currency } = useAppData();
+  const { customers, invoices, packages, addCustomer, addInvoice, invoiceDraft, setInvoiceDraft, updateInvoiceDeposit, updateInvoiceStatus, currency } = useAppData();
   const palette = getThemePalette(isDarkMode);
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const customerMap = new Map(customers.map((customer) => [customer.id, customer]));
@@ -30,6 +30,9 @@ export default function InvoicesScreen() {
   const [usePackagePrice, setUsePackagePrice] = useState(Boolean(packages.length));
   const [draftAmount, setDraftAmount] = useState(invoiceDraft ? String(invoiceDraft.amount) : packages[0] ? String(packages[0].price) : '');
   const [draftDueDate, setDraftDueDate] = useState(invoiceDraft?.dueDate ?? new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10));
+  const [depositInvoiceId, setDepositInvoiceId] = useState<string | null>(null);
+  const [depositAmount, setDepositAmount] = useState('');
+  const [depositError, setDepositError] = useState('');
   const dropdownAnim = useRef(new Animated.Value(0)).current;
   const softSurface = isDarkMode ? '#172033' : '#F7F9FD';
   const softInset = isDarkMode ? '#111A2B' : '#EEF2F8';
@@ -39,6 +42,7 @@ export default function InvoicesScreen() {
 
   const selectedPackage = packages.find((item) => item.id === selectedPackageId) ?? null;
   const selectedCustomer = customers.find((customer) => customer.id === selectedCustomerId) ?? null;
+  const depositInvoice = invoices.find((item) => item.id === depositInvoiceId) ?? null;
   const filteredCustomers = customers.filter((customer) => {
     const searchTerm = customerQuery.trim().toLowerCase();
     if (!searchTerm) {
@@ -155,6 +159,36 @@ export default function InvoicesScreen() {
     setShowComposer(false);
   };
 
+  const openDepositModal = (invoice: (typeof invoices)[number]) => {
+    setDepositInvoiceId(invoice.id);
+    setDepositAmount(invoice.depositPaid ? String(invoice.depositPaid) : '');
+    setDepositError('');
+  };
+
+  const closeDepositModal = () => {
+    setDepositInvoiceId(null);
+    setDepositAmount('');
+    setDepositError('');
+  };
+
+  const handleSaveDeposit = () => {
+    if (!depositInvoice) return;
+
+    const parsedAmount = Number(depositAmount.replace(/,/g, ''));
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      setDepositError('Enter a deposit amount greater than zero.');
+      return;
+    }
+    if (parsedAmount > depositInvoice.amount) {
+      setDepositError(`Deposit cannot exceed ${currencyFormatter.format(depositInvoice.amount)}.`);
+      return;
+    }
+
+    if (updateInvoiceDeposit(depositInvoice.id, parsedAmount)) {
+      closeDepositModal();
+    }
+  };
+
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]}>
       <View pointerEvents="none" style={[styles.ambientOrb, styles.ambientOrbTop, { backgroundColor: isDarkMode ? '#293258' : '#E4E6FF' }]} />
@@ -189,6 +223,8 @@ export default function InvoicesScreen() {
         contentContainerStyle={styles.list}
         renderItem={({ item }) => {
           const customer = customerMap.get(item.customerId);
+          const depositPaid = item.depositPaid ?? 0;
+          const remainingBalance = item.status === 'Paid' ? 0 : Math.max(0, item.amount - depositPaid);
           const tone =
             item.status === 'Paid' ? 'green' : item.status === 'Accepted' ? 'blue' : item.status === 'Overdue' ? 'amber' : item.status === 'Declined' ? 'red' : 'gray';
 
@@ -241,7 +277,33 @@ export default function InvoicesScreen() {
                     <Ionicons name="chevron-forward" size={18} color={palette.accent} />
                   </View>
                 </View>
+
+                {depositPaid > 0 ? (
+                  <View style={[styles.paymentSummary, { backgroundColor: softInset, borderColor: softBorder }]}>
+                    <View style={styles.paymentSummaryItem}>
+                      <Text style={[styles.paymentSummaryLabel, { color: palette.muter }]}>Deposit paid</Text>
+                      <Text style={[styles.paymentSummaryValue, { color: palette.success }]}>{currencyFormatter.format(depositPaid)}</Text>
+                    </View>
+                    <View style={[styles.paymentSummaryDivider, { backgroundColor: palette.border }]} />
+                    <View style={[styles.paymentSummaryItem, styles.paymentSummaryItemRight]}>
+                      <Text style={[styles.paymentSummaryLabel, { color: palette.muter }]}>Balance due</Text>
+                      <Text style={[styles.paymentSummaryValue, { color: palette.text }]}>{currencyFormatter.format(remainingBalance)}</Text>
+                    </View>
+                  </View>
+                ) : null}
               </Pressable>
+
+              {item.status !== 'Paid' && item.status !== 'Cancelled' && item.status !== 'Declined' ? (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => openDepositModal(item)}
+                  style={[styles.depositButton, { backgroundColor: accentSoft, borderColor: palette.accent }]}>
+                  <View style={styles.depositButtonLabel}>
+                    <Ionicons name="wallet-outline" size={18} color={palette.accent} />
+                    <Text style={[styles.depositButtonText, { color: palette.accent }]}>{depositPaid > 0 ? 'Update deposit' : 'Deposit paid'}</Text>
+                  </View>
+                </Pressable>
+              ) : null}
 
               {item.status !== 'Paid' && (
                 <View style={styles.actionRow}>
@@ -264,6 +326,66 @@ export default function InvoicesScreen() {
           );
         }}
       />
+
+      <Modal visible={depositInvoice !== null} transparent animationType="fade" onRequestClose={closeDepositModal}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.depositModalBackdrop}>
+          <View style={[styles.depositModalCard, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={[styles.modalEyebrow, { color: palette.accent }]}>Payment received</Text>
+                <Text style={[styles.modalTitle, { color: palette.text }]}>Record deposit</Text>
+              </View>
+              <Pressable onPress={closeDepositModal} style={[styles.closeButton, { backgroundColor: softInset }]} accessibilityLabel="Close deposit modal">
+                <Ionicons name="close" size={22} color={palette.text} />
+              </Pressable>
+            </View>
+
+            <Text style={[styles.depositModalCopy, { color: palette.muter }]}>Enter the amount received for {depositInvoice?.id}. The remaining customer balance updates automatically.</Text>
+
+            <View style={[styles.depositTotalRow, { backgroundColor: softInset }]}>
+              <Text style={[styles.depositTotalLabel, { color: palette.muter }]}>Invoice total</Text>
+              <Text style={[styles.depositTotalValue, { color: palette.text }]}>{currencyFormatter.format(depositInvoice?.amount ?? 0)}</Text>
+            </View>
+
+            <Text style={[styles.fieldLabel, { color: palette.muter }]}>Deposit amount</Text>
+            <View style={[styles.depositInputWrap, { backgroundColor: softInset, borderColor: depositError ? palette.danger : softBorder }]}>
+              <Text style={[styles.currencyPrefix, { color: palette.muter }]}>{currency}</Text>
+              <TextInput
+                autoFocus
+                keyboardType="decimal-pad"
+                onChangeText={(value) => {
+                  setDepositAmount(value.replace(/[^0-9.,]/g, ''));
+                  setDepositError('');
+                }}
+                onSubmitEditing={handleSaveDeposit}
+                placeholder="0.00"
+                placeholderTextColor={palette.muter}
+                returnKeyType="done"
+                selectionColor={palette.accent}
+                style={[styles.depositInput, { color: palette.text }]}
+                value={depositAmount}
+              />
+            </View>
+            {depositError ? <Text style={[styles.depositError, { color: palette.danger }]}>{depositError}</Text> : null}
+
+            <View style={styles.depositPreviewRow}>
+              <Text style={[styles.depositPreviewLabel, { color: palette.muter }]}>Remaining after deposit</Text>
+              <Text style={[styles.depositPreviewValue, { color: palette.text }]}>
+                {currencyFormatter.format(Math.max(0, (depositInvoice?.amount ?? 0) - (Number(depositAmount.replace(/,/g, '')) || 0)))}
+              </Text>
+            </View>
+
+            <View style={styles.depositModalActions}>
+              <Pressable onPress={closeDepositModal} style={[styles.depositCancelButton, { backgroundColor: softInset, borderColor: softBorder }]}>
+                <Text style={[styles.depositCancelText, { color: palette.text }]}>Cancel</Text>
+              </Pressable>
+              <Pressable onPress={handleSaveDeposit} style={[styles.depositSaveButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]}>
+                <Text style={styles.depositSaveText}>Save deposit</Text>
+              </Pressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
 
       <Modal visible={showComposer} transparent animationType="slide" onRequestClose={() => setShowComposer(false)}>
         <View style={styles.modalBackdrop}>
@@ -626,6 +748,56 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  paymentSummary: {
+    alignItems: 'center',
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: 'row',
+    marginTop: 14,
+    paddingHorizontal: 13,
+    paddingVertical: 11,
+  },
+  paymentSummaryItem: {
+    flex: 1,
+  },
+  paymentSummaryItemRight: {
+    alignItems: 'flex-end',
+  },
+  paymentSummaryDivider: {
+    height: 32,
+    marginHorizontal: 12,
+    width: StyleSheet.hairlineWidth,
+  },
+  paymentSummaryLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.55,
+    marginBottom: 4,
+    textTransform: 'uppercase',
+  },
+  paymentSummaryValue: {
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  depositButton: {
+    alignItems: 'center',
+    borderRadius: 15,
+    borderWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  depositButtonLabel: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 7,
+  },
+  depositButtonText: {
+    fontSize: 13,
+    fontWeight: '900',
+  },
   actionRow: {
     marginTop: 14,
     flexDirection: 'row',
@@ -672,6 +844,122 @@ const styles = StyleSheet.create({
   paymentButtonText: {
     color: '#fff',
     fontWeight: '700',
+  },
+  depositModalBackdrop: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(15, 23, 42, 0.62)',
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  depositModalCard: {
+    borderRadius: 28,
+    borderWidth: 1,
+    elevation: 14,
+    maxWidth: 520,
+    padding: 20,
+    shadowOffset: { height: 10, width: 0 },
+    shadowOpacity: 0.3,
+    shadowRadius: 24,
+    width: '100%',
+  },
+  depositModalCopy: {
+    fontSize: 13,
+    fontWeight: '500',
+    lineHeight: 19,
+    marginBottom: 15,
+  },
+  depositTotalRow: {
+    alignItems: 'center',
+    borderRadius: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+  },
+  depositTotalLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.55,
+    textTransform: 'uppercase',
+  },
+  depositTotalValue: {
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  depositInputWrap: {
+    alignItems: 'center',
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: 'row',
+    minHeight: 56,
+    paddingHorizontal: 15,
+  },
+  currencyPrefix: {
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+    marginRight: 10,
+  },
+  depositInput: {
+    flex: 1,
+    fontSize: 20,
+    fontWeight: '900',
+    minHeight: 52,
+    paddingVertical: 0,
+  },
+  depositError: {
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 17,
+    marginTop: 7,
+  },
+  depositPreviewRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 15,
+  },
+  depositPreviewLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  depositPreviewValue: {
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  depositModalActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 20,
+  },
+  depositCancelButton: {
+    alignItems: 'center',
+    borderRadius: 16,
+    borderWidth: 1,
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 50,
+  },
+  depositCancelText: {
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  depositSaveButton: {
+    alignItems: 'center',
+    borderRadius: 16,
+    elevation: 4,
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 50,
+    shadowOffset: { height: 6, width: 3 },
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+  },
+  depositSaveText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '900',
   },
   modalBackdrop: {
     flex: 1,

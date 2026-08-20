@@ -30,6 +30,7 @@ export type Invoice = {
   bookingId: string;
   customerId: string;
   amount: number;
+  depositPaid?: number;
   dueDate: string;
   status: InvoiceStatus;
   sentAt: string;

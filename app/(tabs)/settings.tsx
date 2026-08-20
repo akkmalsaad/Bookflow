@@ -5,11 +5,13 @@ import { Image, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { CURRENCY_OPTIONS, getCurrencyFormatter, useAppData } from '@/context/app-data-context';
+import { useAuth } from '@/context/auth-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 
 export default function SettingsScreen() {
   const { isDarkMode, toggleTheme } = useTheme();
-  const { packages, addPackage, removePackage, businessProfile, updateBusinessProfile, currency, updateCurrency, customers, bookings, invoices, financeEntries } = useAppData();
+  const { signOut, user, verifyPassword } = useAuth();
+  const { packages, addPackage, removePackage, businessProfile, updateBusinessProfile, currency, updateCurrency, customers, bookings, invoices, financeEntries, deleteAllData } = useAppData();
   const currencyFormatter = getCurrencyFormatter(currency);
 
   const [showProfileEditor, setShowProfileEditor] = useState(false);
@@ -21,6 +23,10 @@ export default function SettingsScreen() {
   const [profileCurrency, setProfileCurrency] = useState(currency);
 
   const [showServicesManager, setShowServicesManager] = useState(false);
+  const [showSignOut, setShowSignOut] = useState(false);
+  const [showDeleteAccount, setShowDeleteAccount] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deletePasswordError, setDeletePasswordError] = useState('');
   const [showServiceForm, setShowServiceForm] = useState(false);
   const [serviceName, setServiceName] = useState('');
   const [serviceDetails, setServiceDetails] = useState('');
@@ -58,6 +64,23 @@ export default function SettingsScreen() {
     resetServiceForm();
     setShowServiceForm(false);
     setShowServicesManager(false);
+  };
+
+  const closeDeleteAccount = () => {
+    setShowDeleteAccount(false);
+    setDeletePassword('');
+    setDeletePasswordError('');
+  };
+
+  const handleDeleteAccount = () => {
+    if (!verifyPassword(deletePassword)) {
+      setDeletePasswordError('Incorrect password. Please try again.');
+      return;
+    }
+
+    closeDeleteAccount();
+    deleteAllData();
+    signOut();
   };
 
   const handleAddService = () => {
@@ -244,6 +267,36 @@ export default function SettingsScreen() {
           </View>
           <Pressable style={[styles.addButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]} onPress={exportDataAsPdf}>
             <Text style={styles.addButtonText}>Export as PDF</Text>
+          </Pressable>
+        </View>
+
+        <View style={[styles.card, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow, marginTop: 18 }]}>
+          <View style={styles.accountRow}>
+            <View style={[styles.iconWrap, { backgroundColor: accentSoft }]}>
+              <Ionicons name="person-circle-outline" size={23} color={palette.accent} />
+            </View>
+            <View style={styles.summaryCopy}>
+              <Text style={[styles.label, { color: palette.muter }]}>Account</Text>
+              <Text style={[styles.summaryTitle, { color: palette.text }]}>{user?.name ?? 'Bookflow user'}</Text>
+              <Text style={[styles.summarySubtitle, { color: palette.muter }]}>{user?.email ?? 'Local demo session'}</Text>
+            </View>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setShowSignOut(true)}
+            style={[styles.signOutButton, { backgroundColor: softInset, borderColor: palette.border }]}>
+            <Ionicons name="log-out-outline" size={18} color={palette.danger} />
+            <Text style={[styles.signOutText, { color: palette.danger }]}>Sign out</Text>
+          </Pressable>
+        </View>
+
+        <View style={[styles.card, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow, marginTop: 18 }]}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setShowDeleteAccount(true)}
+            style={[styles.signOutButton, styles.deleteAccountButton, { borderColor: palette.danger }]}>
+            <Ionicons name="trash-outline" size={18} color={palette.danger} />
+            <Text style={[styles.signOutText, { color: palette.danger }]}>Delete account</Text>
           </Pressable>
         </View>
 
@@ -497,6 +550,77 @@ export default function SettingsScreen() {
             </KeyboardAvoidingView>
           </View>
         </Modal>
+
+        <Modal visible={showSignOut} transparent animationType="fade" onRequestClose={() => setShowSignOut(false)}>
+          <View style={styles.modalBackdrop}>
+            <View style={[styles.signOutModal, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
+              <View style={[styles.signOutModalIcon, { backgroundColor: isDarkMode ? '#3B1F2B' : '#FFF1F2' }]}>
+                <Ionicons name="log-out-outline" size={25} color={palette.danger} />
+              </View>
+              <Text style={[styles.signOutModalTitle, { color: palette.text }]}>Sign out of Bookflow?</Text>
+              <Text style={[styles.signOutModalCopy, { color: palette.muter }]}>You will return to the login screen. Your local business data will stay on this device.</Text>
+              <View style={styles.formActions}>
+                <Pressable
+                  style={[styles.secondaryButton, { backgroundColor: softInset, borderColor: softBorder }]}
+                  onPress={() => setShowSignOut(false)}>
+                  <Text style={[styles.secondaryButtonText, { color: palette.text }]}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.saveServiceButton, { backgroundColor: palette.danger, shadowColor: palette.danger }]}
+                  onPress={() => {
+                    setShowSignOut(false);
+                    signOut();
+                  }}>
+                  <Text style={styles.submitButtonText}>Sign out</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        <Modal visible={showDeleteAccount} transparent animationType="fade" onRequestClose={closeDeleteAccount}>
+          <View style={styles.modalBackdrop}>
+            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ width: '100%' }} keyboardVerticalOffset={80}>
+              <View style={[styles.signOutModal, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
+                <View style={[styles.signOutModalIcon, { backgroundColor: isDarkMode ? '#3B1F2B' : '#FFF1F2' }]}>
+                  <Ionicons name="warning-outline" size={25} color={palette.danger} />
+                </View>
+                <Text style={[styles.signOutModalTitle, { color: palette.text }]}>Delete your account?</Text>
+                <Text style={[styles.signOutModalCopy, { color: palette.muter }]}>
+                  This will permanently delete your account. All customers, bookings, invoices, and finance data will be lost and cannot be recovered.
+                </Text>
+
+                <Text style={[styles.fieldLabel, styles.deletePasswordLabel, { color: palette.muter }]}>Confirm your password</Text>
+                <TextInput
+                  value={deletePassword}
+                  onChangeText={(value) => {
+                    setDeletePassword(value);
+                    setDeletePasswordError('');
+                  }}
+                  placeholder="Enter your password"
+                  placeholderTextColor={palette.muter}
+                  secureTextEntry
+                  autoCapitalize="none"
+                  style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
+                />
+                {deletePasswordError ? <Text style={styles.formError}>{deletePasswordError}</Text> : null}
+
+                <View style={styles.formActions}>
+                  <Pressable
+                    style={[styles.secondaryButton, { backgroundColor: softInset, borderColor: softBorder }]}
+                    onPress={closeDeleteAccount}>
+                    <Text style={[styles.secondaryButtonText, { color: palette.text }]}>Cancel</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.saveServiceButton, { backgroundColor: palette.danger, shadowColor: palette.danger }]}
+                    onPress={handleDeleteAccount}>
+                    <Text style={styles.submitButtonText}>Delete account</Text>
+                  </Pressable>
+                </View>
+              </View>
+            </KeyboardAvoidingView>
+          </View>
+        </Modal>
     </SafeAreaView>
   );
 }
@@ -634,6 +758,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   input: {
+    width: '100%',
     borderWidth: 1,
     borderRadius: 16,
     paddingHorizontal: 14,
@@ -797,6 +922,27 @@ const styles = StyleSheet.create({
     width: 20,
     height: 20,
   },
+  accountRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+  },
+  signOutButton: {
+    alignItems: 'center',
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 7,
+    justifyContent: 'center',
+    marginTop: 16,
+    paddingVertical: 13,
+  },
+  signOutText: {
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  deleteAccountButton: {
+    backgroundColor: 'transparent',
+  },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(15, 23, 42, 0.58)',
@@ -815,6 +961,37 @@ const styles = StyleSheet.create({
     shadowRadius: 24,
     shadowOffset: { width: 0, height: 8 },
     elevation: 14,
+  },
+  signOutModal: {
+    alignItems: 'center',
+    borderRadius: 28,
+    borderWidth: 1,
+    maxWidth: 440,
+    padding: 22,
+    shadowOffset: { height: 8, width: 0 },
+    shadowOpacity: 0.3,
+    shadowRadius: 24,
+    width: '100%',
+  },
+  signOutModalIcon: {
+    alignItems: 'center',
+    borderRadius: 18,
+    height: 56,
+    justifyContent: 'center',
+    marginBottom: 15,
+    width: 56,
+  },
+  signOutModalTitle: {
+    fontSize: 21,
+    fontWeight: '900',
+    letterSpacing: -0.4,
+  },
+  signOutModalCopy: {
+    fontSize: 13,
+    fontWeight: '500',
+    lineHeight: 20,
+    marginTop: 7,
+    textAlign: 'center',
   },
   modalHeader: {
     flexDirection: 'row',
@@ -848,6 +1025,16 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     textTransform: 'uppercase',
     letterSpacing: 0.65,
+  },
+  deletePasswordLabel: {
+    alignSelf: 'flex-start',
+  },
+  formError: {
+    color: '#DC2626',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 6,
+    alignSelf: 'flex-start',
   },
   keyboardAvoider: {
     width: '100%',

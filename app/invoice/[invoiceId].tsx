@@ -51,6 +51,8 @@ export default function InvoiceAcceptanceScreen() {
   const eventDate = invoice?.eventDate ?? booking?.date;
   const eventStartTime = invoice?.eventStartTime ?? booking?.startTime ?? invoice?.eventTime ?? booking?.time ?? 'Not specified';
   const eventEndTime = invoice?.eventEndTime ?? booking?.endTime ?? 'Not specified';
+  const depositPaid = invoice?.depositPaid ?? 0;
+  const remainingBalance = invoice?.status === 'Paid' ? 0 : Math.max(0, (invoice?.amount ?? 0) - depositPaid);
 
   if (!invoice || !customer) {
     return (
@@ -111,6 +113,19 @@ export default function InvoiceAcceptanceScreen() {
 
           <Text style={[styles.sectionLabel, { color: palette.muter }]}>Amount</Text>
           <Text style={[styles.amount, { color: palette.text }]}>{currencyFormatter.format(invoice.amount)}</Text>
+          {depositPaid > 0 ? (
+            <View style={[styles.paymentBox, { backgroundColor: palette.surfaceAlt, borderColor: palette.border }]}>
+              <View style={styles.paymentRow}>
+                <Text style={[styles.paymentLabel, { color: palette.muter }]}>Deposit paid</Text>
+                <Text style={[styles.paymentValue, { color: palette.success }]}>{currencyFormatter.format(depositPaid)}</Text>
+              </View>
+              <View style={[styles.paymentDivider, { backgroundColor: palette.border }]} />
+              <View style={[styles.paymentRow, styles.paymentRowLast]}>
+                <Text style={[styles.paymentLabel, { color: palette.muter }]}>Remaining balance</Text>
+                <Text style={[styles.balanceValue, { color: palette.text }]}>{currencyFormatter.format(remainingBalance)}</Text>
+              </View>
+            </View>
+          ) : null}
           <View style={styles.detailRow}>
             <Text style={[styles.detailLabel, { color: palette.muter }]}>Issued</Text>
             <Text style={[styles.detailValue, { color: palette.text }]}>{formatEventDate(invoice.sentAt)}</Text>
@@ -237,6 +252,37 @@ const styles = StyleSheet.create({
     fontSize: 32,
     fontWeight: '800',
     marginBottom: 16,
+  },
+  paymentBox: {
+    borderRadius: 14,
+    borderWidth: 1,
+    marginBottom: 18,
+    paddingHorizontal: 13,
+    paddingVertical: 12,
+  },
+  paymentRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  paymentRowLast: {
+    paddingTop: 10,
+  },
+  paymentDivider: {
+    height: StyleSheet.hairlineWidth,
+    marginTop: 10,
+  },
+  paymentLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  paymentValue: {
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  balanceValue: {
+    fontSize: 17,
+    fontWeight: '900',
   },
   packageName: {
     fontSize: 20,

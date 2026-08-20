@@ -104,6 +104,7 @@ export default function BookingsScreen() {
   const dropdownAnim = useRef(new Animated.Value(0)).current;
 
   const firstBookingDate = bookings[0]?.date ?? toIsoDate(new Date());
+  const todayKey = toIsoDate(new Date());
   const [viewDate, setViewDate] = useState(new Date(`${firstBookingDate}T00:00:00`));
   const [selectedDate, setSelectedDate] = useState(firstBookingDate);
 
@@ -329,6 +330,7 @@ export default function BookingsScreen() {
               <View style={styles.grid}>
                 {calendarCells.map((cell) => {
                   const isSelected = cell.dateKey === selectedDate;
+                  const isToday = cell.dateKey === todayKey;
                   const hasEvent = bookings.some((booking) => booking.date === cell.dateKey);
 
                   return (
@@ -338,6 +340,7 @@ export default function BookingsScreen() {
                         styles.dayCell,
                         cell.isCurrentMonth ? { backgroundColor: softSurface } : { backgroundColor: softInset, opacity: 0.52 },
                         isSelected && { backgroundColor: palette.accent, shadowColor: palette.accent, shadowOpacity: 0.22, elevation: 3 },
+                        isToday && { borderWidth: 2, borderColor: isSelected ? '#FFFFFF' : palette.accent },
                       ]}
                       onPress={() => setSelectedDate(cell.dateKey)}>
                       <Text style={[styles.dayNumber, { color: isSelected ? '#FFFFFF' : palette.text }]}>
