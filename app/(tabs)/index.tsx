@@ -1,14 +1,16 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { NotificationPermissionPrompt } from '@/components/NotificationPermissionPrompt';
 import { PriorityStack } from '@/components/PriorityStack';
 import { StatCard } from '@/components/StatCard';
 import { StatusPill } from '@/components/StatusPill';
 import { getCurrencyFormatter, useAppData } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { getNotificationPermissionStatus, syncTodayPriorityNotifications } from '@/lib/notifications';
 
 function getLocalDateKey(date: Date) {
   const year = date.getFullYear();
@@ -31,7 +33,7 @@ export default function HomeScreen() {
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const todayKey = getLocalDateKey(new Date());
   const currentMonthKey = todayKey.slice(0, 7);
-  const todaysBookings = bookings.filter((booking) => booking.date === todayKey);
+  const todaysBookings = useMemo(() => bookings.filter((booking) => booking.date === todayKey), [bookings, todayKey]);
   const upcomingBookings = bookings.filter((booking) => booking.date >= todayKey && booking.status !== 'Cancelled');
   const nextBookingDate = upcomingBookings.reduce<string | null>(
     (soonest, booking) => (soonest === null || booking.date < soonest ? booking.date : soonest),
@@ -39,6 +41,46 @@ export default function HomeScreen() {
   );
   const upcomingDetail = nextBookingDate ? `Next: ${formatShortDate(nextBookingDate)}` : 'No bookings scheduled';
   const customerMap = new Map(customers.map((customer) => [customer.id, customer]));
+
+  const [showNotificationPrompt, setShowNotificationPrompt] = useState(false);
+  const hasResolvedNotificationPromptRef = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function run() {
+      if (hasResolvedNotificationPromptRef.current) {
+        syncTodayPriorityNotifications(todaysBookings).catch(() => {});
+        return;
+      }
+
+      const status = await getNotificationPermissionStatus();
+      if (cancelled) return;
+
+      if (status === 'undetermined') {
+        setShowNotificationPrompt(true);
+      } else {
+        hasResolvedNotificationPromptRef.current = true;
+        syncTodayPriorityNotifications(todaysBookings).catch(() => {});
+      }
+    }
+
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [todaysBookings]);
+
+  const handleAllowNotifications = () => {
+    hasResolvedNotificationPromptRef.current = true;
+    setShowNotificationPrompt(false);
+    syncTodayPriorityNotifications(todaysBookings).catch(() => {});
+  };
+
+  const handleDismissNotificationPrompt = () => {
+    hasResolvedNotificationPromptRef.current = true;
+    setShowNotificationPrompt(false);
+  };
   const currentMonthTransactions = financeEntries.filter((entry) => entry.date.startsWith(currentMonthKey));
   const totalRevenue = currentMonthTransactions
     .filter((entry) => entry.type === 'income')
@@ -54,8 +96,6 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]}>
-      <View pointerEvents="none" style={[styles.ambientOrb, styles.ambientOrbTop, { backgroundColor: isDarkMode ? '#293258' : '#E4E6FF' }]} />
-      <View pointerEvents="none" style={[styles.ambientOrb, styles.ambientOrbSide, { backgroundColor: isDarkMode ? '#163B38' : '#DFF7EF' }]} />
       <ScrollView style={styles.screenScroll} contentContainerStyle={styles.content}>
       <View style={styles.topHeader}>
         <View style={styles.headerLeft}>
@@ -244,6 +284,11 @@ export default function HomeScreen() {
         </View>
       </View>
       </ScrollView>
+      <NotificationPermissionPrompt
+        visible={showNotificationPrompt}
+        onAllow={handleAllowNotifications}
+        onDismiss={handleDismissNotificationPrompt}
+      />
     </SafeAreaView>
   );
 }
@@ -260,23 +305,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 14,
     paddingBottom: 112,
-  },
-  ambientOrb: {
-    position: 'absolute',
-    borderRadius: 999,
-    opacity: 0.72,
-  },
-  ambientOrbTop: {
-    width: 220,
-    height: 220,
-    top: -118,
-    right: -86,
-  },
-  ambientOrbSide: {
-    width: 170,
-    height: 170,
-    top: 370,
-    left: -126,
   },
   topHeader: {
     flexDirection: 'row',

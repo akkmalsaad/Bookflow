@@ -284,8 +284,6 @@ export default function BookingsScreen() {
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]}>
-      <View pointerEvents="none" style={[styles.ambientOrb, styles.ambientOrbTop, { backgroundColor: isDarkMode ? '#293258' : '#E4E6FF' }]} />
-      <View pointerEvents="none" style={[styles.ambientOrb, styles.ambientOrbSide, { backgroundColor: isDarkMode ? '#163B38' : '#DFF7EF' }]} />
       <FlatList
         data={flatListData}
         keyExtractor={(item) => item.id}
@@ -823,23 +821,6 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     overflow: 'hidden',
-  },
-  ambientOrb: {
-    position: 'absolute',
-    borderRadius: 999,
-    opacity: 0.72,
-  },
-  ambientOrbTop: {
-    width: 220,
-    height: 220,
-    top: -118,
-    right: -86,
-  },
-  ambientOrbSide: {
-    width: 170,
-    height: 170,
-    top: 430,
-    left: -126,
   },
   listContent: {
     paddingHorizontal: 20,

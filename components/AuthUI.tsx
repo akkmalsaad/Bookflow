@@ -36,14 +36,6 @@ export function AuthScreen({
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]}>
-      <View
-        pointerEvents="none"
-        style={[styles.orb, styles.orbTop, { backgroundColor: isDarkMode ? '#293258' : '#E4E6FF' }]}
-      />
-      <View
-        pointerEvents="none"
-        style={[styles.orb, styles.orbBottom, { backgroundColor: isDarkMode ? '#163B38' : '#DFF7EF' }]}
-      />
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardAvoider}>
@@ -307,9 +299,6 @@ const styles = StyleSheet.create({
   keyboardAvoider: { flex: 1 },
   scrollContent: { flexGrow: 1, paddingHorizontal: 20, paddingVertical: 20 },
   content: { alignSelf: 'center', justifyContent: 'center', maxWidth: 520, width: '100%', flexGrow: 1 },
-  orb: { position: 'absolute', borderRadius: 999, opacity: 0.75 },
-  orbTop: { height: 260, right: -105, top: -120, width: 260 },
-  orbBottom: { bottom: -110, height: 220, left: -120, width: 220 },
   brandRow: { alignItems: 'center', flexDirection: 'row', marginBottom: 28 },
   logoWrap: {
     alignItems: 'center',

@@ -3,6 +3,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useState } from 'react';
+import { LogBox } from 'react-native';
 import 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -16,6 +17,14 @@ export const unstable_settings = {
 };
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
+
+// expo-notifications auto-registers a push token listener on import, which logs this
+// error in Expo Go on Android (remote push was removed from Expo Go in SDK 53+). This
+// app only schedules local notifications, so the warning is a known false positive —
+// see https://docs.expo.dev/develop/development-builds/introduction/.
+LogBox.ignoreLogs([
+  'expo-notifications: Android Push notifications (remote notifications) functionality provided by expo-notifications was removed from Expo Go',
+]);
 
 function AppShell() {
   const { isDarkMode } = useTheme();

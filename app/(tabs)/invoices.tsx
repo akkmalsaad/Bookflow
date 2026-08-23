@@ -191,8 +191,6 @@ export default function InvoicesScreen() {
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]}>
-      <View pointerEvents="none" style={[styles.ambientOrb, styles.ambientOrbTop, { backgroundColor: isDarkMode ? '#293258' : '#E4E6FF' }]} />
-      <View pointerEvents="none" style={[styles.ambientOrb, styles.ambientOrbSide, { backgroundColor: isDarkMode ? '#163B38' : '#DFF7EF' }]} />
       <View style={styles.headerRow}>
         <View style={styles.headerTitleGroup}>
           <View style={[styles.headerIcon, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
@@ -560,23 +558,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     paddingHorizontal: 20,
     paddingTop: 14,
-  },
-  ambientOrb: {
-    position: 'absolute',
-    borderRadius: 999,
-    opacity: 0.72,
-  },
-  ambientOrbTop: {
-    width: 220,
-    height: 220,
-    top: -118,
-    right: -86,
-  },
-  ambientOrbSide: {
-    width: 170,
-    height: 170,
-    top: 430,
-    left: -126,
   },
   headerRow: {
     flexDirection: 'row',
