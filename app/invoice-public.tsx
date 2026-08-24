@@ -1,7 +1,8 @@
-import { useLocalSearchParams } from 'expo-router';
+import { Redirect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -11,6 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { useAuth } from '@/context/auth-context';
 import { getSupabaseFunctionUrl } from '@/lib/supabase';
 
 type InvoiceStatus = 'Sent' | 'Accepted' | 'Declined' | 'Paid' | 'Cancelled';
@@ -68,7 +70,23 @@ function PartyCard({ label, name, lines }: { label: string; name: string; lines:
   );
 }
 
-export default function PublicInvoiceScreen() {
+function NativeInvoiceRedirect() {
+  const { isAuthenticated, isLoaded } = useAuth();
+
+  if (!isLoaded) return null;
+
+  return <Redirect href={isAuthenticated ? '/(tabs)' : '/(auth)/login'} />;
+}
+
+export default function PublicInvoiceRoute() {
+  if (Platform.OS !== 'web') {
+    return <NativeInvoiceRedirect />;
+  }
+
+  return <PublicInvoiceScreen />;
+}
+
+function PublicInvoiceScreen() {
   const params = useLocalSearchParams<{ token?: string | string[] }>();
   const token = Array.isArray(params.token) ? params.token[0] : params.token;
   const { width } = useWindowDimensions();

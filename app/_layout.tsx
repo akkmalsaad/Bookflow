@@ -71,7 +71,6 @@ function AppShell() {
   return (
     <ThemeProvider value={isDarkMode ? DarkTheme : DefaultTheme}>
       <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="invoice-public" />
         <Stack.Protected guard={isAuthenticated}>
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="notifications" />
@@ -84,6 +83,7 @@ function AppShell() {
         <Stack.Protected guard={!isAuthenticated}>
           <Stack.Screen name="(auth)" />
         </Stack.Protected>
+        <Stack.Screen name="invoice-public" />
       </Stack>
       <StatusBar style={isDarkMode ? 'light' : 'dark'} />
       {syncError ? (
