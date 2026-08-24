@@ -1,7 +1,12 @@
-import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useAuth, type AuthUser } from '@/context/auth-context';
-import { createClerkSupabaseClient, isSupabaseConfigured, type Json } from '@/lib/supabase';
+import {
+  createClerkSupabaseClient,
+  getSupabaseFunctionUrl,
+  isSupabaseConfigured,
+  type Json,
+} from '@/lib/supabase';
 
 export type PackageOption = {
   id: string;
@@ -146,6 +151,8 @@ type AppDataContextValue = {
   addCustomer: (customer: Omit<Customer, 'id'>) => Customer | null;
   createBooking: (booking: CreateBookingInput) => CreateBookingResult | null;
   addInvoice: (invoice: Omit<Invoice, 'id'>) => void;
+  createInvoiceShareLink: (invoiceId: string) => Promise<string>;
+  refreshInvoiceStatuses: () => Promise<void>;
   setInvoiceDraft: (draft: InvoiceDraftPrefill | null) => void;
   updateInvoiceStatus: (invoiceId: string, status: Invoice['status']) => void;
   updateInvoiceDeposit: (invoiceId: string, depositPaid: number) => boolean;
@@ -396,6 +403,38 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       });
   }, [bookings, businessProfile, currency, customers, financeEntries, invoices, notifications, packages, reminders, supabase, syncRetryKey, user]);
 
+  const refreshInvoiceStatuses = useCallback(async () => {
+    if (!supabase || !user) return;
+
+    const { data, error } = await supabase
+      .from('public_invoice_links')
+      .select('invoice_id,status')
+      .eq('user_id', user.id);
+    if (error) throw error;
+
+    const statusByInvoice = new Map(data.map((item) => [item.invoice_id, item.status]));
+    setInvoices((current) => {
+      let hasChanges = false;
+      const next = current.map((invoice) => {
+        const remoteStatus = statusByInvoice.get(invoice.id);
+        const nextStatus: Invoice['status'] | null =
+          remoteStatus === 'Sent' ||
+          remoteStatus === 'Accepted' ||
+          remoteStatus === 'Declined' ||
+          remoteStatus === 'Paid' ||
+          remoteStatus === 'Cancelled'
+            ? remoteStatus
+            : null;
+        if (nextStatus && nextStatus !== invoice.status) {
+          hasChanges = true;
+          return { ...invoice, status: nextStatus };
+        }
+        return invoice;
+      });
+      return hasChanges ? next : current;
+    });
+  }, [supabase, user]);
+
   const value = useMemo<AppDataContextValue>(
     () => ({
       isLoading,
@@ -555,6 +594,80 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         ]);
         setInvoiceDraft(null);
       },
+      createInvoiceShareLink: async (invoiceId: string) => {
+        if (!supabase || !user) {
+          throw new Error('Your Supabase workspace is not connected.');
+        }
+
+        const invoice = invoices.find((item) => item.id === invoiceId);
+        const customer = invoice ? customers.find((item) => item.id === invoice.customerId) : undefined;
+        if (!invoice || !customer) {
+          throw new Error('The invoice or customer could not be found.');
+        }
+
+        const booking = bookings.find((item) => item.id === invoice.bookingId);
+        const serviceName = invoice.serviceName ?? booking?.packageName;
+        const packageOption = packages.find((item) => item.name === serviceName);
+        const publicStatus =
+          invoice.status === 'Accepted' ||
+          invoice.status === 'Declined' ||
+          invoice.status === 'Paid' ||
+          invoice.status === 'Cancelled'
+            ? invoice.status
+            : 'Sent';
+        const payload = {
+          invoice: {
+            id: invoice.id,
+            amount: invoice.amount,
+            depositPaid: invoice.depositPaid,
+            dueDate: invoice.dueDate,
+            sentAt: invoice.sentAt,
+            status: publicStatus,
+            terms: invoice.terms,
+          },
+          customer: {
+            name: customer.name,
+            email: customer.email,
+            phone: customer.phone,
+          },
+          businessProfile,
+          currency,
+          serviceName,
+          packageDetails: invoice.packageDetails ?? packageOption?.details,
+          eventLocation: invoice.eventLocation ?? booking?.location,
+          eventDate: invoice.eventDate ?? booking?.date,
+          eventStartTime: invoice.eventStartTime ?? booking?.startTime ?? invoice.eventTime ?? booking?.time,
+          eventEndTime: invoice.eventEndTime ?? booking?.endTime,
+        };
+        const now = new Date();
+        const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
+        const { data, error } = await supabase
+          .from('public_invoice_links')
+          .upsert(
+            {
+              user_id: user.id,
+              invoice_id: invoice.id,
+              payload: payload as unknown as Json,
+              status: publicStatus,
+              expires_at: expiresAt,
+              updated_at: now.toISOString(),
+            },
+            { onConflict: 'user_id,invoice_id' },
+          )
+          .select('token')
+          .single();
+
+        if (error) throw error;
+
+        if (invoice.status === 'Draft' || invoice.status === 'Overdue') {
+          setInvoices((current) =>
+            current.map((item) => (item.id === invoice.id ? { ...item, status: 'Sent' } : item)),
+          );
+        }
+
+        return `${getSupabaseFunctionUrl('invoice-public')}?token=${encodeURIComponent(data.token)}`;
+      },
+      refreshInvoiceStatuses,
       setInvoiceDraft: (draft: InvoiceDraftPrefill | null) => {
         setInvoiceDraft(draft);
       },
@@ -727,6 +840,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       loadError,
       notifications,
       packages,
+      refreshInvoiceStatuses,
       reminders,
       syncError,
       supabase,

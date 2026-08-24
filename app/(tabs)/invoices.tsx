@@ -1,8 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Linking from 'expo-linking';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { Alert, Animated, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { StatusPill } from '@/components/StatusPill';
@@ -12,7 +12,7 @@ import { getThemePalette, useTheme } from '@/context/theme-context';
 export default function InvoicesScreen() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
-  const { customers, invoices, packages, addCustomer, addInvoice, invoiceDraft, setInvoiceDraft, updateInvoiceDeposit, updateInvoiceStatus, currency } = useAppData();
+  const { customers, invoices, packages, addCustomer, addInvoice, createInvoiceShareLink, refreshInvoiceStatuses, invoiceDraft, setInvoiceDraft, updateInvoiceDeposit, updateInvoiceStatus, currency } = useAppData();
   const palette = getThemePalette(isDarkMode);
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const customerMap = new Map(customers.map((customer) => [customer.id, customer]));
@@ -33,6 +33,7 @@ export default function InvoicesScreen() {
   const [depositInvoiceId, setDepositInvoiceId] = useState<string | null>(null);
   const [depositAmount, setDepositAmount] = useState('');
   const [depositError, setDepositError] = useState('');
+  const [sharingInvoiceId, setSharingInvoiceId] = useState<string | null>(null);
   const dropdownAnim = useRef(new Animated.Value(0)).current;
   const softSurface = isDarkMode ? '#172033' : '#F7F9FD';
   const softInset = isDarkMode ? '#111A2B' : '#EEF2F8';
@@ -59,6 +60,17 @@ export default function InvoicesScreen() {
     }).start();
   }, [dropdownAnim, showCustomerDropdown]);
 
+  useFocusEffect(
+    useCallback(() => {
+      refreshInvoiceStatuses().catch(() => {});
+      const refreshInterval = setInterval(() => {
+        refreshInvoiceStatuses().catch(() => {});
+      }, 15_000);
+
+      return () => clearInterval(refreshInterval);
+    }, [refreshInvoiceStatuses]),
+  );
+
   const handlePackageSelection = (packageId: string) => {
     const chosenPackage = packages.find((item) => item.id === packageId);
     setSelectedPackageId(packageId);
@@ -79,30 +91,32 @@ export default function InvoicesScreen() {
       return;
     }
 
-    const invoiceUrl = Linking.createURL(`invoice/${invoice.id}`, {
-      queryParams: { accept: 'true' },
-    });
-    const message = [
-      `Hi ${customer.name},`,
-      '',
-      `Here is invoice ${invoice.id} for ${currencyFormatter.format(invoice.amount)}.`,
-      `Due date: ${invoice.dueDate}`,
-      '',
-      `Open this link to review and accept your invoice: ${invoiceUrl}`,
-      'You can also save a PDF copy from the invoice page for future reference.',
-    ].join('\n');
-    const encodedMessage = encodeURIComponent(message);
-    const whatsappAppUrl = `whatsapp://send?phone=${phoneNumber}&text=${encodedMessage}`;
-    const whatsappWebUrl = `https://wa.me/${phoneNumber}?text=${encodedMessage}`;
-
+    setSharingInvoiceId(invoice.id);
     try {
-      await Linking.openURL(Platform.OS === 'web' ? whatsappWebUrl : whatsappAppUrl);
-    } catch {
+      const invoiceUrl = await createInvoiceShareLink(invoice.id);
+      const message = [
+        `Hi ${customer.name},`,
+        '',
+        `Here is invoice ${invoice.id} for ${currencyFormatter.format(invoice.amount)}.`,
+        `Due date: ${invoice.dueDate}`,
+        '',
+        `Review and respond to your invoice: ${invoiceUrl}`,
+        'The secure link is valid for 30 days.',
+      ].join('\n');
+      const encodedMessage = encodeURIComponent(message);
+      const whatsappAppUrl = `whatsapp://send?phone=${phoneNumber}&text=${encodedMessage}`;
+      const whatsappWebUrl = `https://wa.me/${phoneNumber}?text=${encodedMessage}`;
+
       try {
-        await Linking.openURL(whatsappWebUrl);
+        await Linking.openURL(Platform.OS === 'web' ? whatsappWebUrl : whatsappAppUrl);
       } catch {
-        Alert.alert('Unable to open WhatsApp', 'Install WhatsApp or WhatsApp Business, then try again.');
+        await Linking.openURL(whatsappWebUrl);
       }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'The public invoice link could not be created.';
+      Alert.alert('Unable to send invoice', message);
+    } finally {
+      setSharingInvoiceId(null);
     }
   };
 
@@ -306,9 +320,18 @@ export default function InvoicesScreen() {
 
               {item.status !== 'Paid' && (
                 <View style={styles.actionRow}>
-                  <Pressable style={[styles.linkButton, styles.actionButtonShadow]} onPress={() => handleShareInvoice(item)}>
+                  <Pressable
+                    disabled={sharingInvoiceId === item.id}
+                    style={[
+                      styles.linkButton,
+                      styles.actionButtonShadow,
+                      sharingInvoiceId === item.id && { opacity: 0.6 },
+                    ]}
+                    onPress={() => handleShareInvoice(item)}>
                     <Ionicons name="logo-whatsapp" size={17} color="#fff" />
-                    <Text style={styles.linkButtonText}>Send invoice</Text>
+                    <Text style={styles.linkButtonText}>
+                      {sharingInvoiceId === item.id ? 'Creating link…' : 'Send invoice'}
+                    </Text>
                   </Pressable>
                   {item.status === 'Accepted' ? (
                     <Pressable style={[styles.paymentButton, styles.actionButtonShadow]} onPress={() => updateInvoiceStatus(item.id, 'Paid')}>

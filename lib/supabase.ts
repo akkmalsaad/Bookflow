@@ -26,6 +26,46 @@ export type Database = {
         };
         Relationships: [];
       };
+      public_invoice_links: {
+        Row: {
+          created_at: string;
+          expires_at: string;
+          invoice_id: string;
+          payload: Json;
+          status: string;
+          token: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          expires_at?: string;
+          invoice_id: string;
+          payload: Json;
+          status?: string;
+          token?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Update: {
+          expires_at?: string;
+          invoice_id?: string;
+          payload?: Json;
+          status?: string;
+          token?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'public_invoice_links_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: false;
+            referencedRelation: 'bookflow_workspaces';
+            referencedColumns: ['user_id'];
+          },
+        ];
+      };
     };
     Views: Record<never, never>;
     Functions: Record<never, never>;
@@ -66,4 +106,11 @@ export function createClerkSupabaseClient(accessToken: () => Promise<string | nu
       persistSession: false,
     },
   });
+}
+
+export function getSupabaseFunctionUrl(functionName: string) {
+  if (!supabaseUrl) {
+    throw new Error('Supabase is not configured.');
+  }
+  return `${supabaseUrl}/functions/v1/${functionName}`;
 }
