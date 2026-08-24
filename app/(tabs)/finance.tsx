@@ -21,7 +21,7 @@ import { DatePickerField } from '@/components/DatePickerField';
 import { getCurrencyFormatter, useAppData } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 
-const AMOUNT_KEYBOARD_ACCESSORY_ID = 'transaction-amount-keyboard-accessory';
+const TRANSACTION_KEYBOARD_ACCESSORY_ID = 'transaction-keyboard-accessory';
 
 export default function FinanceScreen() {
   const router = useRouter();
@@ -250,6 +250,10 @@ export default function FinanceScreen() {
               <TextInput
                 value={category}
                 onChangeText={setCategory}
+                inputAccessoryViewID={Platform.OS === 'ios' ? TRANSACTION_KEYBOARD_ACCESSORY_ID : undefined}
+                returnKeyType="done"
+                submitBehavior="blurAndSubmit"
+                onSubmitEditing={Keyboard.dismiss}
                 placeholder={entryType === 'income' ? 'Client payment' : 'Equipment'}
                 placeholderTextColor={palette.muter}
                 style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
@@ -260,7 +264,7 @@ export default function FinanceScreen() {
                 value={amount}
                 onChangeText={setAmount}
                 keyboardType="decimal-pad"
-                inputAccessoryViewID={Platform.OS === 'ios' ? AMOUNT_KEYBOARD_ACCESSORY_ID : undefined}
+                inputAccessoryViewID={Platform.OS === 'ios' ? TRANSACTION_KEYBOARD_ACCESSORY_ID : undefined}
                 returnKeyType="done"
                 submitBehavior="blurAndSubmit"
                 onSubmitEditing={Keyboard.dismiss}
@@ -318,13 +322,13 @@ export default function FinanceScreen() {
         </KeyboardAvoidingView>
         {Platform.OS === 'ios' ? (
           <InputAccessoryView
-            nativeID={AMOUNT_KEYBOARD_ACCESSORY_ID}
+            nativeID={TRANSACTION_KEYBOARD_ACCESSORY_ID}
             backgroundColor="transparent"
             style={styles.keyboardAccessoryHost}>
             <View style={styles.keyboardAccessory}>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Close amount keyboard"
+                accessibilityLabel="Close transaction keyboard"
                 hitSlop={8}
                 onPress={Keyboard.dismiss}
                 style={({ pressed }) => [
