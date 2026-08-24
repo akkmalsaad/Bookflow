@@ -269,15 +269,11 @@ export default function FinanceScreen() {
           </View>
         </View>
         {Platform.OS === 'ios' ? (
-          <InputAccessoryView nativeID={AMOUNT_KEYBOARD_ACCESSORY_ID}>
-            <View
-              style={[
-                styles.keyboardAccessory,
-                {
-                  backgroundColor: isDarkMode ? '#111827' : '#F8FAFC',
-                  borderTopColor: isDarkMode ? '#334155' : '#D7DEEA',
-                },
-              ]}>
+          <InputAccessoryView
+            nativeID={AMOUNT_KEYBOARD_ACCESSORY_ID}
+            backgroundColor="transparent"
+            style={styles.keyboardAccessoryHost}>
+            <View style={styles.keyboardAccessory}>
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Close amount keyboard"
@@ -607,9 +603,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-end',
-    borderTopWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 14,
     paddingVertical: 8,
+    backgroundColor: 'transparent',
+  },
+  keyboardAccessoryHost: {
+    backgroundColor: 'transparent',
   },
   keyboardAccessoryButton: {
     width: 58,
