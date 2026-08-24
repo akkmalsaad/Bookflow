@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { DatePickerField } from '@/components/DatePickerField';
 import { getCurrencyFormatter, useAppData } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 
@@ -231,14 +232,7 @@ export default function FinanceScreen() {
             />
 
             <Text style={[styles.fieldLabel, { color: palette.muter }]}>Date</Text>
-            <TextInput
-              value={date}
-              onChangeText={setDate}
-              placeholder="YYYY-MM-DD"
-              placeholderTextColor={palette.muter}
-              autoCapitalize="none"
-              style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
-            />
+            <DatePickerField value={date} onChange={setDate} isDarkMode={isDarkMode} palette={palette} />
 
             <Text style={[styles.fieldLabel, { color: palette.muter }]}>Description</Text>
             <TextInput

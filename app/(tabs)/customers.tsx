@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -7,6 +8,7 @@ import { useAppData } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 
 export default function CustomersScreen() {
+  const router = useRouter();
   const { isDarkMode } = useTheme();
   const { customers, addCustomer } = useAppData();
   const palette = getThemePalette(isDarkMode);
@@ -62,7 +64,15 @@ export default function CustomersScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
         renderItem={({ item }) => (
-          <View style={[styles.card, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Open ${item.name}'s customer profile`}
+            onPress={() => router.push(`/customer/${item.id}`)}
+            style={({ pressed }) => [
+              styles.card,
+              { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow },
+              pressed && styles.cardPressed,
+            ]}>
             <View style={[styles.cardAccent, { backgroundColor: palette.accent }]} />
             <View style={styles.profileHeader}>
               <View style={[styles.avatar, { backgroundColor: accentSoft }]}>
@@ -72,34 +82,9 @@ export default function CustomersScreen() {
                 <Text style={[styles.name, { color: palette.text }]} numberOfLines={1}>{item.name}</Text>
                 <Text style={[styles.profileLabel, { color: palette.muter }]}>Customer profile</Text>
               </View>
+              <Ionicons name="chevron-forward" size={20} color={palette.muter} />
             </View>
-
-            <View style={[styles.contactPanel, { backgroundColor: softInset }]}>
-              <View style={styles.contactRow}>
-                <View style={[styles.contactIcon, { backgroundColor: softSurface }]}>
-                  <Ionicons name="mail-outline" size={16} color={palette.accent} />
-                </View>
-                <Text style={[styles.meta, { color: palette.text }]} numberOfLines={1}>{item.email}</Text>
-              </View>
-              <View style={styles.contactRow}>
-                <View style={[styles.contactIcon, { backgroundColor: softSurface }]}>
-                  <Ionicons name="call-outline" size={16} color={palette.accent} />
-                </View>
-                <Text style={[styles.meta, { color: palette.text }]} numberOfLines={1}>{item.phone}</Text>
-              </View>
-              <View style={[styles.contactRow, styles.contactRowLast]}>
-                <View style={[styles.contactIcon, { backgroundColor: softSurface }]}>
-                  <Ionicons name="location-outline" size={16} color={palette.accent} />
-                </View>
-                <Text style={[styles.meta, { color: palette.text }]} numberOfLines={2}>{item.location}</Text>
-              </View>
-            </View>
-
-            <View style={styles.notesRow}>
-              <Ionicons name="document-text-outline" size={15} color={palette.muter} />
-              <Text style={[styles.notes, { color: palette.muter }]} numberOfLines={3}>{item.notes}</Text>
-            </View>
-          </View>
+          </Pressable>
         )}
       />
 
@@ -220,6 +205,9 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 8, height: 10 },
     elevation: 5,
   },
+  cardPressed: {
+    opacity: 0.72,
+  },
   cardAccent: {
     position: 'absolute',
     top: 23,
@@ -232,7 +220,6 @@ const styles = StyleSheet.create({
   profileHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
   },
   avatar: {
     width: 52,
@@ -261,43 +248,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.45,
     textTransform: 'uppercase',
-  },
-  contactPanel: {
-    borderRadius: 18,
-    padding: 10,
-  },
-  contactRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  contactRowLast: {
-    marginBottom: 0,
-  },
-  contactIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 10,
-  },
-  meta: {
-    flex: 1,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  notesRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginTop: 14,
-    paddingHorizontal: 4,
-  },
-  notes: {
-    flex: 1,
-    fontSize: 12,
-    lineHeight: 18,
-    marginLeft: 8,
   },
   modalBackdrop: {
     flex: 1,

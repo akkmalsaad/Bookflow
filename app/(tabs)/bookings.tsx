@@ -10,8 +10,97 @@ import { getThemePalette, useTheme } from '@/context/theme-context';
 
 const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const hourOptions = Array.from({ length: 12 }, (_, index) => index + 1);
+const minuteOptions = Array.from({ length: 60 }, (_, index) => String(index).padStart(2, '0'));
 const periodOptions = ['AM', 'PM'] as const;
 type TimePeriod = typeof periodOptions[number];
+
+const WHEEL_ITEM_HEIGHT = 36;
+const WHEEL_VISIBLE_COUNT = 4;
+const WHEEL_HEIGHT = WHEEL_ITEM_HEIGHT * WHEEL_VISIBLE_COUNT;
+const WHEEL_PADDING = (WHEEL_HEIGHT - WHEEL_ITEM_HEIGHT) / 2;
+
+function WheelColumn({
+  items,
+  selectedIndex,
+  onSelect,
+  textColor,
+  align = 'center',
+}: {
+  items: string[];
+  selectedIndex: number;
+  onSelect: (index: number) => void;
+  textColor: string;
+  align?: 'center' | 'flex-start';
+}) {
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollY = useRef(new Animated.Value(selectedIndex * WHEEL_ITEM_HEIGHT)).current;
+  const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ y: selectedIndex * WHEEL_ITEM_HEIGHT, animated: false });
+    scrollY.setValue(selectedIndex * WHEEL_ITEM_HEIGHT);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items.length]);
+
+  useEffect(() => () => {
+    if (settleTimer.current) clearTimeout(settleTimer.current);
+  }, []);
+
+  const snapToIndex = (index: number, animated: boolean) => {
+    const clamped = Math.max(0, Math.min(items.length - 1, index));
+    scrollRef.current?.scrollTo({ y: clamped * WHEEL_ITEM_HEIGHT, animated });
+    onSelect(clamped);
+  };
+
+  const scheduleSettle = (offsetY: number) => {
+    if (settleTimer.current) clearTimeout(settleTimer.current);
+    settleTimer.current = setTimeout(() => {
+      snapToIndex(Math.round(offsetY / WHEEL_ITEM_HEIGHT), true);
+    }, 140);
+  };
+
+  return (
+    <View style={{ height: WHEEL_HEIGHT, overflow: 'hidden', width: '100%' }}>
+      <Animated.ScrollView
+        ref={scrollRef}
+        showsVerticalScrollIndicator={false}
+        snapToInterval={WHEEL_ITEM_HEIGHT}
+        decelerationRate="fast"
+        contentContainerStyle={{ paddingVertical: WHEEL_PADDING }}
+        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
+          useNativeDriver: true,
+          listener: (event) => scheduleSettle((event as any).nativeEvent.contentOffset.y),
+        })}
+        scrollEventThrottle={16}
+        onMomentumScrollEnd={(event) => {
+          if (settleTimer.current) clearTimeout(settleTimer.current);
+          const index = Math.round(event.nativeEvent.contentOffset.y / WHEEL_ITEM_HEIGHT);
+          snapToIndex(index, true);
+        }}
+        onScrollEndDrag={(event) => {
+          const index = Math.round(event.nativeEvent.contentOffset.y / WHEEL_ITEM_HEIGHT);
+          snapToIndex(index, true);
+        }}>
+        {items.map((label, index) => {
+          const inputRange = [
+            (index - 2) * WHEEL_ITEM_HEIGHT,
+            (index - 1) * WHEEL_ITEM_HEIGHT,
+            index * WHEEL_ITEM_HEIGHT,
+            (index + 1) * WHEEL_ITEM_HEIGHT,
+            (index + 2) * WHEEL_ITEM_HEIGHT,
+          ];
+          const opacity = scrollY.interpolate({ inputRange, outputRange: [0.22, 0.48, 1, 0.48, 0.22], extrapolate: 'clamp' });
+          const scale = scrollY.interpolate({ inputRange, outputRange: [0.8, 0.9, 1, 0.9, 0.8], extrapolate: 'clamp' });
+          return (
+            <Pressable key={label} onPress={() => snapToIndex(index, true)} style={[styles.wheelItem, { alignItems: align }]}>
+              <Animated.Text style={[styles.wheelItemText, { color: textColor, opacity, transform: [{ scale }] }]}>{label}</Animated.Text>
+            </Pressable>
+          );
+        })}
+      </Animated.ScrollView>
+    </View>
+  );
+}
 
 function getTimeParts(value: string) {
   const [hourValue, minute = '00'] = value.split(':');
@@ -98,7 +187,6 @@ export default function BookingsScreen() {
   const [draftStartTime, setDraftStartTime] = useState('10:00');
   const [draftEndTime, setDraftEndTime] = useState('11:00');
   const [openTimeMenu, setOpenTimeMenu] = useState<'start' | 'finish' | null>(null);
-  const [draftMinuteInput, setDraftMinuteInput] = useState('00');
   const [draftLocation, setDraftLocation] = useState('');
   const [formError, setFormError] = useState('');
   const dropdownAnim = useRef(new Animated.Value(0)).current;
@@ -174,7 +262,6 @@ export default function BookingsScreen() {
     setDraftStartTime('10:00');
     setDraftEndTime('11:00');
     setOpenTimeMenu(null);
-    setDraftMinuteInput('00');
     setDraftLocation('');
     setDraftNotes('');
     setFormError('');
@@ -216,8 +303,6 @@ export default function BookingsScreen() {
       return;
     }
 
-    const selectedTime = menu === 'start' ? draftStartTime : draftEndTime;
-    setDraftMinuteInput(getTimeParts(selectedTime).minute);
     setOpenTimeMenu(menu);
     setShowCustomerDropdown(false);
     setShowPackageDropdown(false);
@@ -280,7 +365,6 @@ export default function BookingsScreen() {
   const softBorder = isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.9)';
   const softShadow = isDarkMode ? '#020617' : '#A7B4C8';
   const accentSoft = isDarkMode ? '#29284B' : '#E9E8FF';
-  const hasValidMinuteInput = /^\d{1,2}$/.test(draftMinuteInput) && Number(draftMinuteInput) <= 59;
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]}>
@@ -689,91 +773,56 @@ export default function BookingsScreen() {
                     {formatTime(openTimeMenu === 'start' ? draftStartTime : draftEndTime)}
                   </Text>
                 </View>
-                <Text style={[styles.timeGroupLabel, { color: palette.muter }]}>Hour</Text>
-                <View style={styles.hourOptions}>
-                  {hourOptions.map((hour) => {
-                    const currentParts = getTimeParts(openTimeMenu === 'start' ? draftStartTime : draftEndTime);
-                    const isSelected = currentParts.hour === hour;
-                    return (
-                      <Pressable
-                        key={hour}
-                        accessibilityRole="button"
-                        accessibilityState={{ selected: isSelected }}
-                        onPress={() => updateTimePart('hour', hour)}
-                        style={[
-                          styles.hourOption,
-                          { backgroundColor: softSurface, borderColor: softBorder },
-                          isSelected && { backgroundColor: accentSoft, borderColor: palette.accent },
-                        ]}>
-                        <Text style={[styles.timeOptionText, { color: isSelected ? palette.accent : palette.text }]}>{hour}</Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
 
-                <View style={styles.timeChoiceRow}>
-                  <View style={styles.timeChoiceGroup}>
-                    <Text style={[styles.timeGroupLabel, { color: palette.muter }]}>Minutes</Text>
-                    <TextInput
-                      accessibilityLabel="Enter minutes"
-                      value={draftMinuteInput}
-                      onChangeText={(value) => {
-                        const digits = value.replace(/\D/g, '').slice(0, 2);
-                        setDraftMinuteInput(digits);
-                        if (digits && Number(digits) <= 59) {
-                          updateTimePart('minute', digits.padStart(2, '0'));
-                        }
-                      }}
-                      keyboardType="number-pad"
-                      maxLength={2}
-                      selectTextOnFocus
-                      placeholder="00"
-                      placeholderTextColor={palette.muter}
-                      style={[styles.manualMinuteInput, { backgroundColor: softSurface, borderColor: hasValidMinuteInput ? softBorder : '#DC2626', color: palette.text }]}
-                    />
-                  </View>
-
-                  <View style={styles.timeChoiceGroup}>
-                    <Text style={[styles.timeGroupLabel, { color: palette.muter }]}>Period</Text>
-                    <View style={styles.compactOptions}>
-                      {periodOptions.map((period) => {
-                        const isSelected = getTimeParts(openTimeMenu === 'start' ? draftStartTime : draftEndTime).period === period;
-                        return (
-                          <Pressable
-                            key={period}
-                            accessibilityRole="button"
-                            accessibilityState={{ selected: isSelected }}
-                            onPress={() => updateTimePart('period', period)}
-                            style={[
-                              styles.compactOption,
-                              { backgroundColor: softSurface, borderColor: softBorder },
-                              isSelected && { backgroundColor: accentSoft, borderColor: palette.accent },
-                            ]}>
-                            <Text style={[styles.timeOptionText, { color: isSelected ? palette.accent : palette.text }]}>{period}</Text>
-                          </Pressable>
-                        );
-                      })}
+                {(() => {
+                  const currentParts = getTimeParts(openTimeMenu === 'start' ? draftStartTime : draftEndTime);
+                  const hourIndex = hourOptions.indexOf(currentParts.hour);
+                  const minuteIndex = minuteOptions.indexOf(currentParts.minute);
+                  const periodIndex = periodOptions.indexOf(currentParts.period);
+                  return (
+                    <View style={styles.wheelRow}>
+                      <View style={[styles.wheelHighlight, { top: WHEEL_PADDING, backgroundColor: accentSoft }]} pointerEvents="none" />
+                      <View style={styles.wheelColumnHour}>
+                        <WheelColumn
+                          items={hourOptions.map(String)}
+                          selectedIndex={hourIndex}
+                          onSelect={(index) => updateTimePart('hour', hourOptions[index])}
+                          textColor={palette.text}
+                        />
+                      </View>
+                      <View style={styles.wheelColumnMinute}>
+                        <WheelColumn
+                          items={minuteOptions}
+                          selectedIndex={minuteIndex}
+                          onSelect={(index) => updateTimePart('minute', minuteOptions[index])}
+                          textColor={palette.text}
+                        />
+                      </View>
+                      <View style={styles.wheelColumnPeriod}>
+                        <WheelColumn
+                          items={periodOptions as unknown as string[]}
+                          selectedIndex={periodIndex}
+                          onSelect={(index) => updateTimePart('period', periodOptions[index])}
+                          textColor={palette.text}
+                          align="flex-start"
+                        />
+                      </View>
                     </View>
-                  </View>
-                </View>
+                  );
+                })()}
 
-                {!hasValidMinuteInput ? (
-                  <Text style={styles.timeRangeError}>Enter minutes from 00 to 59.</Text>
-                ) : draftEndTime <= draftStartTime ? (
+                {draftEndTime <= draftStartTime ? (
                   <Text style={styles.timeRangeError}>Finish time must be later than start time.</Text>
                 ) : null}
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityState={{ disabled: !hasValidMinuteInput || draftEndTime <= draftStartTime }}
-                  disabled={!hasValidMinuteInput || draftEndTime <= draftStartTime}
-                  onPress={() => {
-                    updateTimePart('minute', draftMinuteInput.padStart(2, '0'));
-                    setOpenTimeMenu(null);
-                  }}
+                  accessibilityState={{ disabled: draftEndTime <= draftStartTime }}
+                  disabled={draftEndTime <= draftStartTime}
+                  onPress={() => setOpenTimeMenu(null)}
                   style={[
                     styles.timeDoneButton,
                     { backgroundColor: palette.accent },
-                    (!hasValidMinuteInput || draftEndTime <= draftStartTime) && styles.timeDoneButtonDisabled,
+                    draftEndTime <= draftStartTime && styles.timeDoneButtonDisabled,
                   ]}>
                   <Text style={styles.timeDoneButtonText}>Done</Text>
                 </Pressable>
@@ -1203,99 +1252,77 @@ const styles = StyleSheet.create({
   },
   timeMenu: {
     borderWidth: 1,
-    borderRadius: 18,
-    marginTop: 10,
-    padding: 10,
+    borderRadius: 16,
+    marginTop: 8,
+    padding: 8,
   },
   timeMenuHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 4,
-    paddingBottom: 9,
+    paddingHorizontal: 3,
+    paddingBottom: 6,
   },
   timeMenuTitle: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '800',
   },
   timeMenuValue: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '800',
   },
-  timeGroupLabel: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.7,
-    marginBottom: 7,
-    marginTop: 4,
-    textTransform: 'uppercase',
-  },
-  hourOptions: {
+  wheelRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
+    position: 'relative',
+    paddingHorizontal: 3,
+    marginTop: 3,
   },
-  hourOption: {
-    width: '14.5%',
-    minHeight: 38,
-    borderWidth: 1,
+  wheelHighlight: {
+    position: 'absolute',
+    left: 3,
+    right: 3,
+    height: WHEEL_ITEM_HEIGHT,
     borderRadius: 11,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
-  timeChoiceRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 8,
+  wheelColumnHour: {
+    width: 52,
   },
-  timeChoiceGroup: {
+  wheelColumnMinute: {
+    width: 52,
+  },
+  wheelColumnPeriod: {
     flex: 1,
+    paddingLeft: 16,
   },
-  compactOptions: {
-    flexDirection: 'row',
-    gap: 6,
-  },
-  manualMinuteInput: {
-    minHeight: 42,
-    borderWidth: 1,
-    borderRadius: 11,
-    paddingHorizontal: 12,
-    fontSize: 14,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
-  compactOption: {
-    flex: 1,
-    minHeight: 42,
-    borderWidth: 1,
-    borderRadius: 11,
-    alignItems: 'center',
+  wheelItem: {
+    height: WHEEL_ITEM_HEIGHT,
     justifyContent: 'center',
+    width: '100%',
   },
-  timeOptionText: {
-    fontSize: 13,
-    fontWeight: '700',
+  wheelItemText: {
+    fontSize: 17,
+    fontWeight: '600',
   },
   timeDoneButton: {
-    minHeight: 42,
-    borderRadius: 12,
+    minHeight: 34,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 12,
+    marginTop: 9,
   },
   timeDoneButtonDisabled: {
     opacity: 0.42,
   },
   timeDoneButtonText: {
     color: '#FFFFFF',
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '800',
   },
   timeRangeError: {
     color: '#DC2626',
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
-    marginTop: 10,
+    marginTop: 8,
     textAlign: 'center',
   },
   modeRow: {

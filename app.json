@@ -50,7 +50,10 @@
           "icon": "./assets/images/notification-icon.png",
           "color": "#006B52"
         }
-      ]
+      ],
+      "expo-secure-store",
+      "@clerk/expo",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -1,3 +1,5 @@
+import { ClerkProvider } from '@clerk/expo';
+import { tokenCache } from '@clerk/expo/token-cache';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import * as SplashScreen from 'expo-splash-screen';
 import { Stack } from 'expo-router';
@@ -11,6 +13,12 @@ import { AnimatedSplash } from '@/components/AnimatedSplash';
 import { AppDataProvider } from '@/context/app-data-context';
 import { AuthProvider, useAuth } from '@/context/auth-context';
 import { ThemeProvider as AppThemeProvider, useTheme } from '@/context/theme-context';
+
+const publishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY ?? "";
+
+if (!publishableKey) {
+  throw new Error("Missing EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY. Add your key to .env.local.\nRun: 1) clerk auth login  2) clerk link  3) clerk env pull — then restart the dev server.");
+}
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -28,7 +36,11 @@ LogBox.ignoreLogs([
 
 function AppShell() {
   const { isDarkMode } = useTheme();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoaded } = useAuth();
+
+  if (!isLoaded) {
+    return null;
+  }
 
   return (
     <ThemeProvider value={isDarkMode ? DarkTheme : DefaultTheme}>
@@ -39,6 +51,7 @@ function AppShell() {
           <Stack.Screen name="income" />
           <Stack.Screen name="expense" />
           <Stack.Screen name="invoice/[invoiceId]" />
+          <Stack.Screen name="customer/[customerId]" />
           <Stack.Screen name="modal" options={{ headerShown: true, presentation: 'modal', title: 'Modal' }} />
         </Stack.Protected>
         <Stack.Protected guard={!isAuthenticated}>
@@ -62,15 +75,17 @@ export default function RootLayout() {
   }, []);
 
   return (
-    <SafeAreaProvider>
-      <AppThemeProvider>
-        <AuthProvider>
-          <AppDataProvider>
-            <AppShell />
-          </AppDataProvider>
-        </AuthProvider>
-      </AppThemeProvider>
-      {showSplash ? <AnimatedSplash onFinish={handleSplashFinish} /> : null}
-    </SafeAreaProvider>
+    <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache}>
+      <SafeAreaProvider>
+        <AppThemeProvider>
+          <AuthProvider>
+            <AppDataProvider>
+              <AppShell />
+            </AppDataProvider>
+          </AuthProvider>
+        </AppThemeProvider>
+        {showSplash ? <AnimatedSplash onFinish={handleSplashFinish} /> : null}
+      </SafeAreaProvider>
+    </ClerkProvider>
   );
 }

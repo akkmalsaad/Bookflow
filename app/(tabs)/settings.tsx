@@ -10,7 +10,7 @@ import { getThemePalette, useTheme } from '@/context/theme-context';
 
 export default function SettingsScreen() {
   const { isDarkMode, toggleTheme } = useTheme();
-  const { signOut, user, verifyPassword } = useAuth();
+  const { signOut, user, verifyPassword, deleteAccount } = useAuth();
   const { packages, addPackage, removePackage, businessProfile, updateBusinessProfile, currency, updateCurrency, customers, bookings, invoices, financeEntries, deleteAllData } = useAppData();
   const currencyFormatter = getCurrencyFormatter(currency);
 
@@ -72,9 +72,17 @@ export default function SettingsScreen() {
     setDeletePasswordError('');
   };
 
-  const handleDeleteAccount = () => {
-    if (!verifyPassword(deletePassword)) {
+  const handleDeleteAccount = async () => {
+    const isValid = await verifyPassword(deletePassword);
+    if (!isValid) {
       setDeletePasswordError('Incorrect password. Please try again.');
+      return;
+    }
+
+    try {
+      await deleteAccount();
+    } catch (error) {
+      setDeletePasswordError(error instanceof Error ? error.message : 'We could not delete your account. Please try again.');
       return;
     }
 
@@ -276,7 +284,7 @@ export default function SettingsScreen() {
             <View style={styles.summaryCopy}>
               <Text style={[styles.label, { color: palette.muter }]}>Account</Text>
               <Text style={[styles.summaryTitle, { color: palette.text }]}>{user?.name ?? 'Bookflow user'}</Text>
-              <Text style={[styles.summarySubtitle, { color: palette.muter }]}>{user?.email ?? 'Local demo session'}</Text>
+              <Text style={[styles.summarySubtitle, { color: palette.muter }]}>{user?.email ?? 'Signed out'}</Text>
             </View>
           </View>
           <Pressable

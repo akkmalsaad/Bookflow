@@ -271,13 +271,25 @@ export function ModalActions({
     <View style={styles.modalActions}>
       {secondaryLabel && secondaryOnPress ? (
         <Pressable
+          accessibilityRole="button"
           onPress={secondaryOnPress}
           style={[styles.modalSecondary, { backgroundColor: palette.surfaceAlt, borderColor: palette.border }]}>
-          <Text style={[styles.modalSecondaryText, { color: palette.text }]}>{secondaryLabel}</Text>
+          <Text
+            adjustsFontSizeToFit
+            minimumFontScale={0.85}
+            numberOfLines={1}
+            style={[styles.modalSecondaryText, { color: palette.text }]}>
+            {secondaryLabel}
+          </Text>
         </Pressable>
       ) : null}
-      <Pressable onPress={primaryOnPress} style={[styles.modalPrimary, { backgroundColor: palette.accent }]}>
-        <Text style={styles.modalPrimaryText}>{primaryLabel}</Text>
+      <Pressable
+        accessibilityRole="button"
+        onPress={primaryOnPress}
+        style={[styles.modalPrimary, { backgroundColor: palette.accent }]}>
+        <Text adjustsFontSizeToFit minimumFontScale={0.85} numberOfLines={1} style={styles.modalPrimaryText}>
+          {primaryLabel}
+        </Text>
       </Pressable>
     </View>
   );
@@ -382,8 +394,8 @@ const styles = StyleSheet.create({
   modalBody: { marginTop: 18 },
   modalActions: { flexDirection: 'row', gap: 10, marginTop: 20 },
   modalPrimary: { alignItems: 'center', borderRadius: 16, flex: 1, justifyContent: 'center', minHeight: 50, paddingHorizontal: 15 },
-  modalPrimaryText: { color: '#FFFFFF', fontSize: 14, fontWeight: '900' },
+  modalPrimaryText: { color: '#FFFFFF', fontSize: 14, fontWeight: '900', textAlign: 'center', width: '100%' },
   modalSecondary: { alignItems: 'center', borderRadius: 16, borderWidth: 1, flex: 1, justifyContent: 'center', minHeight: 50, paddingHorizontal: 15 },
-  modalSecondaryText: { fontSize: 14, fontWeight: '800' },
+  modalSecondaryText: { fontSize: 14, fontWeight: '800', textAlign: 'center', width: '100%' },
   inlineMessage: { fontSize: 12, fontWeight: '700', lineHeight: 17, marginBottom: 12 },
 });

@@ -13,6 +13,7 @@ import {
   PrimaryAuthButton,
   SocialButtons,
 } from '@/components/AuthUI';
+import { MIN_PASSWORD_LENGTH } from '@/constants/auth';
 import { type SocialProvider, useAuth } from '@/context/auth-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 
@@ -21,7 +22,7 @@ type LegalDocument = 'privacy' | 'terms';
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function SignupScreen() {
-  const { signInWithSocial, signUp } = useAuth();
+  const { signInWithSocial, signUp, verifyEmail } = useAuth();
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
 
@@ -62,7 +63,7 @@ export default function SignupScreen() {
     [legalDocument],
   );
 
-  const handleCreateAccount = () => {
+  const handleCreateAccount = async () => {
     const safeEmail = email.trim().toLowerCase();
 
     if (name.trim().length < 2) {
@@ -73,8 +74,8 @@ export default function SignupScreen() {
       setFormError('Enter a valid email address.');
       return;
     }
-    if (password.length < 8) {
-      setFormError('Password must contain at least 8 characters.');
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      setFormError(`Password must contain at least ${MIN_PASSWORD_LENGTH} characters.`);
       return;
     }
     if (password !== confirmPassword) {
@@ -87,7 +88,15 @@ export default function SignupScreen() {
     }
 
     setFormError('');
-    setShowVerification(true);
+    setIsSubmitting(true);
+    try {
+      await signUp({ email: safeEmail, name: name.trim(), password });
+      setShowVerification(true);
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'We could not create your account. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const verifyAndCreateAccount = async () => {
@@ -99,10 +108,10 @@ export default function SignupScreen() {
     setVerificationError('');
     setIsSubmitting(true);
     try {
-      await signUp({ email: email.trim().toLowerCase(), name: name.trim(), password });
+      await verifyEmail(verificationCode);
       setShowVerification(false);
-    } catch {
-      setVerificationError('We could not create your account. Please try again.');
+    } catch (error) {
+      setVerificationError(error instanceof Error ? error.message : 'We could not verify your email. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -112,7 +121,11 @@ export default function SignupScreen() {
     if (!socialProvider) return;
     const provider = socialProvider;
     setSocialProvider(null);
-    await signInWithSocial(provider);
+    try {
+      await signInWithSocial(provider);
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : `We could not continue with ${provider === 'apple' ? 'Apple' : 'Google'}.`);
+    }
   };
 
   return (
@@ -147,7 +160,7 @@ export default function SignupScreen() {
         icon="lock-closed-outline"
         label="Password"
         onChangeText={setPassword}
-        placeholder="At least 8 characters"
+        placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`}
         secureTextEntry
         textContentType="newPassword"
         value={password}
@@ -193,7 +206,13 @@ export default function SignupScreen() {
       </View>
 
       {formError ? <InlineMessage>{formError}</InlineMessage> : null}
-      <PrimaryAuthButton label="Create account" onPress={handleCreateAccount} />
+      <PrimaryAuthButton
+        label="Create account"
+        loadingLabel="Creating account…"
+        onPress={handleCreateAccount}
+        pending={isSubmitting}
+      />
+      <View nativeID="clerk-captcha" />
 
       <AuthDivider />
       <SocialButtons onPress={setSocialProvider} />
@@ -227,7 +246,6 @@ export default function SignupScreen() {
           textContentType="oneTimeCode"
           value={verificationCode}
         />
-        <InlineMessage tone="muted">Demo mode accepts any 6-digit code until Clerk verification is connected.</InlineMessage>
         {verificationError ? <InlineMessage>{verificationError}</InlineMessage> : null}
         <ModalActions
           primaryLabel={isSubmitting ? 'Creating account…' : 'Verify and continue'}
@@ -254,11 +272,11 @@ export default function SignupScreen() {
       <AuthModal
         icon={socialProvider === 'apple' ? 'logo-apple' : 'logo-google'}
         onClose={() => setSocialProvider(null)}
-        subtitle="This button is prepared for Clerk OAuth. For now, continuing creates a local demo session so you can test the complete routed flow."
+        subtitle={`You'll be taken to ${socialProvider === 'apple' ? 'Apple' : 'Google'} to finish signing in.`}
         title={`Continue with ${socialProvider === 'apple' ? 'Apple' : 'Google'}`}
         visible={socialProvider !== null}>
         <ModalActions
-          primaryLabel="Continue in demo"
+          primaryLabel="Continue"
           primaryOnPress={continueWithSocial}
           secondaryLabel="Not now"
           secondaryOnPress={() => setSocialProvider(null)}

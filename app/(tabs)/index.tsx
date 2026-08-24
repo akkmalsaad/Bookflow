@@ -116,7 +116,12 @@ export default function HomeScreen() {
           </View>
           <View style={styles.headerCopy}>
             <Text style={[styles.eyebrow, { color: palette.accent }]}>Dashboard</Text>
-            <Text style={[styles.title, { color: palette.text }]} numberOfLines={1}>
+            <Text
+              adjustsFontSizeToFit
+              minimumFontScale={0.65}
+              numberOfLines={1}
+              style={[styles.title, { color: palette.text }]}
+            >
               Welcome {businessProfile.name}
             </Text>
           </View>

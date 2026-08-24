@@ -89,6 +89,7 @@ export default function InvoicesScreen() {
       `Due date: ${invoice.dueDate}`,
       '',
       `Open this link to review and accept your invoice: ${invoiceUrl}`,
+      'You can also save a PDF copy from the invoice page for future reference.',
     ].join('\n');
     const encodedMessage = encodeURIComponent(message);
     const whatsappAppUrl = `whatsapp://send?phone=${phoneNumber}&text=${encodedMessage}`;

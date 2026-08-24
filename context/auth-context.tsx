@@ -1,4 +1,5 @@
-import { createContext, useContext, useMemo, useState } from 'react';
+import { useAuth as useClerkAuth, useSignIn, useSignUp, useSSO, useUser } from '@clerk/expo';
+import { createContext, useContext, type ReactNode } from 'react';
 
 export type AuthUser = {
   email: string;
@@ -17,53 +18,155 @@ type SignUpInput = SignInInput & {
 export type SocialProvider = 'apple' | 'google';
 
 type AuthContextValue = {
+  isLoaded: boolean;
   isAuthenticated: boolean;
   isClerkConfigured: boolean;
   signIn: (input: SignInInput) => Promise<void>;
   signInWithSocial: (provider: SocialProvider) => Promise<void>;
-  signOut: () => void;
+  signOut: () => Promise<void>;
   signUp: (input: SignUpInput) => Promise<void>;
+  verifyEmail: (code: string) => Promise<void>;
   user: AuthUser | null;
-  verifyPassword: (password: string) => boolean;
+  verifyPassword: (password: string) => Promise<boolean>;
+  deleteAccount: () => Promise<void>;
+  sendPasswordResetCode: (email: string) => Promise<void>;
+  verifyPasswordResetCode: (code: string) => Promise<void>;
+  submitNewPassword: (password: string) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-/**
- * Local auth adapter used until Clerk is connected. Keeping all session changes
- * behind this provider means Clerk can replace these methods without changing
- * the screens or route guards.
- */
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [password, setPassword] = useState<string | null>(null);
+function describeError(error: { longMessage?: string; message: string } | null | undefined, fallback: string) {
+  return error ? error.longMessage ?? error.message : fallback;
+}
 
-  const value = useMemo<AuthContextValue>(
-    () => ({
-      isAuthenticated: user !== null,
-      isClerkConfigured: false,
-      user,
-      signIn: async ({ email, password: signInPassword }) => {
-        setUser({ email: email.trim().toLowerCase(), name: email.trim().split('@')[0] || 'Bookflow user' });
-        setPassword(signInPassword);
-      },
-      signUp: async ({ email, name, password: signUpPassword }) => {
-        setUser({ email: email.trim().toLowerCase(), name: name.trim() });
-        setPassword(signUpPassword);
-      },
-      signInWithSocial: async (provider) => {
-        const providerName = provider === 'apple' ? 'Apple' : 'Google';
-        setUser({ email: `${provider}@bookflow.demo`, name: `${providerName} user` });
-        setPassword(null);
-      },
-      signOut: () => {
-        setUser(null);
-        setPassword(null);
-      },
-      verifyPassword: (input) => password !== null && input === password,
-    }),
-    [password, user],
-  );
+/**
+ * Clerk-backed implementation of the auth adapter. Screens only ever talk to this
+ * context, so swapping the underlying provider never requires touching the UI.
+ */
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const { isLoaded, isSignedIn, signOut: clerkSignOut } = useClerkAuth();
+  const { user: clerkUser } = useUser();
+  const { signIn: signInResource } = useSignIn();
+  const { signUp: signUpResource } = useSignUp();
+  const { startSSOFlow } = useSSO();
+
+  const user: AuthUser | null =
+    isSignedIn && clerkUser
+      ? (() => {
+          const fullName = [clerkUser.firstName?.trim(), clerkUser.lastName?.trim()].filter(Boolean).join(' ');
+          const email = clerkUser.primaryEmailAddress?.emailAddress ?? '';
+          return { email, name: fullName || email.split('@')[0] || 'Bookflow user' };
+        })()
+      : null;
+
+  const value: AuthContextValue = {
+    isLoaded,
+    isAuthenticated: Boolean(isSignedIn),
+    isClerkConfigured: true,
+    user,
+
+    signIn: async ({ email, password }) => {
+      const { error } = await signInResource.password({ identifier: email.trim().toLowerCase(), password });
+      if (error) throw new Error(describeError(error, 'We could not sign you in. Please check your details and try again.'));
+
+      if (signInResource.status === 'complete') {
+        await signInResource.finalize();
+        return;
+      }
+      throw new Error('This account requires an additional verification step that Bookflow does not support yet.');
+    },
+
+    signUp: async ({ email, name, password }) => {
+      const trimmedName = name.trim();
+      const [firstName, ...rest] = trimmedName.split(/\s+/);
+      const lastName = rest.join(' ') || undefined;
+
+      const { error } = await signUpResource.password({
+        emailAddress: email.trim().toLowerCase(),
+        password,
+        firstName,
+        lastName,
+      });
+      if (error) throw new Error(describeError(error, 'We could not create your account. Please try again.'));
+
+      if (signUpResource.status === 'complete') {
+        await signUpResource.finalize();
+        return;
+      }
+
+      if (signUpResource.status === 'missing_requirements' && signUpResource.unverifiedFields.includes('email_address')) {
+        const { error: codeError } = await signUpResource.verifications.sendEmailCode();
+        if (codeError) throw new Error(describeError(codeError, 'We could not send a verification code. Please try again.'));
+        return;
+      }
+
+      throw new Error('We could not create your account. Please try again.');
+    },
+
+    verifyEmail: async (code) => {
+      const { error } = await signUpResource.verifications.verifyEmailCode({ code });
+      if (error) throw new Error(describeError(error, 'That code is incorrect or has expired. Please try again.'));
+
+      if (signUpResource.status === 'complete') {
+        await signUpResource.finalize();
+        return;
+      }
+      throw new Error('We could not verify your email. Please try again.');
+    },
+
+    signInWithSocial: async (provider) => {
+      const strategy = provider === 'apple' ? 'oauth_apple' : 'oauth_google';
+      const { createdSessionId, setActive, signUp: ssoSignUp } = await startSSOFlow({ strategy });
+
+      if (createdSessionId && setActive) {
+        await setActive({ session: createdSessionId });
+        return;
+      }
+      if (ssoSignUp?.status === 'missing_requirements') {
+        throw new Error('Your account needs additional details. Please sign up with email instead.');
+      }
+    },
+
+    signOut: async () => {
+      await clerkSignOut();
+    },
+
+    verifyPassword: async (password) => {
+      if (!user) return false;
+      const { error } = await signInResource.password({ identifier: user.email, password });
+      const isValid = !error;
+      await signInResource.reset();
+      return isValid;
+    },
+
+    deleteAccount: async () => {
+      if (!clerkUser) throw new Error('No account is currently signed in.');
+      if (!clerkUser.deleteSelfEnabled) {
+        throw new Error('Account deletion is not enabled for this app yet. Please contact support.');
+      }
+      await clerkUser.delete();
+    },
+
+    sendPasswordResetCode: async (email) => {
+      const { error } = await signInResource.create({ identifier: email.trim().toLowerCase() });
+      if (error) throw new Error(describeError(error, 'We could not find an account with that email.'));
+
+      const { error: codeError } = await signInResource.resetPasswordEmailCode.sendCode();
+      if (codeError) throw new Error(describeError(codeError, 'We could not send a reset code. Please try again.'));
+    },
+
+    verifyPasswordResetCode: async (code) => {
+      const { error } = await signInResource.resetPasswordEmailCode.verifyCode({ code });
+      if (error) throw new Error(describeError(error, 'That code is incorrect or has expired. Please try again.'));
+    },
+
+    submitNewPassword: async (password) => {
+      const { error } = await signInResource.resetPasswordEmailCode.submitPassword({ password });
+      if (error) throw new Error(describeError(error, 'We could not update your password. Please try again.'));
+      await signInResource.reset();
+    },
+  };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

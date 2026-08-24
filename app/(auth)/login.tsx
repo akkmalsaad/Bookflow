@@ -12,6 +12,7 @@ import {
   PrimaryAuthButton,
   SocialButtons,
 } from '@/components/AuthUI';
+import { MIN_PASSWORD_LENGTH } from '@/constants/auth';
 import { type SocialProvider, useAuth } from '@/context/auth-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 
@@ -20,7 +21,7 @@ type ResetStage = 'email' | 'code' | 'password' | 'success';
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function LoginScreen() {
-  const { signIn, signInWithSocial } = useAuth();
+  const { signIn, signInWithSocial, sendPasswordResetCode, verifyPasswordResetCode, submitNewPassword } = useAuth();
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
 
@@ -37,6 +38,7 @@ export default function LoginScreen() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [resetError, setResetError] = useState('');
+  const [isResetSubmitting, setIsResetSubmitting] = useState(false);
 
   const resetCopy = useMemo(() => {
     switch (resetStage) {
@@ -49,7 +51,7 @@ export default function LoginScreen() {
       case 'password':
         return {
           title: 'Choose a new password',
-          subtitle: 'Use at least 8 characters so your account stays secure.',
+          subtitle: `Use at least ${MIN_PASSWORD_LENGTH} characters so your account stays secure.`,
           icon: 'lock-closed-outline' as const,
         };
       case 'success':
@@ -74,8 +76,8 @@ export default function LoginScreen() {
       setFormError('Enter a valid email address.');
       return;
     }
-    if (password.length < 6) {
-      setFormError('Password must contain at least 6 characters.');
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      setFormError(`Password must contain at least ${MIN_PASSWORD_LENGTH} characters.`);
       return;
     }
 
@@ -83,8 +85,8 @@ export default function LoginScreen() {
     setIsSubmitting(true);
     try {
       await signIn({ email: safeEmail, password });
-    } catch {
-      setFormError('We could not sign you in. Please check your details and try again.');
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'We could not sign you in. Please check your details and try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -100,7 +102,8 @@ export default function LoginScreen() {
     setResetError('');
   };
 
-  const continueReset = () => {
+  const continueReset = async () => {
+    if (isResetSubmitting) return;
     setResetError('');
 
     if (resetStage === 'email') {
@@ -108,7 +111,15 @@ export default function LoginScreen() {
         setResetError('Enter a valid email address.');
         return;
       }
-      setResetStage('code');
+      setIsResetSubmitting(true);
+      try {
+        await sendPasswordResetCode(resetEmail.trim());
+        setResetStage('code');
+      } catch (error) {
+        setResetError(error instanceof Error ? error.message : 'We could not send a reset code. Please try again.');
+      } finally {
+        setIsResetSubmitting(false);
+      }
       return;
     }
 
@@ -117,22 +128,37 @@ export default function LoginScreen() {
         setResetError('Enter the complete 6-digit code.');
         return;
       }
-      setResetStage('password');
+      setIsResetSubmitting(true);
+      try {
+        await verifyPasswordResetCode(resetCode);
+        setResetStage('password');
+      } catch (error) {
+        setResetError(error instanceof Error ? error.message : 'That code is incorrect or has expired. Please try again.');
+      } finally {
+        setIsResetSubmitting(false);
+      }
       return;
     }
 
     if (resetStage === 'password') {
-      if (newPassword.length < 8) {
-        setResetError('Your new password must contain at least 8 characters.');
+      if (newPassword.length < MIN_PASSWORD_LENGTH) {
+        setResetError(`Your new password must contain at least ${MIN_PASSWORD_LENGTH} characters.`);
         return;
       }
       if (newPassword !== confirmPassword) {
         setResetError('The passwords do not match.');
         return;
       }
-      setPassword(newPassword);
-      setEmail(resetEmail.trim().toLowerCase());
-      setResetStage('success');
+      setIsResetSubmitting(true);
+      try {
+        await submitNewPassword(newPassword);
+        setEmail(resetEmail.trim().toLowerCase());
+        setResetStage('success');
+      } catch (error) {
+        setResetError(error instanceof Error ? error.message : 'We could not update your password. Please try again.');
+      } finally {
+        setIsResetSubmitting(false);
+      }
     }
   };
 
@@ -140,7 +166,11 @@ export default function LoginScreen() {
     if (!socialProvider) return;
     const provider = socialProvider;
     setSocialProvider(null);
-    await signInWithSocial(provider);
+    try {
+      await signInWithSocial(provider);
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : `We could not continue with ${provider === 'apple' ? 'Apple' : 'Google'}.`);
+    }
   };
 
   return (
@@ -238,7 +268,6 @@ export default function LoginScreen() {
               textContentType="oneTimeCode"
               value={resetCode}
             />
-            <InlineMessage tone="muted">Demo mode accepts any 6-digit code until Clerk is connected.</InlineMessage>
           </>
         ) : null}
         {resetStage === 'password' ? (
@@ -248,7 +277,7 @@ export default function LoginScreen() {
               icon="lock-closed-outline"
               label="New password"
               onChangeText={setNewPassword}
-              placeholder="At least 8 characters"
+              placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`}
               secureTextEntry
               value={newPassword}
             />
@@ -279,11 +308,11 @@ export default function LoginScreen() {
       <AuthModal
         icon={socialProvider === 'apple' ? 'logo-apple' : 'logo-google'}
         onClose={() => setSocialProvider(null)}
-        subtitle="This button is prepared for Clerk OAuth. For now, continuing creates a local demo session so you can test the complete routed flow."
+        subtitle={`You'll be taken to ${socialProvider === 'apple' ? 'Apple' : 'Google'} to finish signing in.`}
         title={`Continue with ${socialProvider === 'apple' ? 'Apple' : 'Google'}`}
         visible={socialProvider !== null}>
         <ModalActions
-          primaryLabel="Continue in demo"
+          primaryLabel="Continue"
           primaryOnPress={continueWithSocial}
           secondaryLabel="Not now"
           secondaryOnPress={() => setSocialProvider(null)}

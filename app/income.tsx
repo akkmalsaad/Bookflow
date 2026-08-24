@@ -1,9 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useMemo, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleProp, StyleSheet, Text, View, ViewStyle } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { MonthlyTrendChart } from '@/components/MonthlyTrendChart';
+import { TrendRange, TrendRangeTabs } from '@/components/TrendRangeTabs';
 import { FinanceEntry, getCurrencyFormatter, useAppData } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 
@@ -23,6 +25,11 @@ function shiftMonths(date: Date, offset: number) {
 function formatMonthLabel(monthKey: string) {
   const [year, month] = monthKey.split('-').map(Number);
   return new Intl.DateTimeFormat('en-US', { month: 'short', year: '2-digit' }).format(new Date(year, month - 1, 1));
+}
+
+function formatMonthShort(monthKey: string) {
+  const [year, month] = monthKey.split('-').map(Number);
+  return new Intl.DateTimeFormat('en-US', { month: 'short' }).format(new Date(year, month - 1, 1));
 }
 
 function formatEntryDate(dateKey: string) {
@@ -107,6 +114,7 @@ export default function IncomeScreen() {
   const palette = getThemePalette(isDarkMode);
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const tone = softTone(isDarkMode);
+  const [trendRange, setTrendRange] = useState<TrendRange>('6months');
 
   const incomeEntries = useMemo(
     () =>
@@ -170,6 +178,63 @@ export default function IncomeScreen() {
       };
     });
   }, [monthlyTotals]);
+
+  const dailyTrend = useMemo(() => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const todayDate = now.getDate();
+
+    const totals = new Map<string, number>();
+    incomeEntries.forEach((entry) => {
+      if (entry.date.slice(0, 7) === getMonthKey(now)) {
+        totals.set(entry.date, (totals.get(entry.date) ?? 0) + entry.amount);
+      }
+    });
+
+    return Array.from({ length: daysInMonth }, (_, index) => {
+      const day = index + 1;
+      const key = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const showLabel = day === 1 || day % 5 === 0 || day === daysInMonth;
+      return {
+        key,
+        label: new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' }).format(new Date(year, month, day)),
+        axisLabel: showLabel ? String(day) : '',
+        amount: totals.get(key) ?? 0,
+        isHighlighted: day === todayDate,
+      };
+    });
+  }, [incomeEntries]);
+
+  const yearlyTrend = useMemo(() => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const currentMonthIndex = now.getMonth();
+
+    return Array.from({ length: 12 }, (_, monthIndex) => {
+      const key = `${year}-${String(monthIndex + 1).padStart(2, '0')}`;
+      const showLabel = monthIndex % 2 === 0 || monthIndex === currentMonthIndex || monthIndex === 11;
+      return {
+        key,
+        label: new Intl.DateTimeFormat('en-US', { month: 'short', year: 'numeric' }).format(new Date(year, monthIndex, 1)),
+        axisLabel: showLabel ? formatMonthShort(key) : '',
+        amount: monthlyTotals.get(key) ?? 0,
+        isHighlighted: monthIndex === currentMonthIndex,
+      };
+    });
+  }, [monthlyTotals]);
+
+  const trendData = useMemo(() => {
+    if (trendRange === 'month') return dailyTrend;
+    if (trendRange === 'year') return yearlyTrend;
+    return monthlyTrend.map((item) => ({
+      key: item.month,
+      label: formatMonthLabel(item.month),
+      amount: item.amount,
+      isHighlighted: item.isCurrent,
+    }));
+  }, [trendRange, dailyTrend, yearlyTrend, monthlyTrend]);
 
   const monthlyDelta = useMemo(() => {
     const now = new Date();
@@ -262,6 +327,17 @@ export default function IncomeScreen() {
           </SoftCard>
         ) : (
           <>
+            <Text style={[styles.sectionTitle, { color: palette.text }]}>Monthly trend</Text>
+            <TrendRangeTabs value={trendRange} onChange={setTrendRange} color={palette.accent} isDarkMode={isDarkMode} />
+            <SoftCard isDarkMode={isDarkMode} style={styles.chartOuter}>
+              <MonthlyTrendChart
+                data={trendData}
+                color={palette.accent}
+                isDarkMode={isDarkMode}
+                formatValue={(amount) => currencyFormatter.format(amount)}
+              />
+            </SoftCard>
+
             <Text style={[styles.sectionTitle, { color: palette.text }]}>By category</Text>
             <SoftCard isDarkMode={isDarkMode} style={styles.chartOuter}>
               <View style={[styles.stackedBarTrack, { backgroundColor: isDarkMode ? '#0E1729' : '#E4EAF5' }]}>
@@ -292,37 +368,6 @@ export default function IncomeScreen() {
                       <Text style={[styles.legendPercent, { color: palette.muter }]}>{Math.round(item.percent * 100)}%</Text>
                       <Text style={[styles.legendAmount, { color: palette.text }]}>{currencyFormatter.format(item.amount)}</Text>
                     </View>
-                  </View>
-                ))}
-              </View>
-            </SoftCard>
-
-            <Text style={[styles.sectionTitle, { color: palette.text }]}>Monthly trend</Text>
-            <SoftCard isDarkMode={isDarkMode} style={styles.chartOuter}>
-              <View style={styles.barChart}>
-                {monthlyTrend.map((item) => (
-                  <View key={item.month} style={styles.barColumn}>
-                    <Text style={[styles.barValue, { color: item.isCurrent ? palette.text : palette.muter }]} numberOfLines={1}>
-                      {item.amount > 0 ? currencyFormatter.format(item.amount).replace(/\.00$/, '') : ''}
-                    </Text>
-                    <View style={[styles.barTrack, { backgroundColor: isDarkMode ? '#0E1729' : '#E4EAF5' }]}>
-                      <View
-                        style={[
-                          styles.barFill,
-                          {
-                            height: `${Math.max(item.ratio * 100, 4)}%`,
-                            backgroundColor: item.isCurrent ? palette.accent : `${palette.accent}45`,
-                          },
-                        ]}
-                      />
-                    </View>
-                    <Text
-                      style={[
-                        styles.barLabel,
-                        { color: item.isCurrent ? palette.accent : palette.muter, fontWeight: item.isCurrent ? '800' : '700' },
-                      ]}>
-                      {formatMonthLabel(item.month)}
-                    </Text>
                   </View>
                 ))}
               </View>
@@ -536,36 +581,6 @@ const styles = StyleSheet.create({
   legendAmount: {
     fontSize: 13,
     fontWeight: '800',
-  },
-  barChart: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    height: 160,
-  },
-  barColumn: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  barValue: {
-    fontSize: 10,
-    fontWeight: '700',
-    marginBottom: 6,
-  },
-  barTrack: {
-    width: 22,
-    height: 100,
-    borderRadius: 10,
-    justifyContent: 'flex-end',
-    overflow: 'hidden',
-  },
-  barFill: {
-    width: '100%',
-    borderRadius: 10,
-  },
-  barLabel: {
-    fontSize: 11,
-    marginTop: 8,
   },
   list: {
     gap: 12,
