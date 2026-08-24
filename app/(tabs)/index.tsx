@@ -186,10 +186,41 @@ export default function HomeScreen() {
       </View>
 
       <View style={styles.statsGrid}>
-        <StatCard label="Revenue" value={currencyFormatter.format(totalRevenue)} detail="This month" tone="blue" isCurrency />
-        <StatCard label="Upcoming" value={String(upcomingBookings.length)} detail={upcomingDetail} tone="green" />
-        <StatCard label="Income" value={currencyFormatter.format(totalIncome)} detail="After expenses" tone="amber" isCurrency />
-        <StatCard label="Expense" value={currencyFormatter.format(totalExpense)} detail="This month" tone="purple" isCurrency />
+        <StatCard
+          label="Revenue"
+          value={currencyFormatter.format(totalRevenue)}
+          detail="This month"
+          tone="blue"
+          isCurrency
+          onPress={() => router.push('/income')}
+          accessibilityLabel="Open revenue income breakdown"
+        />
+        <StatCard
+          label="Upcoming"
+          value={String(upcomingBookings.length)}
+          detail={upcomingDetail}
+          tone="green"
+          onPress={() => router.push('/bookings')}
+          accessibilityLabel="Open upcoming bookings"
+        />
+        <StatCard
+          label="Income"
+          value={currencyFormatter.format(totalIncome)}
+          detail="After expenses"
+          tone="amber"
+          isCurrency
+          onPress={() => router.push('/income')}
+          accessibilityLabel="Open income breakdown"
+        />
+        <StatCard
+          label="Expense"
+          value={currencyFormatter.format(totalExpense)}
+          detail="This month"
+          tone="purple"
+          isCurrency
+          onPress={() => router.push('/expense')}
+          accessibilityLabel="Open expense breakdown"
+        />
       </View>
 
       <View

@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import type { ComponentProps } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useTheme } from '@/context/theme-context';
 
@@ -10,6 +10,8 @@ type StatCardProps = {
   detail: string;
   tone: 'blue' | 'green' | 'amber' | 'purple';
   isCurrency?: boolean;
+  onPress: () => void;
+  accessibilityLabel?: string;
 };
 
 const toneColors: Record<StatCardProps['tone'], { accent: string; icon: ComponentProps<typeof Ionicons>['name'] }> = {
@@ -19,15 +21,26 @@ const toneColors: Record<StatCardProps['tone'], { accent: string; icon: Componen
   purple: { accent: '#8968D8', icon: 'arrow-up-circle' },
 };
 
-export function StatCard({ label, value, detail, tone, isCurrency = false }: StatCardProps) {
+export function StatCard({
+  label,
+  value,
+  detail,
+  tone,
+  isCurrency = false,
+  onPress,
+  accessibilityLabel,
+}: StatCardProps) {
   const { isDarkMode } = useTheme();
   const colors = toneColors[tone];
   const surface = isDarkMode ? '#172033' : '#F7F9FD';
   const border = isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.92)';
 
   return (
-    <View
-      style={[
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? `Open ${label}`}
+      onPress={onPress}
+      style={({ pressed }) => [
         styles.card,
         {
           backgroundColor: surface,
@@ -35,6 +48,7 @@ export function StatCard({ label, value, detail, tone, isCurrency = false }: Sta
           shadowColor: isDarkMode ? '#020617' : '#A7B4C8',
           shadowOpacity: isDarkMode ? 0.34 : 0.16,
         },
+        pressed && styles.cardPressed,
       ]}>
       <View style={styles.cardHeader}>
         <Ionicons name={colors.icon} size={24} color={colors.accent} />
@@ -42,7 +56,7 @@ export function StatCard({ label, value, detail, tone, isCurrency = false }: Sta
       <Text style={[styles.label, { color: isDarkMode ? '#AEBBD0' : '#667085' }]}>{label}</Text>
       <Text style={[styles.value, isCurrency && styles.currencyValue, { color: isDarkMode ? '#F8FAFC' : '#172033' }]}>{value}</Text>
       <Text style={[styles.detail, { color: isDarkMode ? '#8E9CB2' : '#8A94A6' }]}>{detail}</Text>
-    </View>
+    </Pressable>
   );
 }
 
@@ -62,6 +76,10 @@ const styles = StyleSheet.create({
   },
   cardHeader: {
     marginBottom: 16,
+  },
+  cardPressed: {
+    opacity: 0.84,
+    transform: [{ scale: 0.98 }],
   },
   label: {
     fontSize: 11,
