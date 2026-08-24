@@ -321,7 +321,10 @@ export default function SettingsScreen() {
           <View style={styles.modalBackdrop}>
             <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ width: '100%' }} keyboardVerticalOffset={80}>
               <SafeAreaView edges={["top","left","right","bottom"]} style={[styles.modalCard, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
-                <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 12 }}>
+                <ScrollView
+                  keyboardShouldPersistTaps="handled"
+                  showsVerticalScrollIndicator={false}
+                  contentContainerStyle={{ paddingBottom: 12 }}>
                   <View style={styles.modalHeader}>
                     <View>
                       <Text style={[styles.modalEyebrow, { color: palette.accent }]}>Business</Text>
