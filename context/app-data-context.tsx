@@ -208,6 +208,16 @@ type PersistedAppData = {
   currency: CurrencyCode;
 };
 
+function getInvoiceDueDate(eventDate: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(eventDate);
+  if (!match) return eventDate;
+
+  const [, year, month, day] = match;
+  const dueDate = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+  dueDate.setUTCDate(dueDate.getUTCDate() - 1);
+  return dueDate.toISOString().slice(0, 10);
+}
+
 function createFreshWorkspace(user: AuthUser): PersistedAppData {
   return {
     version: 1,
@@ -557,9 +567,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           status: booking.status,
           notes: booking.notes.trim() || 'Booking created from the app.',
         };
-        const invoiceDueDate = new Date(new Date(`${booking.date}T00:00:00`).getTime() + 7 * 24 * 60 * 60 * 1000)
-          .toISOString()
-          .slice(0, 10);
+        const invoiceDueDate = getInvoiceDueDate(booking.date);
         const createdInvoice: Invoice = {
           id: `inv-${createdAt}`,
           bookingId: createdBooking.id,
