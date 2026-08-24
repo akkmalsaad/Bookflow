@@ -35,6 +35,7 @@ export default function FinanceScreen() {
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [description, setDescription] = useState('');
+  const [isDescriptionFocused, setIsDescriptionFocused] = useState(false);
   const [formError, setFormError] = useState('');
   const transactionFormRef = useRef<ScrollView>(null);
   const softSurface = isDarkMode ? '#172033' : '#F7F9FD';
@@ -56,6 +57,7 @@ export default function FinanceScreen() {
     setAmount('');
     setDate(new Date().toISOString().slice(0, 10));
     setDescription('');
+    setIsDescriptionFocused(false);
     setFormError('');
   };
 
@@ -271,15 +273,40 @@ export default function FinanceScreen() {
               <DatePickerField value={date} onChange={setDate} isDarkMode={isDarkMode} palette={palette} />
 
               <Text style={[styles.fieldLabel, { color: palette.muter }]}>Description</Text>
-              <TextInput
-                value={description}
-                onChangeText={setDescription}
-                onFocus={revealDescription}
-                placeholder="Add transaction details"
-                placeholderTextColor={palette.muter}
-                multiline
-                style={[styles.input, styles.descriptionInput, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
-              />
+              <View style={styles.descriptionField}>
+                <TextInput
+                  value={description}
+                  onChangeText={setDescription}
+                  onFocus={() => {
+                    setIsDescriptionFocused(true);
+                    revealDescription();
+                  }}
+                  onBlur={() => setIsDescriptionFocused(false)}
+                  placeholder="Add transaction details"
+                  placeholderTextColor={palette.muter}
+                  multiline
+                  style={[
+                    styles.input,
+                    styles.descriptionInput,
+                    isDescriptionFocused && styles.descriptionInputFocused,
+                    { backgroundColor: softInset, borderColor: softBorder, color: palette.text },
+                  ]}
+                />
+                {isDescriptionFocused ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Close description keyboard"
+                    hitSlop={6}
+                    onPress={Keyboard.dismiss}
+                    style={({ pressed }) => [
+                      styles.keyboardAccessoryButton,
+                      styles.descriptionKeyboardButton,
+                      pressed && styles.keyboardAccessoryButtonPressed,
+                    ]}>
+                    <Ionicons name="checkmark" size={25} color="#FFFFFF" />
+                  </Pressable>
+                ) : null}
+              </View>
 
               {formError ? <Text style={styles.formError}>{formError}</Text> : null}
 
@@ -625,6 +652,19 @@ const styles = StyleSheet.create({
   descriptionInput: {
     minHeight: 92,
     textAlignVertical: 'top',
+  },
+  descriptionField: {
+    position: 'relative',
+  },
+  descriptionInputFocused: {
+    paddingRight: 76,
+  },
+  descriptionKeyboardButton: {
+    position: 'absolute',
+    right: 10,
+    bottom: 18,
+    width: 52,
+    height: 38,
   },
   keyboardAccessory: {
     minHeight: 56,
