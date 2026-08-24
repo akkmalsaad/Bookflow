@@ -143,6 +143,10 @@ export default function InvoiceAcceptanceScreen() {
             <Text style={[styles.detailValue, { color: palette.text }]}>{getProfileValue(businessProfile.name)}</Text>
           </View>
           <View style={styles.detailRow}>
+            <Text style={[styles.detailLabel, { color: palette.muter }]}>SSM Registration No.</Text>
+            <Text style={[styles.detailValue, { color: palette.text }]}>{getProfileValue(businessProfile.ssmRegistrationNo)}</Text>
+          </View>
+          <View style={styles.detailRow}>
             <Text style={[styles.detailLabel, { color: palette.muter }]}>Contact number</Text>
             <Text style={[styles.detailValue, { color: palette.text }]}>{getProfileValue(businessProfile.phone)}</Text>
           </View>

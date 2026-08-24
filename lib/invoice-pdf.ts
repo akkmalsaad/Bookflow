@@ -136,6 +136,7 @@ export function createInvoicePdfHtml({
         <div class="panel">
           <div class="label">From</div>
           <div class="name">${displayValue(businessProfile.name)}</div>
+          ${businessProfile.ssmRegistrationNo.trim() ? `<div class="muted">SSM: ${displayValue(businessProfile.ssmRegistrationNo)}</div>` : ''}
           <div class="muted">${displayValue(businessProfile.phone)}</div>
           <div class="muted">${displayValue(businessProfile.email)}</div>
           <div class="muted">${displayValue(businessProfile.address)}</div>

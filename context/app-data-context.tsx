@@ -19,6 +19,7 @@ export type PackageOption = {
 
 export type BusinessProfile = {
   name: string;
+  ssmRegistrationNo: string;
   nature: string;
   phone: string;
   email: string;
@@ -219,6 +220,7 @@ function createFreshWorkspace(user: AuthUser): PersistedAppData {
     notifications: [],
     businessProfile: {
       name: '',
+      ssmRegistrationNo: '',
       nature: '',
       phone: '',
       email: user.email,
@@ -276,6 +278,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const [invoiceDraft, setInvoiceDraft] = useState<InvoiceDraftPrefill | null>(null);
   const [businessProfile, setBusinessProfile] = useState<BusinessProfile>({
     name: '',
+    ssmRegistrationNo: '',
     nature: '',
     phone: '',
     email: '',
@@ -837,7 +840,14 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         setReminders([]);
         setNotifications([]);
         setInvoiceDraft(null);
-        setBusinessProfile({ name: '', nature: '', phone: '', email: '', address: '' });
+        setBusinessProfile({
+          name: '',
+          ssmRegistrationNo: '',
+          nature: '',
+          phone: '',
+          email: '',
+          address: '',
+        });
         setCurrency('MYR');
       },
     }),

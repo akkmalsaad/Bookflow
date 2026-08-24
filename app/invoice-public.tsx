@@ -28,7 +28,7 @@ type InvoicePayload = {
     terms?: string;
   };
   customer: { name: string; email: string; phone: string };
-  businessProfile: { name: string; phone: string; email: string; address: string };
+  businessProfile: { name: string; ssmRegistrationNo?: string; phone: string; email: string; address: string };
   currency: 'MYR' | 'IDR' | 'USD';
   serviceName?: string;
   packageDetails?: string;
@@ -205,7 +205,12 @@ function PublicInvoiceScreen() {
                 <PartyCard
                   label="From"
                   name={payload.businessProfile.name || 'Bookflow business'}
-                  lines={[payload.businessProfile.phone, payload.businessProfile.email, payload.businessProfile.address]}
+                  lines={[
+                    payload.businessProfile.ssmRegistrationNo ? `SSM: ${payload.businessProfile.ssmRegistrationNo}` : '',
+                    payload.businessProfile.phone,
+                    payload.businessProfile.email,
+                    payload.businessProfile.address,
+                  ]}
                 />
                 <PartyCard
                   label="Bill to"

@@ -16,6 +16,7 @@ export default function SettingsScreen() {
 
   const [showProfileEditor, setShowProfileEditor] = useState(false);
   const [profileName, setProfileName] = useState(businessProfile.name);
+  const [profileSsmRegistrationNo, setProfileSsmRegistrationNo] = useState(businessProfile.ssmRegistrationNo);
   const [profileNature, setProfileNature] = useState(businessProfile.nature);
   const [profilePhone, setProfilePhone] = useState(businessProfile.phone);
   const [profileEmail, setProfileEmail] = useState(businessProfile.email);
@@ -44,6 +45,7 @@ export default function SettingsScreen() {
 
   const openProfileEditor = () => {
     setProfileName(businessProfile.name);
+    setProfileSsmRegistrationNo(businessProfile.ssmRegistrationNo);
     setProfileNature(businessProfile.nature);
     setProfilePhone(businessProfile.phone);
     setProfileEmail(businessProfile.email);
@@ -113,6 +115,7 @@ export default function SettingsScreen() {
   const handleSaveProfile = () => {
     updateBusinessProfile({
       name: profileName.trim() || businessProfile.name,
+      ssmRegistrationNo: profileSsmRegistrationNo.trim(),
       nature: profileNature.trim() || businessProfile.nature,
       phone: profilePhone.trim(),
       email: profileEmail.trim(),
@@ -336,6 +339,19 @@ export default function SettingsScreen() {
                     style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
                     placeholder="Studio Lensa KL"
                     placeholderTextColor={palette.muter}
+                    returnKeyType="next"
+                    blurOnSubmit={false}
+                  />
+
+                  <Text style={[styles.fieldLabel, { color: palette.muter }]}>SSM Registration No.</Text>
+                  <TextInput
+                    value={profileSsmRegistrationNo}
+                    onChangeText={setProfileSsmRegistrationNo}
+                    style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
+                    placeholder="202301012345 (1234567-A)"
+                    placeholderTextColor={palette.muter}
+                    autoCapitalize="characters"
+                    autoCorrect={false}
                     returnKeyType="next"
                     blurOnSubmit={false}
                   />
