@@ -47,7 +47,7 @@ export default function SignupScreen() {
             subtitle: 'How Bookflow handles your account and business information.',
             paragraphs: [
               'Bookflow stores the account details and business records you provide so the app can deliver its booking, invoicing, customer, and finance features.',
-              'When Clerk is connected, identity credentials will be handled by Clerk. Bookflow should never store raw Apple or Google passwords.',
+              'Identity credentials are handled by Clerk. Business records are stored in Supabase and isolated per account with row-level security. Bookflow never stores raw Apple or Google passwords.',
               'Before production launch, replace this placeholder with your final privacy policy, retention rules, contact details, and jurisdiction-specific disclosures.',
             ],
           }

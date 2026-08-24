@@ -11,7 +11,7 @@ import { getThemePalette, useTheme } from '@/context/theme-context';
 export default function SettingsScreen() {
   const { isDarkMode, toggleTheme } = useTheme();
   const { signOut, user, verifyPassword, deleteAccount } = useAuth();
-  const { packages, addPackage, removePackage, businessProfile, updateBusinessProfile, currency, updateCurrency, customers, bookings, invoices, financeEntries, deleteAllData } = useAppData();
+  const { packages, addPackage, removePackage, businessProfile, updateBusinessProfile, currency, updateCurrency, customers, bookings, invoices, financeEntries, deleteAllData, deleteWorkspace } = useAppData();
   const currencyFormatter = getCurrencyFormatter(currency);
 
   const [showProfileEditor, setShowProfileEditor] = useState(false);
@@ -80,6 +80,7 @@ export default function SettingsScreen() {
     }
 
     try {
+      await deleteWorkspace();
       await deleteAccount();
     } catch (error) {
       setDeletePasswordError(error instanceof Error ? error.message : 'We could not delete your account. Please try again.');
@@ -88,7 +89,7 @@ export default function SettingsScreen() {
 
     closeDeleteAccount();
     deleteAllData();
-    signOut();
+    await signOut();
   };
 
   const handleAddService = () => {

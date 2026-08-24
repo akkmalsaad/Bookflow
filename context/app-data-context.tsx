@@ -1,11 +1,7 @@
-import React, { createContext, useContext, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
-import {
-  bookings as initialBookings,
-  customers as initialCustomers,
-  financeEntries as initialFinanceEntries,
-  invoices as initialInvoices,
-} from '@/data/mockData';
+import { useAuth, type AuthUser } from '@/context/auth-context';
+import { createClerkSupabaseClient, isSupabaseConfigured, type Json } from '@/lib/supabase';
 
 export type PackageOption = {
   id: string;
@@ -127,6 +123,11 @@ export function getCurrencyFormatter(code: CurrencyCode) {
 }
 
 type AppDataContextValue = {
+  isLoading: boolean;
+  loadError: string | null;
+  syncError: string | null;
+  reload: () => void;
+  retrySync: () => void;
   packages: PackageOption[];
   customers: Customer[];
   bookings: Booking[];
@@ -153,6 +154,7 @@ type AppDataContextValue = {
   markReminderSent: (reminderId: string) => void;
   markNotificationOpened: (notificationId: string) => void;
   markAllNotificationsOpened: () => void;
+  deleteWorkspace: () => Promise<void>;
   deleteAllData: () => void;
 };
 
@@ -183,61 +185,227 @@ const initialPackages: PackageOption[] = [
   },
 ];
 
-const initialReminders: Reminder[] = [
-  { id: 'rem-1', title: 'Akad nikah reminder', dueDate: '2026-08-16', channel: 'email', status: 'scheduled' },
-  { id: 'rem-2', title: 'Invoice follow-up', dueDate: '2026-08-10', channel: 'whatsapp', status: 'scheduled' },
-  { id: 'rem-3', title: 'Booking confirmation', dueDate: '2026-08-20', channel: 'sms', status: 'sent' },
-];
-
-const initialNotifications: AppNotification[] = [
-  {
-    id: 'notification-1',
-    title: 'Invoice accepted',
-    message: 'Priya Nair accepted invoice inv-103.',
-    createdAt: '2026-08-13T09:30:00.000Z',
-    isOpened: false,
-    type: 'invoice',
-  },
-  {
-    id: 'notification-2',
-    title: 'Invoice overdue',
-    message: 'Invoice inv-104 for Daniel Tan Wei Ming is now overdue.',
-    createdAt: '2026-08-12T08:15:00.000Z',
-    isOpened: false,
-    type: 'invoice',
-  },
-  {
-    id: 'notification-3',
-    title: 'Booking coming up',
-    message: 'Akad Nikah & Reception is scheduled for 18 August.',
-    createdAt: '2026-08-11T04:00:00.000Z',
-    isOpened: true,
-    type: 'booking',
-  },
-];
-
 const AppDataContext = createContext<AppDataContextValue | undefined>(undefined);
 
+type PersistedAppData = {
+  version: 1;
+  packages: PackageOption[];
+  customers: Customer[];
+  bookings: Booking[];
+  invoices: Invoice[];
+  financeEntries: FinanceEntry[];
+  reminders: Reminder[];
+  notifications: AppNotification[];
+  businessProfile: BusinessProfile;
+  currency: CurrencyCode;
+};
+
+function createFreshWorkspace(user: AuthUser): PersistedAppData {
+  return {
+    version: 1,
+    packages: initialPackages,
+    customers: [],
+    bookings: [],
+    invoices: [],
+    financeEntries: [],
+    reminders: [],
+    notifications: [],
+    businessProfile: {
+      name: '',
+      nature: '',
+      phone: '',
+      email: user.email,
+      address: '',
+    },
+    currency: 'MYR',
+  };
+}
+
+function parseWorkspace(value: Json, user: AuthUser): PersistedAppData {
+  const fallback = createFreshWorkspace(user);
+
+  if (!value || Array.isArray(value) || typeof value !== 'object') {
+    return fallback;
+  }
+
+  const data = value as Record<string, unknown>;
+  const profile = data.businessProfile;
+  const currency = data.currency;
+
+  return {
+    version: 1,
+    packages: Array.isArray(data.packages) ? (data.packages as PackageOption[]) : fallback.packages,
+    customers: Array.isArray(data.customers) ? (data.customers as Customer[]) : fallback.customers,
+    bookings: Array.isArray(data.bookings) ? (data.bookings as Booking[]) : fallback.bookings,
+    invoices: Array.isArray(data.invoices) ? (data.invoices as Invoice[]) : fallback.invoices,
+    financeEntries: Array.isArray(data.financeEntries)
+      ? (data.financeEntries as FinanceEntry[])
+      : fallback.financeEntries,
+    reminders: Array.isArray(data.reminders) ? (data.reminders as Reminder[]) : fallback.reminders,
+    notifications: Array.isArray(data.notifications)
+      ? (data.notifications as AppNotification[])
+      : fallback.notifications,
+    businessProfile:
+      profile && !Array.isArray(profile) && typeof profile === 'object'
+        ? ({ ...fallback.businessProfile, ...(profile as Partial<BusinessProfile>) } as BusinessProfile)
+        : fallback.businessProfile,
+    currency: currency === 'MYR' || currency === 'IDR' || currency === 'USD' ? currency : fallback.currency,
+  };
+}
+
 export function AppDataProvider({ children }: { children: React.ReactNode }) {
-  const [packages, setPackages] = useState<PackageOption[]>(initialPackages);
-  const [customers, setCustomers] = useState<Customer[]>(initialCustomers);
-  const [bookings, setBookings] = useState<Booking[]>(initialBookings);
-  const [invoices, setInvoices] = useState<Invoice[]>(initialInvoices);
-  const [financeEntries, setFinanceEntries] = useState<FinanceEntry[]>(initialFinanceEntries);
-  const [reminders, setReminders] = useState<Reminder[]>(initialReminders);
-  const [notifications, setNotifications] = useState<AppNotification[]>(initialNotifications);
+  const { getAccessToken, isAuthenticated, user } = useAuth();
+  const supabase = useMemo(
+    () => (isSupabaseConfigured ? createClerkSupabaseClient(getAccessToken) : null),
+    [getAccessToken],
+  );
+  const [packages, setPackages] = useState<PackageOption[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [financeEntries, setFinanceEntries] = useState<FinanceEntry[]>([]);
+  const [reminders, setReminders] = useState<Reminder[]>([]);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [invoiceDraft, setInvoiceDraft] = useState<InvoiceDraftPrefill | null>(null);
   const [businessProfile, setBusinessProfile] = useState<BusinessProfile>({
-    name: 'Studio Lensa KL',
-    nature: 'Photographer',
+    name: '',
+    nature: '',
     phone: '',
     email: '',
     address: '',
   });
   const [currency, setCurrency] = useState<CurrencyCode>('MYR');
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [syncRetryKey, setSyncRetryKey] = useState(0);
+  const canSaveRef = useRef(false);
+  const lastQueuedSnapshotRef = useRef('');
+  const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
+
+  useEffect(() => {
+    let isCancelled = false;
+    canSaveRef.current = false;
+
+    if (!isAuthenticated || !user) {
+      setIsLoading(false);
+      setLoadError(null);
+      return () => {
+        isCancelled = true;
+      };
+    }
+
+    if (!supabase) {
+      setIsLoading(false);
+      setLoadError(
+        'Supabase is not configured. Add EXPO_PUBLIC_SUPABASE_URL and ' +
+          'EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY to .env.local, then restart Expo.',
+      );
+      return () => {
+        isCancelled = true;
+      };
+    }
+
+    setIsLoading(true);
+    setLoadError(null);
+    setSyncError(null);
+
+    const loadWorkspace = async () => {
+      const { data: row, error } = await supabase
+        .from('bookflow_workspaces')
+        .select('data')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      const workspace = row ? parseWorkspace(row.data, user) : createFreshWorkspace(user);
+
+      if (!row) {
+        const { error: insertError } = await supabase.from('bookflow_workspaces').insert({
+          user_id: user.id,
+          data: workspace as unknown as Json,
+        });
+        if (insertError) throw insertError;
+      }
+
+      if (isCancelled) return;
+
+      setPackages(workspace.packages);
+      setCustomers(workspace.customers);
+      setBookings(workspace.bookings);
+      setInvoices(workspace.invoices);
+      setFinanceEntries(workspace.financeEntries);
+      setReminders(workspace.reminders);
+      setNotifications(workspace.notifications);
+      setBusinessProfile(workspace.businessProfile);
+      setCurrency(workspace.currency);
+      setInvoiceDraft(null);
+      lastQueuedSnapshotRef.current = JSON.stringify(workspace);
+      canSaveRef.current = true;
+      setIsLoading(false);
+    };
+
+    loadWorkspace().catch((error: unknown) => {
+      if (isCancelled) return;
+      setIsLoading(false);
+      setLoadError(error instanceof Error ? error.message : 'Bookflow could not load your Supabase workspace.');
+    });
+
+    return () => {
+      isCancelled = true;
+      canSaveRef.current = false;
+    };
+  }, [isAuthenticated, reloadKey, supabase, user?.id]);
+
+  useEffect(() => {
+    if (!canSaveRef.current || !supabase || !user) return;
+
+    const workspace: PersistedAppData = {
+      version: 1,
+      packages,
+      customers,
+      bookings,
+      invoices,
+      financeEntries,
+      reminders,
+      notifications,
+      businessProfile,
+      currency,
+    };
+    const serialized = JSON.stringify(workspace);
+
+    if (serialized === lastQueuedSnapshotRef.current) return;
+    lastQueuedSnapshotRef.current = serialized;
+
+    saveQueueRef.current = saveQueueRef.current
+      .catch(() => {})
+      .then(async () => {
+        try {
+          const { error } = await supabase.from('bookflow_workspaces').upsert({
+            user_id: user.id,
+            data: workspace as unknown as Json,
+            updated_at: new Date().toISOString(),
+          });
+
+          setSyncError(error?.message ?? null);
+        } catch (error) {
+          setSyncError(error instanceof Error ? error.message : 'Bookflow could not sync changes to Supabase.');
+        }
+      });
+  }, [bookings, businessProfile, currency, customers, financeEntries, invoices, notifications, packages, reminders, supabase, syncRetryKey, user]);
 
   const value = useMemo<AppDataContextValue>(
     () => ({
+      isLoading,
+      loadError,
+      syncError,
+      reload: () => setReloadKey((current) => current + 1),
+      retrySync: () => {
+        lastQueuedSnapshotRef.current = '';
+        setSyncRetryKey((current) => current + 1);
+      },
       packages,
       customers,
       bookings,
@@ -520,6 +688,20 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       markAllNotificationsOpened: () => {
         setNotifications((current) => current.map((item) => ({ ...item, isOpened: true })));
       },
+      deleteWorkspace: async () => {
+        if (!supabase || !user) {
+          throw new Error('Your Supabase workspace is not connected.');
+        }
+
+        canSaveRef.current = false;
+        await saveQueueRef.current.catch(() => {});
+
+        const { error } = await supabase.from('bookflow_workspaces').delete().eq('user_id', user.id);
+        if (error) {
+          canSaveRef.current = true;
+          throw error;
+        }
+      },
       deleteAllData: () => {
         setPackages([]);
         setCustomers([]);
@@ -533,7 +715,23 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         setCurrency('MYR');
       },
     }),
-    [bookings, businessProfile, currency, customers, financeEntries, invoiceDraft, invoices, notifications, packages, reminders],
+    [
+      bookings,
+      businessProfile,
+      currency,
+      customers,
+      financeEntries,
+      invoiceDraft,
+      invoices,
+      isLoading,
+      loadError,
+      notifications,
+      packages,
+      reminders,
+      syncError,
+      supabase,
+      user,
+    ],
   );
 
   return <AppDataContext.Provider value={value}>{children}</AppDataContext.Provider>;

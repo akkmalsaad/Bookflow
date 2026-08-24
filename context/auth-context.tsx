@@ -1,7 +1,8 @@
 import { useAuth as useClerkAuth, useSignIn, useSignUp, useSSO, useUser } from '@clerk/expo';
-import { createContext, useContext, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, type ReactNode } from 'react';
 
 export type AuthUser = {
+  id: string;
   email: string;
   name: string;
 };
@@ -21,6 +22,7 @@ type AuthContextValue = {
   isLoaded: boolean;
   isAuthenticated: boolean;
   isClerkConfigured: boolean;
+  getAccessToken: () => Promise<string | null>;
   signIn: (input: SignInInput) => Promise<void>;
   signInWithSocial: (provider: SocialProvider) => Promise<void>;
   signOut: () => Promise<void>;
@@ -45,7 +47,7 @@ function describeError(error: { longMessage?: string; message: string } | null |
  * context, so swapping the underlying provider never requires touching the UI.
  */
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const { isLoaded, isSignedIn, signOut: clerkSignOut } = useClerkAuth();
+  const { getToken: getClerkToken, isLoaded, isSignedIn, signOut: clerkSignOut } = useClerkAuth();
   const { user: clerkUser } = useUser();
   const { signIn: signInResource } = useSignIn();
   const { signUp: signUpResource } = useSignUp();
@@ -56,14 +58,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       ? (() => {
           const fullName = [clerkUser.firstName?.trim(), clerkUser.lastName?.trim()].filter(Boolean).join(' ');
           const email = clerkUser.primaryEmailAddress?.emailAddress ?? '';
-          return { email, name: fullName || email.split('@')[0] || 'Bookflow user' };
+          return { id: clerkUser.id, email, name: fullName || email.split('@')[0] || 'Bookflow user' };
         })()
       : null;
+
+  const getAccessToken = useCallback(() => getClerkToken(), [getClerkToken]);
 
   const value: AuthContextValue = {
     isLoaded,
     isAuthenticated: Boolean(isSignedIn),
     isClerkConfigured: true,
+    getAccessToken,
     user,
 
     signIn: async ({ email, password }) => {

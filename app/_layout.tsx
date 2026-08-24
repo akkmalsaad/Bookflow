@@ -5,14 +5,14 @@ import * as SplashScreen from 'expo-splash-screen';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useState } from 'react';
-import { LogBox } from 'react-native';
+import { ActivityIndicator, LogBox, Pressable, StyleSheet, Text, View } from 'react-native';
 import 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AnimatedSplash } from '@/components/AnimatedSplash';
-import { AppDataProvider } from '@/context/app-data-context';
+import { AppDataProvider, useAppData } from '@/context/app-data-context';
 import { AuthProvider, useAuth } from '@/context/auth-context';
-import { ThemeProvider as AppThemeProvider, useTheme } from '@/context/theme-context';
+import { getThemePalette, ThemeProvider as AppThemeProvider, useTheme } from '@/context/theme-context';
 
 const publishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY ?? "";
 
@@ -37,9 +37,35 @@ LogBox.ignoreLogs([
 function AppShell() {
   const { isDarkMode } = useTheme();
   const { isAuthenticated, isLoaded } = useAuth();
+  const { isLoading: isDataLoading, loadError, reload, retrySync, syncError } = useAppData();
+  const palette = getThemePalette(isDarkMode);
 
   if (!isLoaded) {
     return null;
+  }
+
+  if (isAuthenticated && isDataLoading) {
+    return (
+      <View style={[styles.dataGate, { backgroundColor: palette.background }]}>
+        <ActivityIndicator color={palette.accent} size="large" />
+        <Text style={[styles.dataGateTitle, { color: palette.text }]}>Loading your workspace…</Text>
+      </View>
+    );
+  }
+
+  if (isAuthenticated && loadError) {
+    return (
+      <View style={[styles.dataGate, { backgroundColor: palette.background }]}>
+        <Text style={[styles.dataGateTitle, { color: palette.text }]}>Couldn’t load Bookflow</Text>
+        <Text style={[styles.dataGateMessage, { color: palette.muter }]}>{loadError}</Text>
+        <Pressable
+          accessibilityRole="button"
+          onPress={reload}
+          style={({ pressed }) => [styles.retryButton, { backgroundColor: palette.accent, opacity: pressed ? 0.82 : 1 }]}>
+          <Text style={styles.retryButtonText}>Try again</Text>
+        </Pressable>
+      </View>
+    );
   }
 
   return (
@@ -59,9 +85,76 @@ function AppShell() {
         </Stack.Protected>
       </Stack>
       <StatusBar style={isDarkMode ? 'light' : 'dark'} />
+      {syncError ? (
+        <View
+          accessibilityLiveRegion="polite"
+          style={[styles.syncBanner, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+          <Text style={[styles.syncBannerText, { color: palette.text }]}>Some changes haven’t synced.</Text>
+          <Pressable accessibilityRole="button" hitSlop={8} onPress={retrySync}>
+            <Text style={[styles.syncRetryText, { color: palette.accent }]}>Retry</Text>
+          </Pressable>
+        </View>
+      ) : null}
     </ThemeProvider>
   );
 }
+
+const styles = StyleSheet.create({
+  dataGate: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 28,
+  },
+  dataGateTitle: {
+    marginTop: 18,
+    fontSize: 20,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  dataGateMessage: {
+    marginTop: 10,
+    maxWidth: 460,
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: 'center',
+  },
+  retryButton: {
+    marginTop: 22,
+    borderRadius: 14,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+  },
+  retryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  syncBanner: {
+    position: 'absolute',
+    right: 16,
+    bottom: 88,
+    left: 16,
+    zIndex: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  syncBannerText: {
+    flex: 1,
+    marginRight: 12,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  syncRetryText: {
+    fontSize: 14,
+    fontWeight: '800',
+  },
+});
 
 export default function RootLayout() {
   const [showSplash, setShowSplash] = useState(true);

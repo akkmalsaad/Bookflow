@@ -1,50 +1,49 @@
-# Welcome to your Expo app 👋
+# Bookflow
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Bookflow is an Expo SDK 54 app. Clerk owns authentication and Supabase stores each signed-in user's business workspace.
 
-## Get started
+## Local setup
 
-1. Install dependencies
+1. Install dependencies:
 
    ```bash
    npm install
    ```
 
-2. Start the app
+2. Copy `.env.example` to `.env.local` and provide:
 
-   ```bash
-   npx expo start
+   ```dotenv
+   EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
+   EXPO_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
+   EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
    ```
 
-In the output, you'll find options to open the app in a
+   The Supabase publishable key is designed for app clients. Never put a Supabase secret or service-role key in an `EXPO_PUBLIC_` variable.
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+3. In Clerk, open the **Connect with Supabase** integration and enable it for the Clerk instance used by this app.
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+4. In Supabase, open **Authentication > Third-Party Auth** and add the same Clerk instance. This makes Supabase accept Clerk session tokens with the `authenticated` role.
 
-## Get a fresh project
+5. Run [the workspace migration](supabase/migrations/20260824000000_create_bookflow_workspaces.sql) in the Supabase SQL Editor, or apply it through the Supabase CLI. The migration creates the table, grants only authenticated access, enables RLS, and limits every operation to rows whose `user_id` matches the Clerk token's `sub` claim.
 
-When you're ready, run:
+6. Restart Expo after changing environment variables:
+
+   ```bash
+   npx expo start --clear
+   ```
+
+## Data model
+
+`bookflow_workspaces` stores one versioned JSON workspace per Clerk user. It contains packages, customers, bookings, invoices, finance entries, reminders, notifications, the business profile, and currency preference. The app loads this document after Clerk signs in and queues updates whenever the existing context state changes.
+
+The client never uses Supabase Auth and never receives a database secret. Supabase validates the short-lived Clerk session token supplied to each request, then PostgreSQL RLS enforces ownership.
+
+## Verification
 
 ```bash
-npm run reset-project
+npx tsc --noEmit
+npm run lint
+npx expo export --platform web
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
-
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+For an isolation check, sign in as two different Clerk users. Each account should see a separate workspace even though both rows are visible to project administrators in the Supabase dashboard.
