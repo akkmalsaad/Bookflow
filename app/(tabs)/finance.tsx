@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { FlatList, Keyboard, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { DatePickerField } from '@/components/DatePickerField';
@@ -226,6 +226,10 @@ export default function FinanceScreen() {
               value={amount}
               onChangeText={setAmount}
               keyboardType="decimal-pad"
+              inputAccessoryViewButtonLabel="Done"
+              returnKeyType="done"
+              submitBehavior="blurAndSubmit"
+              onSubmitEditing={Keyboard.dismiss}
               placeholder="0.00"
               placeholderTextColor={palette.muter}
               style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
