@@ -1,6 +1,7 @@
 import 'react-native-url-polyfill/auto';
 
 import { createClient } from '@supabase/supabase-js';
+import { Platform } from 'react-native';
 
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
@@ -51,7 +52,14 @@ export function createClerkSupabaseClient(accessToken: () => Promise<string | nu
   }
 
   return createClient<Database>(supabaseUrl, supabasePublishableKey, {
-    accessToken,
+    accessToken: () => {
+      // Expo Router statically renders web routes in Node, where Clerk's
+      // client-side getToken() is intentionally unavailable.
+      if (Platform.OS === 'web' && typeof window === 'undefined') {
+        return Promise.resolve(null);
+      }
+      return accessToken();
+    },
     auth: {
       autoRefreshToken: false,
       detectSessionInUrl: false,
