@@ -192,8 +192,8 @@ export default function HomeScreen() {
           detail="This month"
           tone="blue"
           isCurrency
-          onPress={() => router.push('/income')}
-          accessibilityLabel="Open revenue income breakdown"
+          onPress={() => router.push('/finance')}
+          accessibilityLabel="Open Finance"
         />
         <StatCard
           label="Upcoming"
