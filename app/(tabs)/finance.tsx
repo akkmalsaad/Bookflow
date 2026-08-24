@@ -1,12 +1,25 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { FlatList, Keyboard, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  FlatList,
+  InputAccessoryView,
+  Keyboard,
+  Modal,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { DatePickerField } from '@/components/DatePickerField';
 import { getCurrencyFormatter, useAppData } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+
+const AMOUNT_KEYBOARD_ACCESSORY_ID = 'transaction-amount-keyboard-accessory';
 
 export default function FinanceScreen() {
   const router = useRouter();
@@ -226,7 +239,7 @@ export default function FinanceScreen() {
               value={amount}
               onChangeText={setAmount}
               keyboardType="decimal-pad"
-              inputAccessoryViewButtonLabel="Done"
+              inputAccessoryViewID={Platform.OS === 'ios' ? AMOUNT_KEYBOARD_ACCESSORY_ID : undefined}
               returnKeyType="done"
               submitBehavior="blurAndSubmit"
               onSubmitEditing={Keyboard.dismiss}
@@ -255,6 +268,30 @@ export default function FinanceScreen() {
             </Pressable>
           </View>
         </View>
+        {Platform.OS === 'ios' ? (
+          <InputAccessoryView nativeID={AMOUNT_KEYBOARD_ACCESSORY_ID}>
+            <View
+              style={[
+                styles.keyboardAccessory,
+                {
+                  backgroundColor: isDarkMode ? '#111827' : '#F8FAFC',
+                  borderTopColor: isDarkMode ? '#334155' : '#D7DEEA',
+                },
+              ]}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close amount keyboard"
+                hitSlop={8}
+                onPress={Keyboard.dismiss}
+                style={({ pressed }) => [
+                  styles.keyboardAccessoryButton,
+                  pressed && styles.keyboardAccessoryButtonPressed,
+                ]}>
+                <Ionicons name="checkmark" size={27} color="#FFFFFF" />
+              </Pressable>
+            </View>
+          </InputAccessoryView>
+        ) : null}
       </Modal>
     </SafeAreaView>
   );
@@ -564,6 +601,32 @@ const styles = StyleSheet.create({
   descriptionInput: {
     minHeight: 92,
     textAlignVertical: 'top',
+  },
+  keyboardAccessory: {
+    minHeight: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  keyboardAccessoryButton: {
+    width: 58,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#2563EB',
+    shadowColor: '#1D4ED8',
+    shadowOpacity: 0.34,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 5,
+  },
+  keyboardAccessoryButtonPressed: {
+    opacity: 0.86,
+    transform: [{ scale: 0.94 }],
   },
   formError: {
     color: '#DC2626',
