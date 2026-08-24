@@ -1,5 +1,5 @@
 import { useAuth as useClerkAuth, useSignIn, useSignUp, useSSO, useUser } from '@clerk/expo';
-import { createContext, useCallback, useContext, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, type ReactNode } from 'react';
 
 export type AuthUser = {
   id: string;
@@ -53,16 +53,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const { signUp: signUpResource } = useSignUp();
   const { startSSOFlow } = useSSO();
 
-  const user: AuthUser | null =
-    isSignedIn && clerkUser
-      ? (() => {
-          const fullName = [clerkUser.firstName?.trim(), clerkUser.lastName?.trim()].filter(Boolean).join(' ');
-          const email = clerkUser.primaryEmailAddress?.emailAddress ?? '';
-          return { id: clerkUser.id, email, name: fullName || email.split('@')[0] || 'Bookflow user' };
-        })()
-      : null;
+  const user = useMemo<AuthUser | null>(() => {
+    if (!isSignedIn || !clerkUser) return null;
 
-  const getAccessToken = useCallback(() => getClerkToken(), [getClerkToken]);
+    const fullName = [clerkUser.firstName?.trim(), clerkUser.lastName?.trim()].filter(Boolean).join(' ');
+    const email = clerkUser.primaryEmailAddress?.emailAddress ?? '';
+    return { id: clerkUser.id, email, name: fullName || email.split('@')[0] || 'Bookflow user' };
+  }, [clerkUser, isSignedIn]);
+
+  // @clerk/expo wraps getToken with a new function when its auth hook rerenders.
+  // Keep Bookflow's backend adapter stable while always calling Clerk's latest
+  // implementation, otherwise every token refresh recreates the Supabase client.
+  const getClerkTokenRef = useRef(getClerkToken);
+  useEffect(() => {
+    getClerkTokenRef.current = getClerkToken;
+  }, [getClerkToken]);
+  const getAccessToken = useCallback(() => getClerkTokenRef.current(), []);
 
   const value: AuthContextValue = {
     isLoaded,

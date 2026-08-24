@@ -288,6 +288,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const [reloadKey, setReloadKey] = useState(0);
   const [syncRetryKey, setSyncRetryKey] = useState(0);
   const canSaveRef = useRef(false);
+  const loadedUserIdRef = useRef<string | null>(null);
   const lastQueuedSnapshotRef = useRef('');
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
 
@@ -296,6 +297,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     canSaveRef.current = false;
 
     if (!isAuthenticated || !user) {
+      loadedUserIdRef.current = null;
       setIsLoading(false);
       setLoadError(null);
       return () => {
@@ -314,9 +316,12 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       };
     }
 
-    setIsLoading(true);
-    setLoadError(null);
-    setSyncError(null);
+    const isInitialLoad = loadedUserIdRef.current !== user.id;
+    if (isInitialLoad) {
+      setIsLoading(true);
+      setLoadError(null);
+      setSyncError(null);
+    }
 
     const loadWorkspace = async () => {
       const { data: row, error } = await supabase
@@ -351,13 +356,20 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       setInvoiceDraft(null);
       lastQueuedSnapshotRef.current = JSON.stringify(workspace);
       canSaveRef.current = true;
+      loadedUserIdRef.current = user.id;
+      setLoadError(null);
       setIsLoading(false);
     };
 
     loadWorkspace().catch((error: unknown) => {
       if (isCancelled) return;
-      setIsLoading(false);
-      setLoadError(error instanceof Error ? error.message : 'Bookflow could not load your Supabase workspace.');
+      const message = error instanceof Error ? error.message : 'Bookflow could not load your Supabase workspace.';
+      if (isInitialLoad) {
+        setIsLoading(false);
+        setLoadError(message);
+      } else {
+        setSyncError(message);
+      }
     });
 
     return () => {
@@ -404,12 +416,13 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   }, [bookings, businessProfile, currency, customers, financeEntries, invoices, notifications, packages, reminders, supabase, syncRetryKey, user]);
 
   const refreshInvoiceStatuses = useCallback(async () => {
-    if (!supabase || !user) return;
+    const userId = user?.id;
+    if (!supabase || !userId) return;
 
     const { data, error } = await supabase
       .from('public_invoice_links')
       .select('invoice_id,status')
-      .eq('user_id', user.id);
+      .eq('user_id', userId);
     if (error) throw error;
 
     const statusByInvoice = new Map(data.map((item) => [item.invoice_id, item.status]));
@@ -433,7 +446,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       });
       return hasChanges ? next : current;
     });
-  }, [supabase, user]);
+  }, [supabase, user?.id]);
 
   const value = useMemo<AppDataContextValue>(
     () => ({
