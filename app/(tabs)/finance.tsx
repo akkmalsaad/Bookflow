@@ -1,13 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   FlatList,
   InputAccessoryView,
   Keyboard,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -34,6 +36,7 @@ export default function FinanceScreen() {
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [description, setDescription] = useState('');
   const [formError, setFormError] = useState('');
+  const transactionFormRef = useRef<ScrollView>(null);
   const softSurface = isDarkMode ? '#172033' : '#F7F9FD';
   const softInset = isDarkMode ? '#111A2B' : '#EEF2F8';
   const softBorder = isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.9)';
@@ -57,8 +60,15 @@ export default function FinanceScreen() {
   };
 
   const closeComposer = () => {
+    Keyboard.dismiss();
     setShowComposer(false);
     resetComposer();
+  };
+
+  const revealDescription = () => {
+    setTimeout(() => {
+      transactionFormRef.current?.scrollToEnd({ animated: true });
+    }, 300);
   };
 
   const handleAddEntry = () => {
@@ -182,7 +192,9 @@ export default function FinanceScreen() {
       />
 
       <Modal visible={showComposer} transparent animationType="slide" onRequestClose={closeComposer}>
-        <View style={styles.modalBackdrop}>
+        <KeyboardAvoidingView
+          style={styles.modalBackdrop}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <View style={[styles.modalCard, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
             <View style={[styles.modalHandle, { backgroundColor: palette.border }]} />
             <View style={styles.modalHeader}>
@@ -195,79 +207,88 @@ export default function FinanceScreen() {
               </Pressable>
             </View>
 
-            <Text style={[styles.fieldLabel, { color: palette.muter }]}>Transaction type</Text>
-            <View style={styles.typeRow}>
-              <Pressable
-                onPress={() => {
-                  setEntryType('income');
-                  setFormError('');
-                }}
-                style={[
-                  styles.typeButton,
-                  { backgroundColor: softInset, borderColor: softBorder },
-                  entryType === 'income' && { backgroundColor: isDarkMode ? '#173A35' : '#DFF7EF', borderColor: palette.success },
-                ]}>
-                <Ionicons name="trending-up" size={17} color={entryType === 'income' ? '#117A4C' : palette.muter} />
-                <Text style={[styles.typeButtonText, { color: entryType === 'income' ? '#117A4C' : palette.text }]}>Income</Text>
+            <ScrollView
+              ref={transactionFormRef}
+              style={styles.modalFormScroll}
+              contentContainerStyle={styles.modalFormContent}
+              keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}>
+              <Text style={[styles.fieldLabel, { color: palette.muter }]}>Transaction type</Text>
+              <View style={styles.typeRow}>
+                <Pressable
+                  onPress={() => {
+                    setEntryType('income');
+                    setFormError('');
+                  }}
+                  style={[
+                    styles.typeButton,
+                    { backgroundColor: softInset, borderColor: softBorder },
+                    entryType === 'income' && { backgroundColor: isDarkMode ? '#173A35' : '#DFF7EF', borderColor: palette.success },
+                  ]}>
+                  <Ionicons name="trending-up" size={17} color={entryType === 'income' ? '#117A4C' : palette.muter} />
+                  <Text style={[styles.typeButtonText, { color: entryType === 'income' ? '#117A4C' : palette.text }]}>Income</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    setEntryType('expense');
+                    setFormError('');
+                  }}
+                  style={[
+                    styles.typeButton,
+                    { backgroundColor: softInset, borderColor: softBorder },
+                    entryType === 'expense' && { backgroundColor: isDarkMode ? '#422129' : '#FDE8EC', borderColor: palette.danger },
+                  ]}>
+                  <Ionicons name="trending-down" size={17} color={entryType === 'expense' ? '#B42318' : palette.muter} />
+                  <Text style={[styles.typeButtonText, { color: entryType === 'expense' ? '#B42318' : palette.text }]}>Expense</Text>
+                </Pressable>
+              </View>
+
+              <Text style={[styles.fieldLabel, { color: palette.muter }]}>Category</Text>
+              <TextInput
+                value={category}
+                onChangeText={setCategory}
+                placeholder={entryType === 'income' ? 'Client payment' : 'Equipment'}
+                placeholderTextColor={palette.muter}
+                style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
+              />
+
+              <Text style={[styles.fieldLabel, { color: palette.muter }]}>Amount</Text>
+              <TextInput
+                value={amount}
+                onChangeText={setAmount}
+                keyboardType="decimal-pad"
+                inputAccessoryViewID={Platform.OS === 'ios' ? AMOUNT_KEYBOARD_ACCESSORY_ID : undefined}
+                returnKeyType="done"
+                submitBehavior="blurAndSubmit"
+                onSubmitEditing={Keyboard.dismiss}
+                placeholder="0.00"
+                placeholderTextColor={palette.muter}
+                style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
+              />
+
+              <Text style={[styles.fieldLabel, { color: palette.muter }]}>Date</Text>
+              <DatePickerField value={date} onChange={setDate} isDarkMode={isDarkMode} palette={palette} />
+
+              <Text style={[styles.fieldLabel, { color: palette.muter }]}>Description</Text>
+              <TextInput
+                value={description}
+                onChangeText={setDescription}
+                onFocus={revealDescription}
+                placeholder="Add transaction details"
+                placeholderTextColor={palette.muter}
+                multiline
+                style={[styles.input, styles.descriptionInput, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
+              />
+
+              {formError ? <Text style={styles.formError}>{formError}</Text> : null}
+
+              <Pressable style={[styles.submitButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]} onPress={handleAddEntry}>
+                <Text style={styles.submitButtonText}>Save {entryType}</Text>
               </Pressable>
-              <Pressable
-                onPress={() => {
-                  setEntryType('expense');
-                  setFormError('');
-                }}
-                style={[
-                  styles.typeButton,
-                  { backgroundColor: softInset, borderColor: softBorder },
-                  entryType === 'expense' && { backgroundColor: isDarkMode ? '#422129' : '#FDE8EC', borderColor: palette.danger },
-                ]}>
-                <Ionicons name="trending-down" size={17} color={entryType === 'expense' ? '#B42318' : palette.muter} />
-                <Text style={[styles.typeButtonText, { color: entryType === 'expense' ? '#B42318' : palette.text }]}>Expense</Text>
-              </Pressable>
-            </View>
-
-            <Text style={[styles.fieldLabel, { color: palette.muter }]}>Category</Text>
-            <TextInput
-              value={category}
-              onChangeText={setCategory}
-              placeholder={entryType === 'income' ? 'Client payment' : 'Equipment'}
-              placeholderTextColor={palette.muter}
-              style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
-            />
-
-            <Text style={[styles.fieldLabel, { color: palette.muter }]}>Amount</Text>
-            <TextInput
-              value={amount}
-              onChangeText={setAmount}
-              keyboardType="decimal-pad"
-              inputAccessoryViewID={Platform.OS === 'ios' ? AMOUNT_KEYBOARD_ACCESSORY_ID : undefined}
-              returnKeyType="done"
-              submitBehavior="blurAndSubmit"
-              onSubmitEditing={Keyboard.dismiss}
-              placeholder="0.00"
-              placeholderTextColor={palette.muter}
-              style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
-            />
-
-            <Text style={[styles.fieldLabel, { color: palette.muter }]}>Date</Text>
-            <DatePickerField value={date} onChange={setDate} isDarkMode={isDarkMode} palette={palette} />
-
-            <Text style={[styles.fieldLabel, { color: palette.muter }]}>Description</Text>
-            <TextInput
-              value={description}
-              onChangeText={setDescription}
-              placeholder="Add transaction details"
-              placeholderTextColor={palette.muter}
-              multiline
-              style={[styles.input, styles.descriptionInput, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
-            />
-
-            {formError ? <Text style={styles.formError}>{formError}</Text> : null}
-
-            <Pressable style={[styles.submitButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]} onPress={handleAddEntry}>
-              <Text style={styles.submitButtonText}>Save {entryType}</Text>
-            </Pressable>
+            </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
         {Platform.OS === 'ios' ? (
           <InputAccessoryView
             nativeID={AMOUNT_KEYBOARD_ACCESSORY_ID}
@@ -516,6 +537,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(15, 23, 42, 0.58)',
   },
   modalCard: {
+    maxHeight: '94%',
     borderTopLeftRadius: 30,
     borderTopRightRadius: 30,
     borderWidth: 1,
@@ -526,6 +548,12 @@ const styles = StyleSheet.create({
     shadowRadius: 24,
     shadowOffset: { width: 0, height: -8 },
     elevation: 14,
+  },
+  modalFormScroll: {
+    flexShrink: 1,
+  },
+  modalFormContent: {
+    paddingBottom: 4,
   },
   modalHandle: {
     width: 42,
