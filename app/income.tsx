@@ -196,7 +196,7 @@ export default function IncomeScreen() {
     return Array.from({ length: daysInMonth }, (_, index) => {
       const day = index + 1;
       const key = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-      const showLabel = day === 1 || day % 5 === 0 || day === daysInMonth;
+      const showLabel = day === 1 || [5, 10, 15, 20, 30].includes(day);
       return {
         key,
         label: new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' }).format(new Date(year, month, day)),

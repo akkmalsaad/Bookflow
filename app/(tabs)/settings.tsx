@@ -181,7 +181,6 @@ export default function SettingsScreen() {
           </View>
           <View>
             <Text style={[styles.eyebrow, { color: palette.accent }]}>Settings</Text>
-            <Text style={[styles.title, { color: palette.text }]}>Business setup</Text>
           </View>
         </View>
 
@@ -211,11 +210,7 @@ export default function SettingsScreen() {
               <Ionicons name={isDarkMode ? 'moon' : 'sunny'} size={22} color={palette.accent} />
             </View>
             <View style={styles.themeCopy}>
-              <Text style={[styles.label, { color: palette.muter }]}>Appearance</Text>
-              <Text style={[styles.value, { color: palette.text }]}>Dark mode</Text>
-              <Text style={[styles.themeDescription, { color: palette.muter }]}>
-                {isDarkMode ? 'On — optimized for low light' : 'Off — using light appearance'}
-              </Text>
+              <Text style={[styles.value, { color: palette.text }]}>Dark Mode</Text>
             </View>
             <View
               style={[
@@ -273,7 +268,7 @@ export default function SettingsScreen() {
           </View>
           <View style={styles.dataCopy}>
             <Text style={[styles.label, { color: palette.muter }]}>Extract / Export</Text>
-            <Text style={[styles.value, { color: palette.text }]}>Export a tax-ready summary (HTML) which you can print/save as PDF</Text>
+            <Text style={[styles.value, { color: palette.text }]}>Export a tax-ready summary</Text>
           </View>
           <Pressable style={[styles.addButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]} onPress={exportDataAsPdf}>
             <Text style={styles.addButtonText}>Export as PDF</Text>
@@ -686,11 +681,6 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     marginBottom: 5,
   },
-  title: {
-    fontSize: 19,
-    fontWeight: '800',
-    letterSpacing: -0.45,
-  },
   card: {
     borderRadius: 26,
     padding: 20,
@@ -898,11 +888,6 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     paddingRight: 12,
-  },
-  themeDescription: {
-    fontSize: 12,
-    fontWeight: '600',
-    marginTop: 3,
   },
   switchWrap: {
     minWidth: 66,

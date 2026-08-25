@@ -1,18 +1,21 @@
 import { Ionicons } from '@expo/vector-icons';
-import * as Linking from 'expo-linking';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { Alert, Animated, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Animated, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { RecordDepositModal } from '@/components/RecordDepositModal';
 import { StatusPill } from '@/components/StatusPill';
+import { UpdatePaymentModal } from '@/components/UpdatePaymentModal';
 import { getCurrencyFormatter, useAppData } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { getInvoicePaymentSummary } from '@/lib/invoice-payments';
+import { shareInvoiceOnWhatsApp } from '@/lib/invoice-sharing';
 
 export default function InvoicesScreen() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
-  const { customers, invoices, packages, addCustomer, addInvoice, createInvoiceShareLink, refreshInvoiceStatuses, invoiceDraft, setInvoiceDraft, updateInvoiceDeposit, updateInvoiceStatus, currency } = useAppData();
+  const { customers, invoices, packages, payments, addCustomer, addInvoice, createInvoiceShareLink, refreshInvoiceStatuses, invoiceDraft, setInvoiceDraft, updateInvoiceStatus, currency } = useAppData();
   const palette = getThemePalette(isDarkMode);
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const customerMap = new Map(customers.map((customer) => [customer.id, customer]));
@@ -31,8 +34,7 @@ export default function InvoicesScreen() {
   const [draftAmount, setDraftAmount] = useState(invoiceDraft ? String(invoiceDraft.amount) : packages[0] ? String(packages[0].price) : '');
   const [draftDueDate, setDraftDueDate] = useState(invoiceDraft?.dueDate ?? new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10));
   const [depositInvoiceId, setDepositInvoiceId] = useState<string | null>(null);
-  const [depositAmount, setDepositAmount] = useState('');
-  const [depositError, setDepositError] = useState('');
+  const [paymentInvoiceId, setPaymentInvoiceId] = useState<string | null>(null);
   const [sharingInvoiceId, setSharingInvoiceId] = useState<string | null>(null);
   const dropdownAnim = useRef(new Animated.Value(0)).current;
   const softSurface = isDarkMode ? '#172033' : '#F7F9FD';
@@ -43,7 +45,6 @@ export default function InvoicesScreen() {
 
   const selectedPackage = packages.find((item) => item.id === selectedPackageId) ?? null;
   const selectedCustomer = customers.find((customer) => customer.id === selectedCustomerId) ?? null;
-  const depositInvoice = invoices.find((item) => item.id === depositInvoiceId) ?? null;
   const filteredCustomers = customers.filter((customer) => {
     const searchTerm = customerQuery.trim().toLowerCase();
     if (!searchTerm) {
@@ -59,6 +60,23 @@ export default function InvoicesScreen() {
       useNativeDriver: false,
     }).start();
   }, [dropdownAnim, showCustomerDropdown]);
+
+  // A draft can also arrive while this tab is already mounted (e.g. from a customer profile).
+  useEffect(() => {
+    if (!invoiceDraft) return;
+
+    const draftPackage = packages.find((item) => item.name === invoiceDraft.serviceName);
+
+    setCustomerMode('existing');
+    setSelectedCustomerId(invoiceDraft.customerId);
+    setDraftDueDate(invoiceDraft.dueDate);
+    setDraftAmount(String(invoiceDraft.amount));
+    setUsePackagePrice(false);
+    if (draftPackage) {
+      setSelectedPackageId(draftPackage.id);
+    }
+    setShowComposer(true);
+  }, [invoiceDraft, packages]);
 
   useFocusEffect(
     useCallback(() => {
@@ -79,42 +97,14 @@ export default function InvoicesScreen() {
   };
 
   const handleShareInvoice = async (invoice: (typeof invoices)[number]) => {
-    const customer = customerMap.get(invoice.customerId);
-    const rawPhone = customer?.phone.trim() ?? '';
-    const phoneNumber = rawPhone.replace(/\D/g, '');
-
-    if (!customer || !phoneNumber || phoneNumber.startsWith('0')) {
-      Alert.alert(
-        'WhatsApp number required',
-        'Add the customer phone number with its country code, for example +60 12-345 6789.',
-      );
-      return;
-    }
-
     setSharingInvoiceId(invoice.id);
     try {
-      const invoiceUrl = await createInvoiceShareLink(invoice.id);
-      const message = [
-        `Hi ${customer.name},`,
-        '',
-        `Here is invoice ${invoice.id} for ${currencyFormatter.format(invoice.amount)}.`,
-        `Due date: ${invoice.dueDate}`,
-        '',
-        `Review and respond to your invoice: ${invoiceUrl}`,
-        'The secure link is valid for 30 days.',
-      ].join('\n');
-      const encodedMessage = encodeURIComponent(message);
-      const whatsappAppUrl = `whatsapp://send?phone=${phoneNumber}&text=${encodedMessage}`;
-      const whatsappWebUrl = `https://wa.me/${phoneNumber}?text=${encodedMessage}`;
-
-      try {
-        await Linking.openURL(Platform.OS === 'web' ? whatsappWebUrl : whatsappAppUrl);
-      } catch {
-        await Linking.openURL(whatsappWebUrl);
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'The public invoice link could not be created.';
-      Alert.alert('Unable to send invoice', message);
+      await shareInvoiceOnWhatsApp({
+        invoice,
+        customer: customerMap.get(invoice.customerId),
+        currencyFormatter,
+        createShareLink: createInvoiceShareLink,
+      });
     } finally {
       setSharingInvoiceId(null);
     }
@@ -174,36 +164,6 @@ export default function InvoicesScreen() {
     setShowComposer(false);
   };
 
-  const openDepositModal = (invoice: (typeof invoices)[number]) => {
-    setDepositInvoiceId(invoice.id);
-    setDepositAmount(invoice.depositPaid ? String(invoice.depositPaid) : '');
-    setDepositError('');
-  };
-
-  const closeDepositModal = () => {
-    setDepositInvoiceId(null);
-    setDepositAmount('');
-    setDepositError('');
-  };
-
-  const handleSaveDeposit = () => {
-    if (!depositInvoice) return;
-
-    const parsedAmount = Number(depositAmount.replace(/,/g, ''));
-    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
-      setDepositError('Enter a deposit amount greater than zero.');
-      return;
-    }
-    if (parsedAmount > depositInvoice.amount) {
-      setDepositError(`Deposit cannot exceed ${currencyFormatter.format(depositInvoice.amount)}.`);
-      return;
-    }
-
-    if (updateInvoiceDeposit(depositInvoice.id, parsedAmount)) {
-      closeDepositModal();
-    }
-  };
-
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]}>
       <View style={styles.headerRow}>
@@ -236,10 +196,20 @@ export default function InvoicesScreen() {
         contentContainerStyle={styles.list}
         renderItem={({ item }) => {
           const customer = customerMap.get(item.customerId);
-          const depositPaid = item.depositPaid ?? 0;
-          const remainingBalance = item.status === 'Paid' ? 0 : Math.max(0, item.amount - depositPaid);
+          const summary = getInvoicePaymentSummary(item, payments);
+          const depositPaid = summary.amountPaid;
+          const remainingBalance = summary.outstanding;
+          const isClosed = item.status === 'Cancelled' || item.status === 'Declined';
           const tone =
-            item.status === 'Paid' ? 'green' : item.status === 'Accepted' ? 'blue' : item.status === 'Overdue' ? 'amber' : item.status === 'Declined' ? 'red' : 'gray';
+            item.status === 'Paid'
+              ? 'green'
+              : item.status === 'Accepted'
+                ? 'blue'
+                : item.status === 'Overdue' || item.status === 'Partially Paid'
+                  ? 'amber'
+                  : item.status === 'Declined'
+                    ? 'red'
+                    : 'gray';
 
           return (
             <View style={[styles.card, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
@@ -294,7 +264,7 @@ export default function InvoicesScreen() {
                 {depositPaid > 0 ? (
                   <View style={[styles.paymentSummary, { backgroundColor: softInset, borderColor: softBorder }]}>
                     <View style={styles.paymentSummaryItem}>
-                      <Text style={[styles.paymentSummaryLabel, { color: palette.muter }]}>Deposit paid</Text>
+                      <Text style={[styles.paymentSummaryLabel, { color: palette.muter }]}>Amount paid</Text>
                       <Text style={[styles.paymentSummaryValue, { color: palette.success }]}>{currencyFormatter.format(depositPaid)}</Text>
                     </View>
                     <View style={[styles.paymentSummaryDivider, { backgroundColor: palette.border }]} />
@@ -306,16 +276,41 @@ export default function InvoicesScreen() {
                 ) : null}
               </Pressable>
 
-              {item.status !== 'Paid' && item.status !== 'Cancelled' && item.status !== 'Declined' ? (
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => openDepositModal(item)}
-                  style={[styles.depositButton, { backgroundColor: accentSoft, borderColor: palette.accent }]}>
-                  <View style={styles.depositButtonLabel}>
-                    <Ionicons name="wallet-outline" size={18} color={palette.accent} />
-                    <Text style={[styles.depositButtonText, { color: palette.accent }]}>{depositPaid > 0 ? 'Update deposit' : 'Deposit paid'}</Text>
-                  </View>
-                </Pressable>
+              {item.status !== 'Paid' && !isClosed ? (
+                <View style={styles.paymentActionRow}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Record the deposit for invoice ${item.id}`}
+                    onPress={() => setDepositInvoiceId(item.id)}
+                    style={({ pressed }) => [
+                      styles.depositButton,
+                      { backgroundColor: accentSoft, borderColor: palette.accent },
+                      pressed && styles.cardPressed,
+                    ]}>
+                    <View style={styles.depositButtonLabel}>
+                      <Ionicons name="wallet-outline" size={18} color={palette.accent} />
+                      <Text style={[styles.depositButtonText, { color: palette.accent }]} numberOfLines={1}>
+                        {summary.payments.some((payment) => payment.kind === 'deposit') ? 'Update deposit' : 'Deposit paid'}
+                      </Text>
+                    </View>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Update payment for invoice ${item.id}`}
+                    onPress={() => setPaymentInvoiceId(item.id)}
+                    style={({ pressed }) => [
+                      styles.depositButton,
+                      { backgroundColor: softInset, borderColor: softBorder },
+                      pressed && styles.cardPressed,
+                    ]}>
+                    <View style={styles.depositButtonLabel}>
+                      <Ionicons name="cash-outline" size={18} color={palette.accent} />
+                      <Text style={[styles.depositButtonText, { color: palette.text }]} numberOfLines={1}>
+                        Update payment
+                      </Text>
+                    </View>
+                  </Pressable>
+                </View>
               ) : null}
 
               {item.status !== 'Paid' && (
@@ -349,65 +344,9 @@ export default function InvoicesScreen() {
         }}
       />
 
-      <Modal visible={depositInvoice !== null} transparent animationType="fade" onRequestClose={closeDepositModal}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.depositModalBackdrop}>
-          <View style={[styles.depositModalCard, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
-            <View style={styles.modalHeader}>
-              <View>
-                <Text style={[styles.modalEyebrow, { color: palette.accent }]}>Payment received</Text>
-                <Text style={[styles.modalTitle, { color: palette.text }]}>Record deposit</Text>
-              </View>
-              <Pressable onPress={closeDepositModal} style={[styles.closeButton, { backgroundColor: softInset }]} accessibilityLabel="Close deposit modal">
-                <Ionicons name="close" size={22} color={palette.text} />
-              </Pressable>
-            </View>
+      <RecordDepositModal invoiceId={depositInvoiceId} onClose={() => setDepositInvoiceId(null)} />
 
-            <Text style={[styles.depositModalCopy, { color: palette.muter }]}>Enter the amount received for {depositInvoice?.id}. The remaining customer balance updates automatically.</Text>
-
-            <View style={[styles.depositTotalRow, { backgroundColor: softInset }]}>
-              <Text style={[styles.depositTotalLabel, { color: palette.muter }]}>Invoice total</Text>
-              <Text style={[styles.depositTotalValue, { color: palette.text }]}>{currencyFormatter.format(depositInvoice?.amount ?? 0)}</Text>
-            </View>
-
-            <Text style={[styles.fieldLabel, { color: palette.muter }]}>Deposit amount</Text>
-            <View style={[styles.depositInputWrap, { backgroundColor: softInset, borderColor: depositError ? palette.danger : softBorder }]}>
-              <Text style={[styles.currencyPrefix, { color: palette.muter }]}>{currency}</Text>
-              <TextInput
-                autoFocus
-                keyboardType="decimal-pad"
-                onChangeText={(value) => {
-                  setDepositAmount(value.replace(/[^0-9.,]/g, ''));
-                  setDepositError('');
-                }}
-                onSubmitEditing={handleSaveDeposit}
-                placeholder="0.00"
-                placeholderTextColor={palette.muter}
-                returnKeyType="done"
-                selectionColor={palette.accent}
-                style={[styles.depositInput, { color: palette.text }]}
-                value={depositAmount}
-              />
-            </View>
-            {depositError ? <Text style={[styles.depositError, { color: palette.danger }]}>{depositError}</Text> : null}
-
-            <View style={styles.depositPreviewRow}>
-              <Text style={[styles.depositPreviewLabel, { color: palette.muter }]}>Remaining after deposit</Text>
-              <Text style={[styles.depositPreviewValue, { color: palette.text }]}>
-                {currencyFormatter.format(Math.max(0, (depositInvoice?.amount ?? 0) - (Number(depositAmount.replace(/,/g, '')) || 0)))}
-              </Text>
-            </View>
-
-            <View style={styles.depositModalActions}>
-              <Pressable onPress={closeDepositModal} style={[styles.depositCancelButton, { backgroundColor: softInset, borderColor: softBorder }]}>
-                <Text style={[styles.depositCancelText, { color: palette.text }]}>Cancel</Text>
-              </Pressable>
-              <Pressable onPress={handleSaveDeposit} style={[styles.depositSaveButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]}>
-                <Text style={styles.depositSaveText}>Save deposit</Text>
-              </Pressable>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
+      <UpdatePaymentModal invoiceId={paymentInvoiceId} onClose={() => setPaymentInvoiceId(null)} />
 
       <Modal visible={showComposer} transparent animationType="slide" onRequestClose={() => setShowComposer(false)}>
         <View style={styles.modalBackdrop}>
@@ -784,14 +723,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '900',
   },
+  paymentActionRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 14,
+  },
   depositButton: {
     alignItems: 'center',
     borderRadius: 15,
     borderWidth: 1,
+    flex: 1,
     flexDirection: 'row',
     justifyContent: 'center',
-    marginTop: 14,
-    paddingHorizontal: 14,
+    minHeight: 46,
+    paddingHorizontal: 12,
     paddingVertical: 12,
   },
   depositButtonLabel: {
@@ -849,122 +794,6 @@ const styles = StyleSheet.create({
   paymentButtonText: {
     color: '#fff',
     fontWeight: '700',
-  },
-  depositModalBackdrop: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(15, 23, 42, 0.62)',
-    flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 20,
-  },
-  depositModalCard: {
-    borderRadius: 28,
-    borderWidth: 1,
-    elevation: 14,
-    maxWidth: 520,
-    padding: 20,
-    shadowOffset: { height: 10, width: 0 },
-    shadowOpacity: 0.3,
-    shadowRadius: 24,
-    width: '100%',
-  },
-  depositModalCopy: {
-    fontSize: 13,
-    fontWeight: '500',
-    lineHeight: 19,
-    marginBottom: 15,
-  },
-  depositTotalRow: {
-    alignItems: 'center',
-    borderRadius: 16,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 14,
-    paddingVertical: 13,
-  },
-  depositTotalLabel: {
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.55,
-    textTransform: 'uppercase',
-  },
-  depositTotalValue: {
-    fontSize: 17,
-    fontWeight: '900',
-  },
-  depositInputWrap: {
-    alignItems: 'center',
-    borderRadius: 16,
-    borderWidth: 1,
-    flexDirection: 'row',
-    minHeight: 56,
-    paddingHorizontal: 15,
-  },
-  currencyPrefix: {
-    fontSize: 12,
-    fontWeight: '900',
-    letterSpacing: 0.5,
-    marginRight: 10,
-  },
-  depositInput: {
-    flex: 1,
-    fontSize: 20,
-    fontWeight: '900',
-    minHeight: 52,
-    paddingVertical: 0,
-  },
-  depositError: {
-    fontSize: 12,
-    fontWeight: '700',
-    lineHeight: 17,
-    marginTop: 7,
-  },
-  depositPreviewRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 15,
-  },
-  depositPreviewLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  depositPreviewValue: {
-    fontSize: 16,
-    fontWeight: '900',
-  },
-  depositModalActions: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 20,
-  },
-  depositCancelButton: {
-    alignItems: 'center',
-    borderRadius: 16,
-    borderWidth: 1,
-    flex: 1,
-    justifyContent: 'center',
-    minHeight: 50,
-  },
-  depositCancelText: {
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  depositSaveButton: {
-    alignItems: 'center',
-    borderRadius: 16,
-    elevation: 4,
-    flex: 1,
-    justifyContent: 'center',
-    minHeight: 50,
-    shadowOffset: { height: 6, width: 3 },
-    shadowOpacity: 0.22,
-    shadowRadius: 10,
-  },
-  depositSaveText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '900',
   },
   modalBackdrop: {
     flex: 1,

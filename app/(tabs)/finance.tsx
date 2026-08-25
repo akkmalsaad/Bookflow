@@ -3,7 +3,6 @@ import { useRouter } from 'expo-router';
 import { useMemo, useRef, useState } from 'react';
 import {
   FlatList,
-  InputAccessoryView,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
@@ -18,10 +17,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { DatePickerField } from '@/components/DatePickerField';
+import { KeyboardDoneAccessory, TRANSACTION_KEYBOARD_ACCESSORY_ID } from '@/components/KeyboardDoneAccessory';
 import { getCurrencyFormatter, useAppData } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 
-const TRANSACTION_KEYBOARD_ACCESSORY_ID = 'transaction-keyboard-accessory';
 
 export default function FinanceScreen() {
   const router = useRouter();
@@ -320,26 +319,10 @@ export default function FinanceScreen() {
             </ScrollView>
           </View>
         </KeyboardAvoidingView>
-        {Platform.OS === 'ios' ? (
-          <InputAccessoryView
-            nativeID={TRANSACTION_KEYBOARD_ACCESSORY_ID}
-            backgroundColor="transparent"
-            style={styles.keyboardAccessoryHost}>
-            <View style={styles.keyboardAccessory}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Close transaction keyboard"
-                hitSlop={8}
-                onPress={Keyboard.dismiss}
-                style={({ pressed }) => [
-                  styles.keyboardAccessoryButton,
-                  pressed && styles.keyboardAccessoryButtonPressed,
-                ]}>
-                <Ionicons name="checkmark" size={27} color="#FFFFFF" />
-              </Pressable>
-            </View>
-          </InputAccessoryView>
-        ) : null}
+        <KeyboardDoneAccessory
+          nativeID={TRANSACTION_KEYBOARD_ACCESSORY_ID}
+          accessibilityLabel="Close transaction keyboard"
+        />
       </Modal>
     </SafeAreaView>
   );
@@ -663,25 +646,6 @@ const styles = StyleSheet.create({
   descriptionInputFocused: {
     paddingRight: 76,
   },
-  descriptionKeyboardButton: {
-    position: 'absolute',
-    right: 10,
-    bottom: 18,
-    width: 52,
-    height: 38,
-  },
-  keyboardAccessory: {
-    minHeight: 56,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    backgroundColor: 'transparent',
-  },
-  keyboardAccessoryHost: {
-    backgroundColor: 'transparent',
-  },
   keyboardAccessoryButton: {
     width: 58,
     height: 40,
@@ -698,6 +662,13 @@ const styles = StyleSheet.create({
   keyboardAccessoryButtonPressed: {
     opacity: 0.86,
     transform: [{ scale: 0.94 }],
+  },
+  descriptionKeyboardButton: {
+    position: 'absolute',
+    right: 10,
+    bottom: 18,
+    width: 52,
+    height: 38,
   },
   formError: {
     color: '#DC2626',

@@ -7,6 +7,8 @@ import {
   isSupabaseConfigured,
   type Json,
 } from '@/lib/supabase';
+import { findBookingTimeConflict, normalizeBookingTime } from '@/lib/booking-conflicts';
+import { fromCents, resolveInvoiceStatus, sumPaymentsInCents, toCents } from '@/lib/invoice-payments';
 
 export type PackageOption = {
   id: string;
@@ -57,7 +59,8 @@ export type Invoice = {
   amount: number;
   depositPaid?: number;
   dueDate: string;
-  status: 'Draft' | 'Sent' | 'Accepted' | 'Declined' | 'Paid' | 'Overdue' | 'Cancelled';
+  status: 'Draft' | 'Sent' | 'Accepted' | 'Declined' | 'Paid' | 'Partially Paid' | 'Overdue' | 'Cancelled';
+  /** Cached total of this invoice's payment records. Never written on its own. */
   sentAt: string;
   serviceName?: string;
   packageDetails?: string;
@@ -67,6 +70,31 @@ export type Invoice = {
   eventStartTime?: string;
   eventEndTime?: string;
   terms?: string;
+};
+
+export type InvoicePayment = {
+  id: string;
+  invoiceId: string;
+  amount: number;
+  method: string;
+  date: string;
+  notes?: string;
+  kind: 'deposit' | 'payment';
+  recordedAt: string;
+};
+
+export type RecordInvoicePaymentInput = {
+  invoiceId: string;
+  amount: number;
+  method: string;
+  date: string;
+  notes?: string;
+  kind?: InvoicePayment['kind'];
+};
+
+export type RecordInvoicePaymentResult = {
+  ok: boolean;
+  error?: string;
 };
 
 export type FinanceEntry = {
@@ -93,6 +121,12 @@ export type AppNotification = {
   createdAt: string;
   isOpened: boolean;
   type: 'booking' | 'invoice' | 'reminder';
+};
+
+export type InvoicePaymentDetails = {
+  method?: string;
+  date?: string;
+  notes?: string;
 };
 
 export type InvoiceDraftPrefill = {
@@ -128,6 +162,16 @@ export function getCurrencyFormatter(code: CurrencyCode) {
   return new Intl.NumberFormat(locale, { style: 'currency', currency: code });
 }
 
+/** Same currency, without the cents — for dense summary rows. */
+export function getCompactCurrencyFormatter(code: CurrencyCode) {
+  const locale = CURRENCY_OPTIONS.find((option) => option.code === code)?.locale ?? 'en-US';
+  return new Intl.NumberFormat(locale, {
+    style: 'currency',
+    currency: code,
+    maximumFractionDigits: 0,
+  });
+}
+
 type AppDataContextValue = {
   isLoading: boolean;
   loadError: string | null;
@@ -138,6 +182,7 @@ type AppDataContextValue = {
   customers: Customer[];
   bookings: Booking[];
   invoices: Invoice[];
+  payments: InvoicePayment[];
   financeEntries: FinanceEntry[];
   reminders: Reminder[];
   notifications: AppNotification[];
@@ -150,13 +195,16 @@ type AppDataContextValue = {
   updatePackage: (id: string, updates: Partial<PackageOption>) => void;
   removePackage: (id: string) => void;
   addCustomer: (customer: Omit<Customer, 'id'>) => Customer | null;
+  updateCustomer: (id: string, updates: Partial<Omit<Customer, 'id'>>) => boolean;
+  deleteCustomer: (id: string) => void;
   createBooking: (booking: CreateBookingInput) => CreateBookingResult | null;
   addInvoice: (invoice: Omit<Invoice, 'id'>) => void;
   createInvoiceShareLink: (invoiceId: string) => Promise<string>;
   refreshInvoiceStatuses: () => Promise<void>;
   setInvoiceDraft: (draft: InvoiceDraftPrefill | null) => void;
   updateInvoiceStatus: (invoiceId: string, status: Invoice['status']) => void;
-  updateInvoiceDeposit: (invoiceId: string, depositPaid: number) => boolean;
+  updateInvoiceDeposit: (invoiceId: string, depositPaid: number, details?: InvoicePaymentDetails) => boolean;
+  recordInvoicePayment: (input: RecordInvoicePaymentInput) => RecordInvoicePaymentResult;
   addFinanceEntry: (entry: Omit<FinanceEntry, 'id'>) => void;
   addReminder: (reminder: Omit<Reminder, 'id'>) => void;
   markReminderSent: (reminderId: string) => void;
@@ -201,6 +249,7 @@ type PersistedAppData = {
   customers: Customer[];
   bookings: Booking[];
   invoices: Invoice[];
+  payments: InvoicePayment[];
   financeEntries: FinanceEntry[];
   reminders: Reminder[];
   notifications: AppNotification[];
@@ -218,6 +267,38 @@ function getInvoiceDueDate(eventDate: string) {
   return dueDate.toISOString().slice(0, 10);
 }
 
+/**
+ * Workspaces saved before payments were individual records only kept a single running total on the
+ * invoice. Turn that total into one payment record so no money disappears from the ledger.
+ */
+function createPaymentId() {
+  return `pay-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function migrateInvoicePayments(invoices: Invoice[], payments: InvoicePayment[]): InvoicePayment[] {
+  const invoicesWithRecords = new Set(payments.map((payment) => payment.invoiceId));
+  const migrated: InvoicePayment[] = [];
+
+  invoices.forEach((invoice) => {
+    if (invoicesWithRecords.has(invoice.id)) return;
+
+    const legacyTotal = invoice.status === 'Paid' ? invoice.amount : invoice.depositPaid ?? 0;
+    if (!Number.isFinite(legacyTotal) || legacyTotal <= 0) return;
+
+    migrated.push({
+      id: `pay-legacy-${invoice.id}`,
+      invoiceId: invoice.id,
+      amount: legacyTotal,
+      method: 'Recorded',
+      date: invoice.sentAt || new Date().toISOString().slice(0, 10),
+      kind: 'deposit',
+      recordedAt: invoice.sentAt || new Date().toISOString(),
+    });
+  });
+
+  return [...payments, ...migrated];
+}
+
 function createFreshWorkspace(user: AuthUser): PersistedAppData {
   return {
     version: 1,
@@ -225,6 +306,7 @@ function createFreshWorkspace(user: AuthUser): PersistedAppData {
     customers: [],
     bookings: [],
     invoices: [],
+    payments: [],
     financeEntries: [],
     reminders: [],
     notifications: [],
@@ -250,13 +332,18 @@ function parseWorkspace(value: Json, user: AuthUser): PersistedAppData {
   const data = value as Record<string, unknown>;
   const profile = data.businessProfile;
   const currency = data.currency;
+  const parsedInvoices = Array.isArray(data.invoices) ? (data.invoices as Invoice[]) : fallback.invoices;
 
   return {
     version: 1,
     packages: Array.isArray(data.packages) ? (data.packages as PackageOption[]) : fallback.packages,
     customers: Array.isArray(data.customers) ? (data.customers as Customer[]) : fallback.customers,
     bookings: Array.isArray(data.bookings) ? (data.bookings as Booking[]) : fallback.bookings,
-    invoices: Array.isArray(data.invoices) ? (data.invoices as Invoice[]) : fallback.invoices,
+    invoices: parsedInvoices,
+    payments: migrateInvoicePayments(
+      parsedInvoices,
+      Array.isArray(data.payments) ? (data.payments as InvoicePayment[]) : [],
+    ),
     financeEntries: Array.isArray(data.financeEntries)
       ? (data.financeEntries as FinanceEntry[])
       : fallback.financeEntries,
@@ -282,6 +369,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [payments, setPayments] = useState<InvoicePayment[]>([]);
   const [financeEntries, setFinanceEntries] = useState<FinanceEntry[]>([]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
@@ -304,6 +392,11 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const loadedUserIdRef = useRef<string | null>(null);
   const lastQueuedSnapshotRef = useRef('');
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const bookingsRef = useRef<Booking[]>([]);
+
+  useEffect(() => {
+    bookingsRef.current = bookings;
+  }, [bookings]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -359,8 +452,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
       setPackages(workspace.packages);
       setCustomers(workspace.customers);
+      bookingsRef.current = workspace.bookings;
       setBookings(workspace.bookings);
       setInvoices(workspace.invoices);
+      setPayments(workspace.payments);
       setFinanceEntries(workspace.financeEntries);
       setReminders(workspace.reminders);
       setNotifications(workspace.notifications);
@@ -400,6 +495,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       customers,
       bookings,
       invoices,
+      payments,
       financeEntries,
       reminders,
       notifications,
@@ -426,7 +522,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           setSyncError(error instanceof Error ? error.message : 'Bookflow could not sync changes to Supabase.');
         }
       });
-  }, [bookings, businessProfile, currency, customers, financeEntries, invoices, notifications, packages, reminders, supabase, syncRetryKey, user]);
+  }, [bookings, businessProfile, currency, customers, financeEntries, invoices, notifications, packages, payments, reminders, supabase, syncRetryKey, user]);
 
   const refreshInvoiceStatuses = useCallback(async () => {
     const userId = user?.id;
@@ -451,6 +547,15 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           remoteStatus === 'Cancelled'
             ? remoteStatus
             : null;
+        // Payment-derived statuses are owned locally: never let a customer-facing 'Sent' or
+        // 'Accepted' overwrite money that has actually been recorded.
+        const isLocallyPaidState = invoice.status === 'Paid' || invoice.status === 'Partially Paid';
+        const isRemoteDowngrade = nextStatus === 'Sent' || nextStatus === 'Accepted';
+
+        if (isLocallyPaidState && isRemoteDowngrade) {
+          return invoice;
+        }
+
         if (nextStatus && nextStatus !== invoice.status) {
           hasChanges = true;
           return { ...invoice, status: nextStatus };
@@ -460,6 +565,69 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       return hasChanges ? next : current;
     });
   }, [supabase, user?.id]);
+
+  /**
+   * Single writer for anything money related: it stores the payment records, refreshes the invoice
+   * status and its cached total, and mirrors the payments into the finance ledger as income.
+   */
+  const applyInvoicePayments = useCallback(
+    (invoice: Invoice, nextPayments: InvoicePayment[]) => {
+      const invoicePayments = nextPayments.filter((payment) => payment.invoiceId === invoice.id);
+      const paidCents = sumPaymentsInCents(invoicePayments);
+      const isSettled = paidCents >= toCents(invoice.amount);
+      const client = customers.find((customer) => customer.id === invoice.customerId);
+      const entryPrefix = `fin-payment-${invoice.id}-`;
+
+      setPayments(nextPayments);
+      setInvoices((current) =>
+        current.map((item) =>
+          item.id === invoice.id
+            ? {
+                ...item,
+                depositPaid: fromCents(paidCents),
+                status: resolveInvoiceStatus(item, paidCents),
+              }
+            : item,
+        ),
+      );
+
+      setFinanceEntries((current) => {
+        const incomeRows = invoicePayments.map<FinanceEntry>((payment, index) => {
+          const isFinalPayment = isSettled && index === invoicePayments.length - 1;
+          const label = payment.kind === 'deposit' ? 'Deposit received' : 'Payment received';
+
+          return {
+            id: `${entryPrefix}${payment.id}`,
+            category: isFinalPayment
+              ? 'Full payment'
+              : payment.kind === 'deposit'
+                ? 'Invoice deposit'
+                : 'Invoice payment',
+            amount: payment.amount,
+            date: payment.date,
+            description: [
+              client ? `${label} ${client.name}` : label,
+              `For Invoice ${invoice.id}`,
+              payment.method ? `Paid by ${payment.method}` : '',
+              payment.notes ?? '',
+            ]
+              .filter(Boolean)
+              .join('\n'),
+            type: 'income' as const,
+          };
+        });
+
+        // Replace this invoice's income rows, including the single `fin-deposit-` row written
+        // before payments became individual records, so nothing is counted twice.
+        const untouched = current.filter(
+          (entry) => !entry.id.startsWith(entryPrefix) && entry.id !== `fin-deposit-${invoice.id}`,
+        );
+
+        return [...incomeRows, ...untouched];
+      });
+    },
+    [customers],
+  );
 
   const value = useMemo<AppDataContextValue>(
     () => ({
@@ -475,6 +643,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       customers,
       bookings,
       invoices,
+      payments,
       financeEntries,
       reminders,
       notifications,
@@ -528,14 +697,50 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         setCustomers((current) => [...current, createdCustomer]);
         return createdCustomer;
       },
+      updateCustomer: (id: string, updates: Partial<Omit<Customer, 'id'>>) => {
+        const existing = customers.find((customer) => customer.id === id);
+        const nextName = (updates.name ?? existing?.name ?? '').trim();
+
+        if (!existing || !nextName) {
+          return false;
+        }
+
+        setCustomers((current) =>
+          current.map((customer) =>
+            customer.id === id
+              ? {
+                  ...customer,
+                  ...updates,
+                  name: nextName,
+                  email: (updates.email ?? customer.email).trim(),
+                  phone: (updates.phone ?? customer.phone).trim(),
+                }
+              : customer,
+          ),
+        );
+        return true;
+      },
+      deleteCustomer: (id: string) => {
+        setCustomers((current) => current.filter((customer) => customer.id !== id));
+      },
       createBooking: (booking: CreateBookingInput) => {
         const safeTitle = booking.title.trim();
         const safeNewCustomerName = booking.newCustomer?.name.trim() ?? '';
         const safeNewCustomerEmail = booking.newCustomer?.email.trim() ?? '';
         const existingCustomer = customers.find((customer) => customer.id === booking.customerId);
+        const startTime = normalizeBookingTime(booking.startTime ?? booking.time);
+        const endTime = normalizeBookingTime(booking.endTime);
+        const conflictingBooking = startTime && endTime
+          ? findBookingTimeConflict(bookingsRef.current, booking.date, startTime, endTime)
+          : null;
 
         if (
           !safeTitle ||
+          !booking.date ||
+          !startTime ||
+          !endTime ||
+          endTime <= startTime ||
+          conflictingBooking ||
           Number.isNaN(booking.price) ||
           booking.price <= 0 ||
           (!existingCustomer && !safeNewCustomerName)
@@ -558,9 +763,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           customerId: resolvedCustomer.id,
           title: safeTitle,
           date: booking.date,
-          time: booking.startTime?.trim() || booking.time?.trim() || 'Not specified',
-          startTime: booking.startTime?.trim() || booking.time?.trim() || 'Not specified',
-          endTime: booking.endTime?.trim() || 'Not specified',
+          time: startTime,
+          startTime,
+          endTime,
           location: booking.location.trim(),
           packageName: booking.packageName,
           price: booking.price,
@@ -589,7 +794,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         if (!existingCustomer) {
           setCustomers((current) => [...current, resolvedCustomer]);
         }
-        setBookings((current) => [createdBooking, ...current]);
+        const nextBookings = [createdBooking, ...bookingsRef.current];
+        bookingsRef.current = nextBookings;
+        setBookings(nextBookings);
         setInvoices((current) => [createdInvoice, ...current]);
         setReminders((current) => [
           {
@@ -737,62 +944,81 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           ]);
         }
       },
-      updateInvoiceDeposit: (invoiceId: string, depositPaid: number) => {
+      updateInvoiceDeposit: (invoiceId: string, depositPaid: number, details?: InvoicePaymentDetails) => {
         const invoice = invoices.find((item) => item.id === invoiceId);
-
-        if (!invoice || !Number.isFinite(depositPaid) || depositPaid <= 0 || depositPaid > invoice.amount) {
+        if (!invoice || !Number.isFinite(depositPaid) || depositPaid <= 0) {
           return false;
         }
 
-        setInvoices((current) =>
-          current.map((item) =>
-            item.id === invoiceId
-              ? {
-                  ...item,
-                  depositPaid,
-                  status: depositPaid === item.amount ? 'Paid' : item.status,
-                }
-            : item,
-          ),
+        const otherPayments = payments.filter(
+          (payment) => payment.invoiceId === invoiceId && payment.kind !== 'deposit',
         );
+        const otherCents = sumPaymentsInCents(otherPayments);
+        const depositCents = toCents(depositPaid);
 
-        const client = customers.find((customer) => customer.id === invoice.customerId);
-        const isFullPayment = depositPaid === invoice.amount;
-        const paymentCategory = isFullPayment ? 'Full payment' : 'Invoice deposit';
-        const paymentLabel = isFullPayment ? 'Full payment received' : 'Deposit received';
-        const depositDescription = client
-          ? `${paymentLabel} ${client.name}\nFor Invoice ${invoiceId}`
-          : `${paymentLabel}\nFor Invoice ${invoiceId}`;
-        const depositEntryId = `fin-deposit-${invoiceId}`;
-        setFinanceEntries((current) => {
-          const existingDeposit = current.find((entry) => entry.id === depositEntryId);
+        // The deposit modal sets the deposit outright, so it replaces earlier deposit records while
+        // every other payment recorded against the invoice is preserved.
+        if (depositCents + otherCents > toCents(invoice.amount)) {
+          return false;
+        }
 
-          if (existingDeposit) {
-            return current.map((entry) =>
-              entry.id === depositEntryId
-                ? {
-                    ...entry,
-                    amount: depositPaid,
-                    category: paymentCategory,
-                    description: depositDescription,
-                  }
-                : entry,
-            );
-          }
+        const depositRecord: InvoicePayment = {
+          id: createPaymentId(),
+          invoiceId,
+          amount: fromCents(depositCents),
+          method: details?.method?.trim() || 'Deposit',
+          date: details?.date?.trim() || new Date().toISOString().slice(0, 10),
+          notes: details?.notes?.trim() || undefined,
+          kind: 'deposit',
+          recordedAt: new Date().toISOString(),
+        };
+        const nextPayments = [
+          ...payments.filter((payment) => payment.invoiceId !== invoiceId || payment.kind !== 'deposit'),
+          depositRecord,
+        ];
 
-          return [
-            {
-              id: depositEntryId,
-              category: paymentCategory,
-              amount: depositPaid,
-              date: new Date().toISOString().slice(0, 10),
-              description: depositDescription,
-              type: 'income',
-            },
-            ...current,
-          ];
-        });
+        applyInvoicePayments(invoice, nextPayments);
         return true;
+      },
+      recordInvoicePayment: ({ invoiceId, amount, method, date, notes, kind = 'payment' }: RecordInvoicePaymentInput) => {
+        const invoice = invoices.find((item) => item.id === invoiceId);
+        if (!invoice) {
+          return { ok: false, error: 'This invoice could no longer be found.' };
+        }
+
+        if (invoice.status === 'Cancelled' || invoice.status === 'Declined') {
+          return { ok: false, error: 'Payments cannot be recorded against a closed invoice.' };
+        }
+
+        const amountCents = toCents(amount);
+        if (!Number.isFinite(amount) || amountCents <= 0) {
+          return { ok: false, error: 'Enter a payment amount greater than zero.' };
+        }
+
+        const invoicePayments = payments.filter((payment) => payment.invoiceId === invoiceId);
+        const outstandingCents = toCents(invoice.amount) - sumPaymentsInCents(invoicePayments);
+
+        if (amountCents > outstandingCents) {
+          return { ok: false, error: 'The payment is more than the outstanding balance.' };
+        }
+
+        // Each payment stays its own transaction, so history is never overwritten.
+        const nextPayments = [
+          ...payments,
+          {
+            id: createPaymentId(),
+            invoiceId,
+            amount: fromCents(amountCents),
+            method: method.trim() || 'Cash',
+            date: date.trim() || new Date().toISOString().slice(0, 10),
+            notes: notes?.trim() || undefined,
+            kind,
+            recordedAt: new Date().toISOString(),
+          } satisfies InvoicePayment,
+        ];
+
+        applyInvoicePayments(invoice, nextPayments);
+        return { ok: true };
       },
       addFinanceEntry: (entry: Omit<FinanceEntry, 'id'>) => {
         setFinanceEntries((current) => [
@@ -842,8 +1068,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       deleteAllData: () => {
         setPackages([]);
         setCustomers([]);
+        bookingsRef.current = [];
         setBookings([]);
         setInvoices([]);
+        setPayments([]);
         setFinanceEntries([]);
         setReminders([]);
         setNotifications([]);
@@ -871,6 +1099,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       loadError,
       notifications,
       packages,
+      payments,
+      applyInvoicePayments,
       refreshInvoiceStatuses,
       reminders,
       syncError,

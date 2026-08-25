@@ -1,18 +1,29 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { useAppData } from '@/context/app-data-context';
+import { InitialsAvatar } from '@/components/InitialsAvatar';
+import { getCompactCurrencyFormatter, useAppData } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import {
+  customerSortOptions,
+  getCustomerMetrics,
+  matchesCustomerSearch,
+  sortCustomers,
+  type CustomerSortKey,
+} from '@/lib/customer-metrics';
 
 export default function CustomersScreen() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
-  const { customers, addCustomer } = useAppData();
+  const { customers, bookings, invoices, payments, addCustomer, currency } = useAppData();
   const palette = getThemePalette(isDarkMode);
   const [showComposer, setShowComposer] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortKey, setSortKey] = useState<CustomerSortKey>('recent');
+  const [showSortSheet, setShowSortSheet] = useState(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -23,6 +34,22 @@ export default function CustomersScreen() {
   const softBorder = isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.9)';
   const softShadow = isDarkMode ? '#020617' : '#A7B4C8';
   const accentSoft = isDarkMode ? '#29284B' : '#E9E8FF';
+  const compactCurrency = useMemo(() => getCompactCurrencyFormatter(currency), [currency]);
+
+  const metricsById = useMemo(
+    () =>
+      new Map(
+        customers.map((customer) => [customer.id, getCustomerMetrics(customer.id, bookings, invoices, payments)]),
+      ),
+    [bookings, customers, invoices, payments],
+  );
+
+  const visibleCustomers = useMemo(
+    () => sortCustomers(customers.filter((customer) => matchesCustomerSearch(customer, searchTerm)), sortKey, metricsById),
+    [customers, metricsById, searchTerm, sortKey],
+  );
+
+  const activeSortLabel = customerSortOptions.find((option) => option.key === sortKey)?.label ?? 'Recently added';
 
   const handleAddCustomer = () => {
     addCustomer({
@@ -50,7 +77,9 @@ export default function CustomersScreen() {
           </View>
           <View style={styles.headerCopy}>
             <Text style={[styles.eyebrow, { color: palette.accent }]}>Customers</Text>
-            <Text style={[styles.title, { color: palette.text }]} numberOfLines={1}>Client database</Text>
+            <Text style={[styles.title, { color: palette.text }]} numberOfLines={1}>
+              {customers.length} {customers.length === 1 ? 'client' : 'clients'}
+            </Text>
           </View>
         </View>
         <Pressable style={[styles.primaryButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]} onPress={() => setShowComposer(true)}>
@@ -59,34 +88,135 @@ export default function CustomersScreen() {
         </Pressable>
       </View>
 
+      <View style={styles.searchRow}>
+        <View style={[styles.searchField, { backgroundColor: softInset, borderColor: softBorder }]}>
+          <Ionicons name="search" size={17} color={palette.muter} />
+          <TextInput
+            value={searchTerm}
+            onChangeText={setSearchTerm}
+            style={[styles.searchInput, { color: palette.text }]}
+            placeholder="Search customers"
+            placeholderTextColor={palette.muter}
+            autoCorrect={false}
+            autoCapitalize="none"
+            returnKeyType="search"
+            accessibilityLabel="Search customers by name, phone, or email"
+          />
+          {searchTerm.length > 0 && (
+            <Pressable
+              onPress={() => setSearchTerm('')}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Clear search">
+              <Ionicons name="close-circle" size={17} color={palette.muter} />
+            </Pressable>
+          )}
+        </View>
+        <Pressable
+          onPress={() => setShowSortSheet(true)}
+          accessibilityRole="button"
+          accessibilityLabel={`Sort customers. Current sort: ${activeSortLabel}`}
+          style={({ pressed }) => [
+            styles.sortButton,
+            { backgroundColor: softInset, borderColor: softBorder },
+            pressed && styles.pressed,
+          ]}>
+          <Ionicons name="swap-vertical" size={16} color={palette.accent} />
+        </Pressable>
+      </View>
+
+      {sortKey !== 'recent' && (
+        <Pressable
+          onPress={() => setShowSortSheet(true)}
+          accessibilityRole="button"
+          accessibilityLabel={`Sorted by ${activeSortLabel}. Change sorting`}
+          style={styles.sortHintRow}>
+          <Text style={[styles.sortHint, { color: palette.muter }]}>Sorted by {activeSortLabel}</Text>
+        </Pressable>
+      )}
+
       <FlatList
-        data={customers}
+        data={visibleCustomers}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
-        renderItem={({ item }) => (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Open ${item.name}'s customer profile`}
-            onPress={() => router.push(`/customer/${item.id}`)}
-            style={({ pressed }) => [
-              styles.card,
-              { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow },
-              pressed && styles.cardPressed,
-            ]}>
-            <View style={[styles.cardAccent, { backgroundColor: palette.accent }]} />
-            <View style={styles.profileHeader}>
-              <View style={[styles.avatar, { backgroundColor: accentSoft }]}>
-                <Text style={[styles.avatarText, { color: palette.accent }]}>{item.name.charAt(0)}</Text>
-              </View>
-              <View style={styles.profileCopy}>
-                <Text style={[styles.name, { color: palette.text }]} numberOfLines={1}>{item.name}</Text>
-                <Text style={[styles.profileLabel, { color: palette.muter }]}>Customer profile</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color={palette.muter} />
-            </View>
-          </Pressable>
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        ListEmptyComponent={(
+          <View style={[styles.emptyState, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
+            <Ionicons name={searchTerm ? 'search-outline' : 'people-outline'} size={22} color={palette.muter} />
+            <Text style={[styles.emptyText, { color: palette.muter }]}>
+              {searchTerm ? `No customers match “${searchTerm}”.` : 'No customers yet. Add your first client to get started.'}
+            </Text>
+          </View>
         )}
+        renderItem={({ item }) => {
+          const metrics = metricsById.get(item.id);
+          const bookingCount = metrics?.bookingCount ?? 0;
+          const secondaryLine = bookingCount
+            ? `${bookingCount} ${bookingCount === 1 ? 'booking' : 'bookings'} · ${compactCurrency.format(metrics?.revenue ?? 0)}`
+            : 'No bookings yet';
+
+          return (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Open ${item.name}'s customer profile`}
+              onPress={() => router.push(`/customer/${item.id}`)}
+              style={({ pressed }) => [
+                styles.card,
+                { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow },
+                pressed && styles.cardPressed,
+              ]}>
+              <View style={styles.profileHeader}>
+                <InitialsAvatar
+                  name={item.name}
+                  size={44}
+                  backgroundColor={accentSoft}
+                  color={palette.accent}
+                  style={styles.avatar}
+                />
+                <View style={styles.profileCopy}>
+                  <Text style={[styles.name, { color: palette.text }]} numberOfLines={1}>{item.name}</Text>
+                  <Text style={[styles.profileMeta, { color: palette.muter }]} numberOfLines={1}>{secondaryLine}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={palette.muter} />
+              </View>
+            </Pressable>
+          );
+        }}
       />
+
+      <Modal visible={showSortSheet} transparent animationType="fade" onRequestClose={() => setShowSortSheet(false)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setShowSortSheet(false)}>
+          <Pressable
+            style={[styles.sortSheet, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}
+            onPress={(event) => event.stopPropagation()}>
+            <View style={[styles.modalHandle, { backgroundColor: palette.border }]} />
+            <Text style={[styles.sortSheetTitle, { color: palette.muter }]}>Sort by</Text>
+            {customerSortOptions.map((option) => {
+              const isActive = option.key === sortKey;
+
+              return (
+                <Pressable
+                  key={option.key}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isActive }}
+                  onPress={() => {
+                    setSortKey(option.key);
+                    setShowSortSheet(false);
+                  }}
+                  style={({ pressed }) => [
+                    styles.sortOption,
+                    isActive && { backgroundColor: accentSoft },
+                    pressed && styles.pressed,
+                  ]}>
+                  <Text style={[styles.sortOptionText, { color: isActive ? palette.accent : palette.text }]}>{option.label}</Text>
+                  {isActive && <Ionicons name="checkmark" size={17} color={palette.accent} />}
+                </Pressable>
+              );
+            })}
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       <Modal visible={showComposer} transparent animationType="slide" onRequestClose={() => setShowComposer(false)}>
         <View style={styles.modalBackdrop}>
@@ -138,7 +268,94 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: 16,
+  },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 14,
+  },
+  searchField: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    height: 44,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
+    padding: 0,
+  },
+  sortButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sortHintRow: {
+    marginBottom: 10,
+  },
+  sortHint: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+  },
+  sortSheet: {
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    borderWidth: 1,
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 28,
+    shadowOpacity: 0.32,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: -8 },
+    elevation: 14,
+  },
+  sortSheetTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginBottom: 10,
+    marginTop: 4,
+  },
+  sortOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+  },
+  sortOptionText: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  emptyState: {
+    alignItems: 'center',
+    borderRadius: 22,
+    borderWidth: 1,
+    gap: 10,
+    paddingHorizontal: 20,
+    paddingVertical: 28,
+    shadowOpacity: 0.16,
+    shadowRadius: 18,
+    shadowOffset: { width: 8, height: 10 },
+    elevation: 5,
+  },
+  emptyText: {
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   headerTitleGroup: {
     flexDirection: 'row',
@@ -195,11 +412,11 @@ const styles = StyleSheet.create({
     paddingBottom: 116,
   },
   card: {
-    position: 'relative',
-    borderRadius: 26,
+    borderRadius: 22,
     borderWidth: 1,
-    padding: 20,
-    marginBottom: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 12,
     shadowOpacity: 0.16,
     shadowRadius: 18,
     shadowOffset: { width: 8, height: 10 },
@@ -208,46 +425,29 @@ const styles = StyleSheet.create({
   cardPressed: {
     opacity: 0.72,
   },
-  cardAccent: {
-    position: 'absolute',
-    top: 23,
-    left: 0,
-    width: 4,
-    height: 40,
-    borderTopRightRadius: 4,
-    borderBottomRightRadius: 4,
+  pressed: {
+    opacity: 0.72,
   },
   profileHeader: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   avatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 14,
-  },
-  avatarText: {
-    fontWeight: '800',
-    fontSize: 20,
+    marginRight: 13,
   },
   profileCopy: {
     flex: 1,
     minWidth: 0,
   },
   name: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '800',
     letterSpacing: -0.3,
-    marginBottom: 4,
+    marginBottom: 3,
   },
-  profileLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.45,
-    textTransform: 'uppercase',
+  profileMeta: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   modalBackdrop: {
     flex: 1,

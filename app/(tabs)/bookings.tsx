@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { Alert, Animated, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { StatusPill } from '@/components/StatusPill';
 import { Booking, getCurrencyFormatter, useAppData } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { findBookingTimeConflict, normalizeBookingTime } from '@/lib/booking-conflicts';
 
 const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const hourOptions = Array.from({ length: 12 }, (_, index) => index + 1);
@@ -145,16 +146,6 @@ function toIsoDate(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
-function normalizeTime(value: string) {
-  const match = value.trim().match(/^(\d{1,2}):([0-5]\d)$/);
-  if (!match) return null;
-
-  const hour = Number(match[1]);
-  if (hour < 0 || hour > 23) return null;
-
-  return `${String(hour).padStart(2, '0')}:${match[2]}`;
-}
-
 function formatDisplayDate(dateString: string) {
   const date = new Date(`${dateString}T00:00:00`);
   return new Intl.DateTimeFormat('en-GB', {
@@ -166,6 +157,8 @@ function formatDisplayDate(dateString: string) {
 
 export default function BookingsScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ composeForCustomerId?: string }>();
+  const handledDeepLinkRef = useRef('');
   const { isDarkMode } = useTheme();
   const { packages, bookings, customers, invoices, createBooking, currency } = useAppData();
   const palette = getThemePalette(isDarkMode);
@@ -268,6 +261,20 @@ export default function BookingsScreen() {
     setShowComposer(true);
   };
 
+  // A customer profile can ask this tab to open the composer for a specific customer.
+  useEffect(() => {
+    const composeForCustomerId = typeof params.composeForCustomerId === 'string' ? params.composeForCustomerId : '';
+
+    if (!composeForCustomerId || handledDeepLinkRef.current === composeForCustomerId) return;
+    handledDeepLinkRef.current = composeForCustomerId;
+
+    openComposer();
+    setCustomerMode('existing');
+    setSelectedCustomerId(composeForCustomerId);
+    router.setParams({ composeForCustomerId: '' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.composeForCustomerId]);
+
   const handlePackageSelection = (packageId: string) => {
     const chosenPackage = packages.find((item) => item.id === packageId);
     setSelectedPackageId(packageId);
@@ -312,12 +319,25 @@ export default function BookingsScreen() {
     const numericPrice = Number(draftPrice);
     const isNewCustomerValid = Boolean(newCustomerName.trim());
     const hasValidCustomer = customerMode === 'existing' ? Boolean(selectedCustomerId) : isNewCustomerValid;
-    const startTime = normalizeTime(draftStartTime);
-    const endTime = normalizeTime(draftEndTime);
+    const startTime = normalizeBookingTime(draftStartTime);
+    const endTime = normalizeBookingTime(draftEndTime);
     const hasValidTimeRange = Boolean(startTime && endTime && endTime > startTime);
 
     if (!selectedPackage || !hasValidCustomer || Number.isNaN(numericPrice) || numericPrice <= 0 || !startTime || !endTime || !hasValidTimeRange) {
       setFormError('Choose a package and add valid customer, price, start time, and later finish time.');
+      return;
+    }
+
+    const conflictingBooking = findBookingTimeConflict(bookings, selectedDate, startTime, endTime);
+    if (conflictingBooking) {
+      const conflictStart = normalizeBookingTime(conflictingBooking.startTime ?? conflictingBooking.time);
+      const conflictEnd = normalizeBookingTime(conflictingBooking.endTime);
+      const conflictTime = conflictStart
+        ? `${formatTime(conflictStart)}${conflictEnd ? ` – ${formatTime(conflictEnd)}` : ''}`
+        : 'the selected time';
+      setFormError(
+        `Time unavailable. ${conflictingBooking.title} is already booked on ${formatDisplayDate(selectedDate)} from ${conflictTime}. Choose a non-overlapping time.`,
+      );
       return;
     }
 

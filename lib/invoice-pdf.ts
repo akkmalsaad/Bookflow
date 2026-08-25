@@ -162,7 +162,7 @@ export function createInvoicePdfHtml({
 
       <section class="totals">
         <div class="total-row"><span>Invoice total</span><strong>${escapeHtml(currencyFormatter.format(invoice.amount))}</strong></div>
-        <div class="total-row"><span>Deposit paid</span><strong>${escapeHtml(currencyFormatter.format(depositPaid))}</strong></div>
+        <div class="total-row"><span>Amount paid</span><strong>${escapeHtml(currencyFormatter.format(depositPaid))}</strong></div>
         <div class="total-row balance"><span>Balance due</span><span>${escapeHtml(currencyFormatter.format(remainingBalance))}</span></div>
       </section>
 

@@ -4,15 +4,18 @@ import { useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { RecordDepositModal } from '@/components/RecordDepositModal';
 import { StatusPill } from '@/components/StatusPill';
+import { UpdatePaymentModal } from '@/components/UpdatePaymentModal';
 import { getCurrencyFormatter, Invoice, useAppData } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { getInvoicePaymentSummary } from '@/lib/invoice-payments';
 import { saveInvoiceAsPdf } from '@/lib/invoice-pdf';
 
 function getInvoiceTone(status: Invoice['status']) {
   if (status === 'Paid') return 'green';
   if (status === 'Accepted') return 'blue';
-  if (status === 'Overdue') return 'amber';
+  if (status === 'Overdue' || status === 'Partially Paid') return 'amber';
   if (status === 'Declined' || status === 'Cancelled') return 'red';
   return 'gray';
 }
@@ -38,9 +41,11 @@ export default function InvoiceAcceptanceScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ invoiceId?: string }>();
   const { isDarkMode } = useTheme();
-  const { invoices, customers, bookings, packages, businessProfile, updateInvoiceStatus, currency } = useAppData();
+  const { invoices, customers, bookings, packages, payments, businessProfile, updateInvoiceStatus, currency } = useAppData();
   const palette = getThemePalette(isDarkMode);
   const [isSavingPdf, setIsSavingPdf] = useState(false);
+  const [depositInvoiceId, setDepositInvoiceId] = useState<string | null>(null);
+  const [paymentInvoiceId, setPaymentInvoiceId] = useState<string | null>(null);
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const invoice = invoices.find((item) => item.id === params.invoiceId);
   const customer = invoice ? customers.find((person) => person.id === invoice.customerId) : undefined;
@@ -53,8 +58,12 @@ export default function InvoiceAcceptanceScreen() {
   const eventDate = invoice?.eventDate ?? booking?.date;
   const eventStartTime = invoice?.eventStartTime ?? booking?.startTime ?? invoice?.eventTime ?? booking?.time ?? 'Not specified';
   const eventEndTime = invoice?.eventEndTime ?? booking?.endTime ?? 'Not specified';
-  const depositPaid = invoice?.depositPaid ?? 0;
-  const remainingBalance = invoice?.status === 'Paid' ? 0 : Math.max(0, (invoice?.amount ?? 0) - depositPaid);
+  const paymentSummary = invoice ? getInvoicePaymentSummary(invoice, payments) : null;
+  const depositPaid = paymentSummary?.amountPaid ?? 0;
+  const remainingBalance = paymentSummary?.outstanding ?? 0;
+  const canRecordPayments = Boolean(
+    invoice && invoice.status !== 'Paid' && invoice.status !== 'Cancelled' && invoice.status !== 'Declined',
+  );
 
   if (!invoice || !customer) {
     return (
@@ -173,7 +182,7 @@ export default function InvoiceAcceptanceScreen() {
           {depositPaid > 0 ? (
             <View style={[styles.paymentBox, { backgroundColor: palette.surfaceAlt, borderColor: palette.border }]}>
               <View style={styles.paymentRow}>
-                <Text style={[styles.paymentLabel, { color: palette.muter }]}>Deposit paid</Text>
+                <Text style={[styles.paymentLabel, { color: palette.muter }]}>Amount paid</Text>
                 <Text style={[styles.paymentValue, { color: palette.success }]}>{currencyFormatter.format(depositPaid)}</Text>
               </View>
               <View style={[styles.paymentDivider, { backgroundColor: palette.border }]} />
@@ -226,6 +235,39 @@ export default function InvoiceAcceptanceScreen() {
           ) : null}
         </View>
 
+        {canRecordPayments ? (
+          <View style={styles.paymentActions}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Record the deposit for this invoice"
+              onPress={() => setDepositInvoiceId(invoice.id)}
+              style={({ pressed }) => [
+                styles.paymentActionButton,
+                { backgroundColor: palette.iconWrap, borderColor: palette.accent },
+                pressed && styles.paymentActionPressed,
+              ]}>
+              <Ionicons name="wallet-outline" size={18} color={palette.accent} />
+              <Text style={[styles.paymentActionText, { color: palette.accent }]} numberOfLines={1}>
+                Deposit paid
+              </Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Update payment for this invoice"
+              onPress={() => setPaymentInvoiceId(invoice.id)}
+              style={({ pressed }) => [
+                styles.paymentActionButton,
+                { backgroundColor: palette.surface, borderColor: palette.border },
+                pressed && styles.paymentActionPressed,
+              ]}>
+              <Ionicons name="cash-outline" size={18} color={palette.accent} />
+              <Text style={[styles.paymentActionText, { color: palette.text }]} numberOfLines={1}>
+                Update payment
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
+
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`Save invoice ${invoice.id} as PDF`}
@@ -259,6 +301,10 @@ export default function InvoiceAcceptanceScreen() {
           </View>
         )}
       </ScrollView>
+
+      <RecordDepositModal invoiceId={depositInvoiceId} onClose={() => setDepositInvoiceId(null)} />
+
+      <UpdatePaymentModal invoiceId={paymentInvoiceId} onClose={() => setPaymentInvoiceId(null)} />
     </SafeAreaView>
   );
 }
@@ -421,6 +467,29 @@ const styles = StyleSheet.create({
   termsText: {
     fontSize: 13,
     lineHeight: 19,
+  },
+  paymentActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 16,
+  },
+  paymentActionButton: {
+    alignItems: 'center',
+    borderRadius: 16,
+    borderWidth: 1,
+    flex: 1,
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+    minHeight: 48,
+    paddingHorizontal: 12,
+  },
+  paymentActionText: {
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  paymentActionPressed: {
+    opacity: 0.75,
   },
   pdfButton: {
     alignItems: 'center',

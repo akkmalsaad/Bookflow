@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
+import * as Haptics from 'expo-haptics';
 import { Tabs } from 'expo-router';
 import React from 'react';
-import { Animated, Easing, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Animated, Easing, Platform, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useTheme } from '@/context/theme-context';
@@ -61,6 +62,15 @@ function MirrorTabIcon({
   );
 }
 
+function triggerTabHaptic() {
+  if (Platform.OS === 'web') {
+    return;
+  }
+
+  // Fire-and-forget: never block or alter the navigation the press triggers.
+  Haptics.selectionAsync().catch(() => {});
+}
+
 export default function TabLayout() {
   const { isDarkMode } = useTheme();
   const insets = useSafeAreaInsets();
@@ -106,6 +116,11 @@ export default function TabLayout() {
 
   return (
     <Tabs
+      screenListeners={{
+        tabPress: () => {
+          triggerTabHaptic();
+        },
+      }}
       screenOptions={{
         headerShown: false,
         tabBarShowLabel: false,
