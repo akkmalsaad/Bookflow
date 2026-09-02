@@ -52,7 +52,12 @@ export function getInvoiceCollected(invoice: Invoice, payments: InvoicePayment[]
  * booking always generates one and the balance is genuinely outstanding.
  */
 export function getInvoiceOutstanding(invoice: Invoice, payments: InvoicePayment[]) {
-  if (invoice.status === 'Declined' || invoice.status === 'Cancelled') {
+  if (
+    invoice.deletedAt ||
+    invoice.status === 'Declined' ||
+    invoice.status === 'Cancelled' ||
+    invoice.status === 'Void'
+  ) {
     return 0;
   }
 
@@ -146,6 +151,7 @@ export function groupCustomerBookings(bookings: Booking[], todayKey: string) {
 export function getBookingScheduleBadge(booking: Booking, todayKey: string): BookingBadge {
   if (booking.status === 'Cancelled') return { label: 'Cancelled', tone: 'gray' };
   if (booking.status === 'Completed') return { label: 'Completed', tone: 'green' };
+  if (booking.status === 'In Progress') return { label: 'In Progress', tone: 'blue' };
   if (booking.status === 'Inquiry') return { label: 'Pending', tone: 'amber' };
   if (booking.date >= todayKey) return { label: 'Upcoming', tone: 'blue' };
 

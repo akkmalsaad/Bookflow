@@ -1,21 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
-import type { ReactNode } from 'react';
-import {
-  Keyboard,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
-
+import type { ReactNode, RefObject } from 'react';
+import { useEffect, useRef } from 'react';
+import { Keyboard, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { KeyboardDoneAccessory, PAYMENT_KEYBOARD_ACCESSORY_ID } from '@/components/KeyboardDoneAccessory';
+import { KeyboardDoneButton } from '@/components/KeyboardDoneButton';
+import { modalScrollProps } from '@/components/modal-keyboard';
+import { useModalTransition } from '@/components/modal-transition';
 import type { AppPalette } from '@/context/theme-context';
 
 type ShellProps = {
@@ -31,11 +23,31 @@ type ShellProps = {
   children: ReactNode;
   primaryDisabled?: boolean;
   secondaryLabel?: string;
+  /** Lets a form scroll its own body, e.g. to reveal a field the keyboard would cover. */
+  bodyRef?: RefObject<ScrollView | null>;
+  /**
+   * How the card arrives.
+   *
+   * 'lift' rises a short distance on a spring — the original behaviour, right for a modal opened
+   * straight from a screen. 'sheet' travels up from below the viewport on a timing curve, which is
+   * what a modal opened *from another sheet* needs so the two movements read as one continuous
+   * gesture rather than a sheet closing and a card popping.
+   */
+  entrance?: 'lift' | 'sheet';
 };
+
+/** How far below its resting place the card starts, far enough to read as rising from the bottom. */
+const SLIDE_OFFSET = 96;
+const SHEET_OPEN_MS = 300;
+const SHEET_CLOSE_MS = 240;
 
 /**
  * The compact centered payment modal shared by Record deposit and Update payment: dimmed backdrop,
  * rounded card, scrollable body so small screens still fit, and the paired footer actions.
+ *
+ * The card rises from the bottom on open and slides back down on close. Closing is driven by the
+ * `visible` prop going false, so callers keep closing the modal exactly as before — the shell stays
+ * mounted for the exit animation and unmounts itself once it finishes.
  */
 export function PaymentModalShell({
   visible,
@@ -50,26 +62,66 @@ export function PaymentModalShell({
   children,
   primaryDisabled = false,
   secondaryLabel = 'Cancel',
+  bodyRef,
+  entrance = 'lift',
 }: ShellProps) {
   const insets = useSafeAreaInsets();
+  const { height: screenHeight } = useWindowDimensions();
+  const isSheet = entrance === 'sheet';
+  const { mounted, overlayStyle, contentStyle, guard } = useModalTransition({
+    visible,
+    // A full screen height guarantees the card begins entirely below the viewport.
+    offset: isSheet ? screenHeight : SLIDE_OFFSET,
+    // Matching BottomSheetModal: a long travel reads better on a curve than on a spring, and the
+    // card should move as one piece rather than fading its contents in separately.
+    motion: isSheet ? 'timing' : 'spring',
+    openDuration: isSheet ? SHEET_OPEN_MS : undefined,
+    closeDuration: isSheet ? SHEET_CLOSE_MS : undefined,
+    fadeContent: !isSheet,
+  });
+  // Callers null out their record as they close, so hold the last body to render during the exit.
+  const lastBody = useRef(children);
+  if (visible) lastBody.current = children;
+
+  // The caller's ref when it wants to drive the scroll itself, otherwise our own.
+  const internalBodyRef = useRef<ScrollView>(null);
+  const scrollRef = bodyRef ?? internalBodyRef;
+
+  /**
+   * Open at the first field.
+   *
+   * These forms are long enough to scroll, and an autofocused input plus the keyboard insets can
+   * leave the body parked partway down — so the modal would slide up already showing its middle.
+   * Resetting on each open guarantees the invoice total and amount are what you land on.
+   */
+  useEffect(() => {
+    if (!visible) return;
+
+    const id = setTimeout(() => scrollRef.current?.scrollTo({ y: 0, animated: false }), 0);
+    return () => clearTimeout(id);
+  }, [visible, scrollRef]);
   const softSurface = isDarkMode ? '#172033' : '#F7F9FD';
   const softInset = isDarkMode ? '#111A2B' : '#EEF2F8';
   const softBorder = isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.9)';
   const softShadow = isDarkMode ? '#020617' : '#A7B4C8';
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    <Modal visible={mounted} transparent animationType="none" onRequestClose={guard(onClose)}>
+      {/* No keyboard avoidance: the card holds its position and the body scroll area absorbs the
+          keyboard instead. */}
+      <View
+        pointerEvents={visible ? 'auto' : 'none'}
         // Insets keep the card clear of the status bar and home indicator; the body scrolls instead.
         style={[styles.backdrop, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 12 }]}>
+        <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.overlay, overlayStyle]} />
         <Pressable
           accessible={false}
           onPress={Keyboard.dismiss}
           style={StyleSheet.absoluteFill}
           importantForAccessibility="no"
         />
-        <View style={[styles.card, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
+        <Animated.View
+          style={[styles.card, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }, contentStyle]}>
           <View style={styles.header}>
             <View style={styles.headerCopy}>
               <Text style={[styles.eyebrow, { color: palette.accent }]}>{eyebrow}</Text>
@@ -78,7 +130,7 @@ export function PaymentModalShell({
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={`Close ${title.toLowerCase()}`}
-              onPress={onClose}
+              onPress={guard(onClose)}
               style={[styles.closeButton, { backgroundColor: softInset }]}>
               <Ionicons name="close" size={22} color={palette.text} />
             </Pressable>
@@ -86,17 +138,14 @@ export function PaymentModalShell({
 
           <Text style={[styles.description, { color: palette.muter }]}>{description}</Text>
 
-          <ScrollView
-            style={styles.body}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}>
-            {children}
+          <ScrollView ref={scrollRef} style={styles.body} {...modalScrollProps}>
+            {visible ? children : lastBody.current}
           </ScrollView>
 
           <View style={styles.actions}>
             <Pressable
               accessibilityRole="button"
-              onPress={onClose}
+              onPress={guard(onClose)}
               style={({ pressed }) => [
                 styles.secondaryButton,
                 { backgroundColor: softInset, borderColor: softBorder },
@@ -108,7 +157,7 @@ export function PaymentModalShell({
               accessibilityRole="button"
               accessibilityState={{ disabled: primaryDisabled }}
               disabled={primaryDisabled}
-              onPress={onPrimary}
+              onPress={guard(onPrimary)}
               style={({ pressed }) => [
                 styles.primaryButton,
                 { backgroundColor: palette.accent, shadowColor: palette.accent },
@@ -118,8 +167,10 @@ export function PaymentModalShell({
               <Text style={styles.primaryText}>{primaryLabel}</Text>
             </Pressable>
           </View>
-        </View>
-      </KeyboardAvoidingView>
+        </Animated.View>
+
+        <KeyboardDoneButton />
+      </View>
     </Modal>
   );
 }
@@ -158,6 +209,7 @@ export function CurrencyAmountInput({
   hasError,
   autoFocus,
   placeholder = '0.00',
+  hideReturnKey = false,
 }: {
   value: string;
   onChangeText: (value: string) => void;
@@ -167,32 +219,34 @@ export function CurrencyAmountInput({
   hasError?: boolean;
   autoFocus?: boolean;
   placeholder?: string;
+  /** Drops the keyboard's own Done key for forms that rely on the floating checkmark instead. */
+  hideReturnKey?: boolean;
 }) {
   const softInset = isDarkMode ? '#111A2B' : '#EEF2F8';
   const softBorder = isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.9)';
 
   return (
-    <>
-      <View style={[styles.amountWrap, { backgroundColor: softInset, borderColor: hasError ? palette.danger : softBorder }]}>
-        <Text style={[styles.currencyPrefix, { color: palette.muter }]}>{currency}</Text>
-        <TextInput
-          autoFocus={autoFocus}
-          inputAccessoryViewID={Platform.OS === 'ios' ? PAYMENT_KEYBOARD_ACCESSORY_ID : undefined}
-          keyboardType="decimal-pad"
-          onChangeText={(next) => onChangeText(next.replace(/[^0-9.,]/g, ''))}
-          // The keyboard's checkmark only finishes input; saving stays with the Save button.
-          onSubmitEditing={Keyboard.dismiss}
-          placeholder={placeholder}
-          placeholderTextColor={palette.muter}
-          returnKeyType="done"
-          selectionColor={palette.accent}
-          submitBehavior="blurAndSubmit"
-          style={[styles.amountInput, { color: palette.text }]}
-          value={value}
-        />
-      </View>
-      <KeyboardDoneAccessory nativeID={PAYMENT_KEYBOARD_ACCESSORY_ID} accessibilityLabel="Close payment keyboard" />
-    </>
+    <View style={[styles.amountWrap, { backgroundColor: softInset, borderColor: hasError ? palette.danger : softBorder }]}>
+      <Text style={[styles.currencyPrefix, { color: palette.muter }]}>{currency}</Text>
+      <TextInput
+        autoFocus={autoFocus}
+        keyboardType="decimal-pad"
+        onChangeText={(next) => onChangeText(next.replace(/[^0-9.,]/g, ''))}
+        placeholder={placeholder}
+        placeholderTextColor={palette.muter}
+        selectionColor={palette.accent}
+        style={[styles.amountInput, { color: palette.text }]}
+        value={value}
+        {...(hideReturnKey
+          ? null
+          : {
+              // The return key only finishes input; saving stays with the Save button.
+              onSubmitEditing: Keyboard.dismiss,
+              returnKeyType: 'done' as const,
+              submitBehavior: 'blurAndSubmit' as const,
+            })}
+      />
+    </View>
   );
 }
 
@@ -234,10 +288,12 @@ export const paymentModalStyles = StyleSheet.create({
 const styles = StyleSheet.create({
   backdrop: {
     alignItems: 'center',
-    backgroundColor: 'rgba(15, 23, 42, 0.62)',
     flex: 1,
     justifyContent: 'center',
     paddingHorizontal: 20,
+  },
+  overlay: {
+    backgroundColor: 'rgba(15, 23, 42, 0.62)',
   },
   body: {
     flexGrow: 0,

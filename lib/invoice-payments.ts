@@ -48,11 +48,12 @@ export function getInvoicePaymentSummary(invoice: Invoice, payments: InvoicePaym
 }
 
 /**
- * Invoice status after a payment change. Lifecycle states the customer owns (Cancelled, Declined)
- * are never overwritten, and an invoice only becomes Paid when nothing is outstanding.
+ * Invoice status after a payment change. Closed lifecycle states (Cancelled, Declined, and a
+ * deliberate Void) are never overwritten, and an invoice only becomes Paid when nothing is
+ * outstanding.
  */
 export function resolveInvoiceStatus(invoice: Invoice, paidCents: number): Invoice['status'] {
-  if (invoice.status === 'Cancelled' || invoice.status === 'Declined') {
+  if (invoice.status === 'Cancelled' || invoice.status === 'Declined' || invoice.status === 'Void') {
     return invoice.status;
   }
 

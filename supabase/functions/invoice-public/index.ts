@@ -1,10 +1,11 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
-type InvoiceStatus = 'Sent' | 'Accepted' | 'Declined' | 'Paid' | 'Cancelled';
+type InvoiceStatus = 'Sent' | 'Accepted' | 'Declined' | 'Paid' | 'Cancelled' | 'Void';
 
 type InvoicePayload = {
   invoice: {
     id: string;
+    invoiceNumber?: string;
     amount: number;
     depositPaid?: number;
     dueDate: string;
@@ -13,7 +14,7 @@ type InvoicePayload = {
     terms?: string;
   };
   customer: { name: string; email: string; phone: string };
-  businessProfile: { name: string; ssmRegistrationNo?: string; phone: string; email: string; address: string };
+  businessProfile: { name: string; ssmRegistrationNo?: string; phone: string; email: string; address: string; logoUrl?: string };
   currency: 'MYR' | 'IDR' | 'USD';
   serviceName?: string;
   packageDetails?: string;
@@ -113,6 +114,11 @@ Deno.serve(async (request) => {
       p_token: token,
       p_status: action,
     });
+    // Deliberately says nothing about cancellation, voiding or deletion — only that the invoice
+    // can no longer be answered.
+    if (error?.message?.includes('no longer active')) {
+      return jsonResponse({ error: 'This invoice is no longer active.' }, 409);
+    }
     if (error || !data) {
       return jsonResponse({ error: 'This invoice link is invalid or has expired.' }, 404);
     }

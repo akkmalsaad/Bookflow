@@ -1,96 +1,35 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useMemo, useRef, useState } from 'react';
-import {
-  FlatList,
-  Keyboard,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { useMemo, useState } from 'react';
+import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { DatePickerField } from '@/components/DatePickerField';
-import { KeyboardDoneAccessory, TRANSACTION_KEYBOARD_ACCESSORY_ID } from '@/components/KeyboardDoneAccessory';
+import { AddTransactionModal } from '@/components/AddTransactionModal';
+import { SectionHeader } from '@/components/SectionHeader';
+import { BusinessInsightsPromoCard } from '@/components/business-insights/BusinessInsightsPromoCard';
 import { getCurrencyFormatter, useAppData } from '@/context/app-data-context';
+import { useRequirePro } from '@/context/subscription-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { getFinancialMetrics } from '@/lib/financial-metrics';
 
 
 export default function FinanceScreen() {
   const router = useRouter();
+  const requireBusinessInsightsPro = useRequirePro('/business-insights');
   const { isDarkMode } = useTheme();
-  const { financeEntries, addFinanceEntry, currency } = useAppData();
+  const { financeEntries, invoices, payments, currency } = useAppData();
   const palette = getThemePalette(isDarkMode);
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const [showComposer, setShowComposer] = useState(false);
-  const [entryType, setEntryType] = useState<'income' | 'expense'>('income');
-  const [category, setCategory] = useState('');
-  const [amount, setAmount] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-  const [description, setDescription] = useState('');
-  const [isDescriptionFocused, setIsDescriptionFocused] = useState(false);
-  const [formError, setFormError] = useState('');
-  const transactionFormRef = useRef<ScrollView>(null);
   const softSurface = isDarkMode ? '#172033' : '#F7F9FD';
   const softInset = isDarkMode ? '#111A2B' : '#EEF2F8';
   const softBorder = isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.9)';
   const softShadow = isDarkMode ? '#020617' : '#A7B4C8';
-  const accentSoft = isDarkMode ? '#29284B' : '#E9E8FF';
 
-  const totalIncome = financeEntries
-    .filter((entry) => entry.type === 'income')
-    .reduce((sum, entry) => sum + entry.amount, 0);
-  const totalExpenses = financeEntries
-    .filter((entry) => entry.type === 'expense')
-    .reduce((sum, entry) => sum + entry.amount, 0);
+  const financialMetrics = getFinancialMetrics({ financeEntries, invoices, payments });
 
-  const resetComposer = () => {
-    setEntryType('income');
-    setCategory('');
-    setAmount('');
-    setDate(new Date().toISOString().slice(0, 10));
-    setDescription('');
-    setIsDescriptionFocused(false);
-    setFormError('');
-  };
-
-  const closeComposer = () => {
-    Keyboard.dismiss();
-    setShowComposer(false);
-    resetComposer();
-  };
-
-  const revealDescription = () => {
-    setTimeout(() => {
-      transactionFormRef.current?.scrollToEnd({ animated: true });
-    }, 300);
-  };
-
-  const handleAddEntry = () => {
-    const numericAmount = Number(amount);
-    const trimmedCategory = category.trim();
-    const trimmedDescription = description.trim();
-    const isValidDate = /^\d{4}-\d{2}-\d{2}$/.test(date) && !Number.isNaN(new Date(`${date}T00:00:00`).getTime());
-
-    if (!trimmedCategory || !trimmedDescription || Number.isNaN(numericAmount) || numericAmount <= 0 || !isValidDate) {
-      setFormError('Enter a category, positive amount, valid date, and description.');
-      return;
-    }
-
-    addFinanceEntry({
-      category: trimmedCategory,
-      amount: numericAmount,
-      date,
-      description: trimmedDescription,
-      type: entryType,
-    });
-    closeComposer();
+  const openBusinessInsights = () => {
+    if (requireBusinessInsightsPro()) router.push('/business-insights');
   };
 
   return (
@@ -101,16 +40,13 @@ export default function FinanceScreen() {
             <Ionicons name="wallet-outline" size={23} color={palette.accent} />
           </View>
           <View style={styles.headerCopy}>
-            <Text style={[styles.eyebrow, { color: palette.accent }]}>Finance</Text>
+            <Text style={[styles.eyebrow, { color: palette.accent }]}>Finance · All time</Text>
             <Text style={[styles.title, { color: palette.text }]}>Cash flow</Text>
           </View>
         </View>
         <Pressable
           style={[styles.primaryButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]}
-          onPress={() => {
-            resetComposer();
-            setShowComposer(true);
-          }}>
+          onPress={() => setShowComposer(true)}>
           <Ionicons name="add" size={18} color="#fff" />
           <Text style={styles.primaryButtonText}>Add</Text>
         </Pressable>
@@ -126,13 +62,19 @@ export default function FinanceScreen() {
           accessibilityRole="button"
           accessibilityLabel="View income breakdown">
           <View style={styles.statLabelRow}>
-            <View style={[styles.statIcon, { backgroundColor: isDarkMode ? '#173A35' : '#DFF7EF' }]}>
-              <Ionicons name="trending-up" size={18} color={palette.success} />
-            </View>
+            <Text style={[styles.statLabel, { color: palette.muter }]}>Income</Text>
             <Ionicons name="chevron-forward" size={15} color={palette.muter} />
           </View>
-          <Text style={[styles.statLabel, { color: palette.muter }]}>Income</Text>
-          <Text style={[styles.statValue, { color: palette.text }]}>{currencyFormatter.format(totalIncome)}</Text>
+          <Text
+            style={[styles.statValue, { color: palette.text }]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.7}>
+            {currencyFormatter.format(financialMetrics.revenue)}
+          </Text>
+          <Text style={[styles.statDetail, { color: palette.success }]} numberOfLines={1}>
+            {financialMetrics.revenue > 0 ? 'Received' : 'Nothing received yet'}
+          </Text>
         </Pressable>
         <Pressable
           onPress={() => router.push('/expense')}
@@ -143,187 +85,65 @@ export default function FinanceScreen() {
           accessibilityRole="button"
           accessibilityLabel="View expense breakdown">
           <View style={styles.statLabelRow}>
-            <View style={[styles.statIcon, { backgroundColor: isDarkMode ? '#422129' : '#FDE8EC' }]}>
-              <Ionicons name="trending-down" size={18} color={palette.danger} />
-            </View>
+            <Text style={[styles.statLabel, { color: palette.muter }]}>Expenses</Text>
             <Ionicons name="chevron-forward" size={15} color={palette.muter} />
           </View>
-          <Text style={[styles.statLabel, { color: palette.muter }]}>Expense</Text>
-          <Text style={[styles.statValue, { color: palette.text }]}>{currencyFormatter.format(totalExpenses)}</Text>
+          <Text
+            style={[styles.statValue, { color: palette.text }]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.7}>
+            {currencyFormatter.format(financialMetrics.expenses)}
+          </Text>
+          <Text
+            style={[styles.statDetail, { color: financialMetrics.expenses > 0 ? palette.danger : palette.muter }]}
+            numberOfLines={1}>
+            {financialMetrics.expenses > 0 ? 'Recorded' : 'No expenses'}
+          </Text>
         </Pressable>
       </View>
 
-      <View style={styles.sectionHeader}>
-        <View style={[styles.sectionIcon, { backgroundColor: accentSoft }]}>
-          <Ionicons name="swap-vertical-outline" size={18} color={palette.accent} />
-        </View>
-        <View style={styles.sectionCopy}>
-          <Text style={[styles.sectionEyebrow, { color: palette.muter }]}>Activity</Text>
-          <Text style={[styles.sectionTitle, { color: palette.text }]}>Recent entries</Text>
-        </View>
-        <View style={[styles.entryCount, { backgroundColor: softInset }]}>
-          <Text style={[styles.entryCountText, { color: palette.accent }]}>{financeEntries.length}</Text>
-        </View>
-      </View>
       <FlatList
         data={financeEntries}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
+        ListHeaderComponent={
+          <>
+            <BusinessInsightsPromoCard onPress={openBusinessInsights} />
+            <View style={styles.sectionHeader}>
+              <SectionHeader
+                icon="swap-vertical-outline"
+                title="Recent entries"
+                rightElement={
+                  <View style={[styles.entryCount, { backgroundColor: softInset }]}>
+                    <Text style={[styles.entryCountText, { color: palette.accent }]}>{financeEntries.length}</Text>
+                  </View>
+                }
+              />
+            </View>
+          </>
+        }
         renderItem={({ item }) => (
           <View style={[styles.entryCard, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
             <View style={[styles.entryAccent, { backgroundColor: item.type === 'income' ? palette.success : palette.danger }]} />
-            <View style={styles.entryLeft}>
-              <View style={[styles.iconBadge, { backgroundColor: item.type === 'income' ? (isDarkMode ? '#173A35' : '#DFF7EF') : (isDarkMode ? '#422129' : '#FDE8EC') }]}>
-                <Ionicons name={item.type === 'income' ? 'trending-up' : 'trending-down'} size={17} color={item.type === 'income' ? palette.success : palette.danger} />
-              </View>
-              <View style={styles.entryCopy}>
-                <Text style={[styles.entryCategory, { color: palette.text }]} numberOfLines={1}>{item.category}</Text>
-                <Text style={[styles.entryDescription, { color: palette.muter }]} numberOfLines={3}>{item.description}</Text>
-              </View>
+            <View style={styles.entryCopy}>
+              <Text style={[styles.entryCategory, { color: palette.text }]} numberOfLines={1}>{item.category}</Text>
+              <Text style={[styles.entryDescription, { color: palette.muter }]} numberOfLines={2}>{item.description}</Text>
             </View>
             <View style={styles.entryRight}>
-              <Text style={[styles.amount, item.type === 'income' ? styles.positive : styles.negative]}>
+              <Text
+                style={[styles.amount, item.type === 'income' ? styles.positive : styles.negative]}
+                numberOfLines={1}>
                 {item.type === 'income' ? '+' : '-'}
                 {currencyFormatter.format(item.amount)}
               </Text>
-              <Text style={[styles.date, { color: palette.muter }]}>{item.date}</Text>
+              <Text style={[styles.date, { color: palette.muter }]} numberOfLines={1}>{item.date}</Text>
             </View>
           </View>
         )}
       />
 
-      <Modal visible={showComposer} transparent animationType="slide" onRequestClose={closeComposer}>
-        <KeyboardAvoidingView
-          style={styles.modalBackdrop}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-          <View style={[styles.modalCard, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
-            <View style={[styles.modalHandle, { backgroundColor: palette.border }]} />
-            <View style={styles.modalHeader}>
-              <View>
-                <Text style={[styles.modalEyebrow, { color: palette.accent }]}>Manual entry</Text>
-                <Text style={[styles.modalTitle, { color: palette.text }]}>Add transaction</Text>
-              </View>
-              <Pressable onPress={closeComposer} accessibilityLabel="Close transaction form" style={[styles.closeButton, { backgroundColor: softInset }]}>
-                <Ionicons name="close" size={24} color={palette.text} />
-              </Pressable>
-            </View>
-
-            <ScrollView
-              ref={transactionFormRef}
-              style={styles.modalFormScroll}
-              contentContainerStyle={styles.modalFormContent}
-              keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}>
-              <Text style={[styles.fieldLabel, { color: palette.muter }]}>Transaction type</Text>
-              <View style={styles.typeRow}>
-                <Pressable
-                  onPress={() => {
-                    setEntryType('income');
-                    setFormError('');
-                  }}
-                  style={[
-                    styles.typeButton,
-                    { backgroundColor: softInset, borderColor: softBorder },
-                    entryType === 'income' && { backgroundColor: isDarkMode ? '#173A35' : '#DFF7EF', borderColor: palette.success },
-                  ]}>
-                  <Ionicons name="trending-up" size={17} color={entryType === 'income' ? '#117A4C' : palette.muter} />
-                  <Text style={[styles.typeButtonText, { color: entryType === 'income' ? '#117A4C' : palette.text }]}>Income</Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => {
-                    setEntryType('expense');
-                    setFormError('');
-                  }}
-                  style={[
-                    styles.typeButton,
-                    { backgroundColor: softInset, borderColor: softBorder },
-                    entryType === 'expense' && { backgroundColor: isDarkMode ? '#422129' : '#FDE8EC', borderColor: palette.danger },
-                  ]}>
-                  <Ionicons name="trending-down" size={17} color={entryType === 'expense' ? '#B42318' : palette.muter} />
-                  <Text style={[styles.typeButtonText, { color: entryType === 'expense' ? '#B42318' : palette.text }]}>Expense</Text>
-                </Pressable>
-              </View>
-
-              <Text style={[styles.fieldLabel, { color: palette.muter }]}>Category</Text>
-              <TextInput
-                value={category}
-                onChangeText={setCategory}
-                inputAccessoryViewID={Platform.OS === 'ios' ? TRANSACTION_KEYBOARD_ACCESSORY_ID : undefined}
-                returnKeyType="done"
-                submitBehavior="blurAndSubmit"
-                onSubmitEditing={Keyboard.dismiss}
-                placeholder={entryType === 'income' ? 'Client payment' : 'Equipment'}
-                placeholderTextColor={palette.muter}
-                style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
-              />
-
-              <Text style={[styles.fieldLabel, { color: palette.muter }]}>Amount</Text>
-              <TextInput
-                value={amount}
-                onChangeText={setAmount}
-                keyboardType="decimal-pad"
-                inputAccessoryViewID={Platform.OS === 'ios' ? TRANSACTION_KEYBOARD_ACCESSORY_ID : undefined}
-                returnKeyType="done"
-                submitBehavior="blurAndSubmit"
-                onSubmitEditing={Keyboard.dismiss}
-                placeholder="0.00"
-                placeholderTextColor={palette.muter}
-                style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
-              />
-
-              <Text style={[styles.fieldLabel, { color: palette.muter }]}>Date</Text>
-              <DatePickerField value={date} onChange={setDate} isDarkMode={isDarkMode} palette={palette} />
-
-              <Text style={[styles.fieldLabel, { color: palette.muter }]}>Description</Text>
-              <View style={styles.descriptionField}>
-                <TextInput
-                  value={description}
-                  onChangeText={setDescription}
-                  onFocus={() => {
-                    setIsDescriptionFocused(true);
-                    revealDescription();
-                  }}
-                  onBlur={() => setIsDescriptionFocused(false)}
-                  placeholder="Add transaction details"
-                  placeholderTextColor={palette.muter}
-                  multiline
-                  style={[
-                    styles.input,
-                    styles.descriptionInput,
-                    isDescriptionFocused && styles.descriptionInputFocused,
-                    { backgroundColor: softInset, borderColor: softBorder, color: palette.text },
-                  ]}
-                />
-                {isDescriptionFocused ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Close description keyboard"
-                    hitSlop={6}
-                    onPress={Keyboard.dismiss}
-                    style={({ pressed }) => [
-                      styles.keyboardAccessoryButton,
-                      styles.descriptionKeyboardButton,
-                      pressed && styles.keyboardAccessoryButtonPressed,
-                    ]}>
-                    <Ionicons name="checkmark" size={25} color="#FFFFFF" />
-                  </Pressable>
-                ) : null}
-              </View>
-
-              {formError ? <Text style={styles.formError}>{formError}</Text> : null}
-
-              <Pressable style={[styles.submitButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]} onPress={handleAddEntry}>
-                <Text style={styles.submitButtonText}>Save {entryType}</Text>
-              </Pressable>
-            </ScrollView>
-          </View>
-        </KeyboardAvoidingView>
-        <KeyboardDoneAccessory
-          nativeID={TRANSACTION_KEYBOARD_ACCESSORY_ID}
-          accessibilityLabel="Close transaction keyboard"
-        />
-      </Modal>
+      <AddTransactionModal visible={showComposer} onClose={() => setShowComposer(false)} />
     </SafeAreaView>
   );
 }
@@ -408,58 +228,31 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   statLabelRow: {
+    alignItems: 'center',
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 14,
-  },
-  statIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 13,
-    alignItems: 'center',
-    justifyContent: 'center',
+    marginBottom: 10,
   },
   statLabel: {
+    flexShrink: 1,
     fontSize: 11,
     fontWeight: '700',
-    letterSpacing: 0.8,
+    letterSpacing: 0.7,
     textTransform: 'uppercase',
-    marginBottom: 6,
   },
   statValue: {
-    fontSize: 19,
-    fontWeight: '900',
-    letterSpacing: -0.5,
+    fontSize: 24,
+    fontWeight: '800',
+    letterSpacing: -0.8,
+    marginBottom: 5,
+  },
+  statDetail: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
     marginBottom: 14,
     paddingHorizontal: 4,
-  },
-  sectionIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 11,
-  },
-  sectionCopy: {
-    flex: 1,
-  },
-  sectionEyebrow: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
-    marginBottom: 2,
-  },
-  sectionTitle: {
-    fontSize: 17,
-    fontWeight: '800',
-    letterSpacing: -0.2,
   },
   entryCount: {
     minWidth: 34,
@@ -481,59 +274,49 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    borderRadius: 22,
-    padding: 16,
-    marginBottom: 14,
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    marginBottom: 10,
     borderWidth: 1,
-    shadowOpacity: 0.14,
-    shadowRadius: 12,
-    shadowOffset: { width: 5, height: 7 },
-    elevation: 3,
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    shadowOffset: { width: 4, height: 5 },
+    elevation: 2,
   },
   entryAccent: {
     position: 'absolute',
-    top: 17,
+    top: 14,
+    bottom: 14,
     left: 0,
-    width: 4,
-    height: 36,
+    width: 3,
     borderTopRightRadius: 4,
     borderBottomRightRadius: 4,
-  },
-  entryLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  iconBadge: {
-    width: 42,
-    height: 42,
-    borderRadius: 15,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
   },
   entryCopy: {
     flex: 1,
     minWidth: 0,
+    // Clears the accent stripe now that no glyph badge sits between them.
+    paddingLeft: 10,
   },
   entryCategory: {
-    fontSize: 15,
-    fontWeight: '800',
-    marginBottom: 3,
+    fontSize: 14.5,
+    fontWeight: '700',
+    marginBottom: 2,
   },
   entryDescription: {
     fontSize: 12,
     lineHeight: 16,
-    height: 48,
   },
   entryRight: {
     alignItems: 'flex-end',
-    marginLeft: 10,
+    marginLeft: 12,
   },
   amount: {
-    fontSize: 13,
+    fontSize: 14.5,
     fontWeight: '800',
-    marginBottom: 4,
+    letterSpacing: -0.3,
+    marginBottom: 3,
   },
   positive: {
     color: '#117A4C',
@@ -544,152 +327,5 @@ const styles = StyleSheet.create({
   date: {
     fontSize: 12,
     color: '#6B7280',
-  },
-  modalBackdrop: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'rgba(15, 23, 42, 0.58)',
-  },
-  modalCard: {
-    maxHeight: '94%',
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    borderWidth: 1,
-    paddingHorizontal: 20,
-    paddingTop: 10,
-    paddingBottom: 28,
-    shadowOpacity: 0.32,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: -8 },
-    elevation: 14,
-  },
-  modalFormScroll: {
-    flexShrink: 1,
-  },
-  modalFormContent: {
-    paddingBottom: 4,
-  },
-  modalHandle: {
-    width: 42,
-    height: 5,
-    borderRadius: 3,
-    alignSelf: 'center',
-    marginBottom: 10,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-  },
-  modalEyebrow: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    marginBottom: 3,
-  },
-  modalTitle: {
-    fontSize: 22,
-    fontWeight: '900',
-    letterSpacing: -0.4,
-  },
-  closeButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  fieldLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.65,
-    textTransform: 'uppercase',
-    marginBottom: 8,
-    marginTop: 12,
-  },
-  typeRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 14,
-  },
-  typeButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderRadius: 16,
-    paddingVertical: 12,
-  },
-  typeButtonText: {
-    fontSize: 14,
-    fontWeight: '800',
-    marginLeft: 7,
-  },
-  input: {
-    borderWidth: 1,
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 14,
-    marginBottom: 8,
-  },
-  descriptionInput: {
-    minHeight: 92,
-    textAlignVertical: 'top',
-  },
-  descriptionField: {
-    position: 'relative',
-  },
-  descriptionInputFocused: {
-    paddingRight: 76,
-  },
-  keyboardAccessoryButton: {
-    width: 58,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#2563EB',
-    shadowColor: '#1D4ED8',
-    shadowOpacity: 0.34,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 5,
-  },
-  keyboardAccessoryButtonPressed: {
-    opacity: 0.86,
-    transform: [{ scale: 0.94 }],
-  },
-  descriptionKeyboardButton: {
-    position: 'absolute',
-    right: 10,
-    bottom: 18,
-    width: 52,
-    height: 38,
-  },
-  formError: {
-    color: '#DC2626',
-    fontSize: 13,
-    fontWeight: '600',
-    marginBottom: 12,
-  },
-  submitButton: {
-    borderRadius: 17,
-    paddingVertical: 15,
-    alignItems: 'center',
-    marginTop: 4,
-    shadowOpacity: 0.24,
-    shadowRadius: 12,
-    shadowOffset: { width: 4, height: 7 },
-    elevation: 5,
-  },
-  submitButtonText: {
-    color: '#fff',
-    fontSize: 15,
-    fontWeight: '800',
-    textTransform: 'capitalize',
   },
 });

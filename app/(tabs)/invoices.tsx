@@ -5,17 +5,24 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { RecordDepositModal } from '@/components/RecordDepositModal';
-import { StatusPill } from '@/components/StatusPill';
+import { KeyboardDoneButton } from '@/components/KeyboardDoneButton';
+import { modalScrollProps } from '@/components/modal-keyboard';
 import { UpdatePaymentModal } from '@/components/UpdatePaymentModal';
+import { InvoiceActionSheet } from '@/components/invoice/InvoiceActionSheet';
+import { InvoiceListCard } from '@/components/invoices/InvoiceListCard';
+import { ManagePaymentSheet } from '@/components/invoices/ManagePaymentSheet';
 import { getCurrencyFormatter, useAppData } from '@/context/app-data-context';
+import { useSnackbar } from '@/context/snackbar-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { isInvoiceClosed } from '@/lib/invoice-lifecycle';
 import { getInvoicePaymentSummary } from '@/lib/invoice-payments';
 import { shareInvoiceOnWhatsApp } from '@/lib/invoice-sharing';
 
 export default function InvoicesScreen() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
-  const { customers, invoices, packages, payments, addCustomer, addInvoice, createInvoiceShareLink, refreshInvoiceStatuses, invoiceDraft, setInvoiceDraft, updateInvoiceStatus, currency } = useAppData();
+  const { customers, invoices, trashedInvoices, packages, payments, addCustomer, addInvoice, createInvoiceShareLink, refreshInvoiceStatuses, invoiceDraft, setInvoiceDraft, updateInvoiceStatus, currency } = useAppData();
+  const { showSnackbar } = useSnackbar();
   const palette = getThemePalette(isDarkMode);
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const customerMap = new Map(customers.map((customer) => [customer.id, customer]));
@@ -36,12 +43,32 @@ export default function InvoicesScreen() {
   const [depositInvoiceId, setDepositInvoiceId] = useState<string | null>(null);
   const [paymentInvoiceId, setPaymentInvoiceId] = useState<string | null>(null);
   const [sharingInvoiceId, setSharingInvoiceId] = useState<string | null>(null);
+  // The invoice whose money sheet is open, and the header's utility menu.
+  const [managePaymentId, setManagePaymentId] = useState<string | null>(null);
+  const [showUtilityMenu, setShowUtilityMenu] = useState(false);
+  const [openDustbinAfterMenu, setOpenDustbinAfterMenu] = useState(false);
+  // Held while the payment sheet slides away, then opened — see the sheet's onClosed hand-off.
+  const [pendingPaymentAction, setPendingPaymentAction] = useState<{ kind: 'deposit' | 'payment'; invoiceId: string } | null>(null);
   const dropdownAnim = useRef(new Animated.Value(0)).current;
   const softSurface = isDarkMode ? '#172033' : '#F7F9FD';
   const softInset = isDarkMode ? '#111A2B' : '#EEF2F8';
   const softBorder = isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.9)';
   const softShadow = isDarkMode ? '#020617' : '#A7B4C8';
   const accentSoft = isDarkMode ? '#29284B' : '#E9E8FF';
+
+  // Held so the sheet keeps rendering its invoice while it slides away.
+  const lastManagedInvoice = useRef<{ invoice: (typeof invoices)[number]; summary: ReturnType<typeof getInvoicePaymentSummary> } | null>(null);
+  const activeManagedInvoice = invoices.find((item) => item.id === managePaymentId) ?? null;
+  if (activeManagedInvoice) {
+    lastManagedInvoice.current = {
+      invoice: activeManagedInvoice,
+      summary: getInvoicePaymentSummary(activeManagedInvoice, payments),
+    };
+  }
+  const managePaymentInvoice = activeManagedInvoice ?? lastManagedInvoice.current?.invoice ?? null;
+  const managePaymentSummary = activeManagedInvoice
+    ? getInvoicePaymentSummary(activeManagedInvoice, payments)
+    : lastManagedInvoice.current?.summary ?? null;
 
   const selectedPackage = packages.find((item) => item.id === selectedPackageId) ?? null;
   const selectedCustomer = customers.find((customer) => customer.id === selectedCustomerId) ?? null;
@@ -151,6 +178,14 @@ export default function InvoicesScreen() {
       terms: selectedPackage?.info ?? invoiceDraft?.terms,
     });
 
+    const invoiceClient = customers.find((item) => item.id === resolvedCustomerId);
+    showSnackbar({
+      message: invoiceClient
+        ? `Invoice for ${invoiceClient.name} created`
+        : 'Invoice created',
+      tone: 'success',
+    });
+
     setDraftAmount(packages[0] ? String(packages[0].price) : '');
     setDraftDueDate(new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10));
     setSelectedPackageId(packages[0]?.id ?? '');
@@ -176,18 +211,40 @@ export default function InvoicesScreen() {
             <Text style={[styles.title, { color: palette.text }]} numberOfLines={1}>Client billing</Text>
           </View>
         </View>
-        <Pressable
-          style={[styles.primaryButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]}
-          onPress={() => {
-            setInvoiceDraft(null);
-            setSelectedPackageId(packages[0]?.id ?? '');
-            setUsePackagePrice(Boolean(packages.length));
-            setDraftAmount(packages[0] ? String(packages[0].price) : '');
-            setShowComposer(true);
-          }}>
-          <Ionicons name="add" size={18} color="#fff" />
-          <Text style={styles.primaryButtonText}>New</Text>
-        </Pressable>
+        <View style={styles.headerActions}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="More invoice actions"
+            accessibilityHint={
+              trashedInvoices.length
+                ? `Dustbin, ${trashedInvoices.length} deleted ${trashedInvoices.length === 1 ? 'invoice' : 'invoices'}`
+                : 'The Dustbin is empty'
+            }
+            hitSlop={8}
+            onPress={() => setShowUtilityMenu(true)}
+            style={({ pressed }) => [styles.utilityButton, pressed && styles.headerActionPressed]}>
+            <Ionicons name="ellipsis-horizontal" size={22} color={palette.muter} />
+            {trashedInvoices.length ? (
+              <View style={[styles.trashBadge, { backgroundColor: palette.accent, borderColor: palette.background }]} />
+            ) : null}
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [
+              styles.primaryButton,
+              { backgroundColor: palette.accent, shadowColor: palette.accent },
+              pressed && styles.headerActionPressed,
+            ]}
+            onPress={() => {
+              setInvoiceDraft(null);
+              setSelectedPackageId(packages[0]?.id ?? '');
+              setUsePackagePrice(Boolean(packages.length));
+              setDraftAmount(packages[0] ? String(packages[0].price) : '');
+              setShowComposer(true);
+            }}>
+            <Ionicons name="add" size={18} color="#fff" />
+            <Text style={styles.primaryButtonText}>New</Text>
+          </Pressable>
+        </View>
       </View>
 
       <FlatList
@@ -197,149 +254,20 @@ export default function InvoicesScreen() {
         renderItem={({ item }) => {
           const customer = customerMap.get(item.customerId);
           const summary = getInvoicePaymentSummary(item, payments);
-          const depositPaid = summary.amountPaid;
-          const remainingBalance = summary.outstanding;
-          const isClosed = item.status === 'Cancelled' || item.status === 'Declined';
-          const tone =
-            item.status === 'Paid'
-              ? 'green'
-              : item.status === 'Accepted'
-                ? 'blue'
-                : item.status === 'Overdue' || item.status === 'Partially Paid'
-                  ? 'amber'
-                  : item.status === 'Declined'
-                    ? 'red'
-                    : 'gray';
 
           return (
-            <View style={[styles.card, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
-              <View style={[styles.cardAccent, { backgroundColor: palette.accent }]} />
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`Open invoice ${item.id}`}
-                onPress={() => router.push({ pathname: '/invoice/[invoiceId]', params: { invoiceId: item.id } })}
-                style={({ pressed }) => pressed && styles.cardPressed}>
-                <View style={styles.cardHeader}>
-                  <View style={[styles.invoiceIcon, { backgroundColor: accentSoft }]}>
-                    <Ionicons name="document-text-outline" size={20} color={palette.accent} />
-                  </View>
-                  <View style={styles.cardHeaderCopy}>
-                    <Text style={[styles.cardTitle, { color: palette.text }]}>{item.id}</Text>
-                    <Text style={[styles.customer, { color: palette.muter }]} numberOfLines={1}>{customer?.name ?? 'Unknown customer'}</Text>
-                  </View>
-                  <StatusPill label={item.status} tone={tone} />
-                </View>
-
-                <View style={[styles.metaPanel, { backgroundColor: softInset }]}>
-                  <View style={styles.metaRow}>
-                    <View style={[styles.metaIcon, { backgroundColor: softSurface }]}>
-                      <Ionicons name="calendar-outline" size={16} color={palette.accent} />
-                    </View>
-                    <View style={styles.metaCopy}>
-                      <Text style={[styles.metaLabel, { color: palette.muter }]}>Due date</Text>
-                      <Text style={[styles.metaValue, { color: palette.text }]}>{item.dueDate}</Text>
-                    </View>
-                  </View>
-                  <View style={[styles.metaRow, styles.metaRowLast]}>
-                    <View style={[styles.metaIcon, { backgroundColor: softSurface }]}>
-                      <Ionicons name="paper-plane-outline" size={16} color={palette.accent} />
-                    </View>
-                    <View style={styles.metaCopy}>
-                      <Text style={[styles.metaLabel, { color: palette.muter }]}>Sent</Text>
-                      <Text style={[styles.metaValue, { color: palette.text }]}>{item.sentAt}</Text>
-                    </View>
-                  </View>
-                </View>
-
-                <View style={styles.amountRow}>
-                  <View>
-                    <Text style={[styles.amountLabel, { color: palette.muter }]}>Invoice total</Text>
-                    <Text style={[styles.amount, { color: palette.text }]}>{currencyFormatter.format(item.amount)}</Text>
-                  </View>
-                  <View style={[styles.detailArrow, { backgroundColor: accentSoft }]}>
-                    <Ionicons name="chevron-forward" size={18} color={palette.accent} />
-                  </View>
-                </View>
-
-                {depositPaid > 0 ? (
-                  <View style={[styles.paymentSummary, { backgroundColor: softInset, borderColor: softBorder }]}>
-                    <View style={styles.paymentSummaryItem}>
-                      <Text style={[styles.paymentSummaryLabel, { color: palette.muter }]}>Amount paid</Text>
-                      <Text style={[styles.paymentSummaryValue, { color: palette.success }]}>{currencyFormatter.format(depositPaid)}</Text>
-                    </View>
-                    <View style={[styles.paymentSummaryDivider, { backgroundColor: palette.border }]} />
-                    <View style={[styles.paymentSummaryItem, styles.paymentSummaryItemRight]}>
-                      <Text style={[styles.paymentSummaryLabel, { color: palette.muter }]}>Balance due</Text>
-                      <Text style={[styles.paymentSummaryValue, { color: palette.text }]}>{currencyFormatter.format(remainingBalance)}</Text>
-                    </View>
-                  </View>
-                ) : null}
-              </Pressable>
-
-              {item.status !== 'Paid' && !isClosed ? (
-                <View style={styles.paymentActionRow}>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`Record the deposit for invoice ${item.id}`}
-                    onPress={() => setDepositInvoiceId(item.id)}
-                    style={({ pressed }) => [
-                      styles.depositButton,
-                      { backgroundColor: accentSoft, borderColor: palette.accent },
-                      pressed && styles.cardPressed,
-                    ]}>
-                    <View style={styles.depositButtonLabel}>
-                      <Ionicons name="wallet-outline" size={18} color={palette.accent} />
-                      <Text style={[styles.depositButtonText, { color: palette.accent }]} numberOfLines={1}>
-                        {summary.payments.some((payment) => payment.kind === 'deposit') ? 'Update deposit' : 'Deposit paid'}
-                      </Text>
-                    </View>
-                  </Pressable>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`Update payment for invoice ${item.id}`}
-                    onPress={() => setPaymentInvoiceId(item.id)}
-                    style={({ pressed }) => [
-                      styles.depositButton,
-                      { backgroundColor: softInset, borderColor: softBorder },
-                      pressed && styles.cardPressed,
-                    ]}>
-                    <View style={styles.depositButtonLabel}>
-                      <Ionicons name="cash-outline" size={18} color={palette.accent} />
-                      <Text style={[styles.depositButtonText, { color: palette.text }]} numberOfLines={1}>
-                        Update payment
-                      </Text>
-                    </View>
-                  </Pressable>
-                </View>
-              ) : null}
-
-              {item.status !== 'Paid' && (
-                <View style={styles.actionRow}>
-                  <Pressable
-                    disabled={sharingInvoiceId === item.id}
-                    style={[
-                      styles.linkButton,
-                      styles.actionButtonShadow,
-                      sharingInvoiceId === item.id && { opacity: 0.6 },
-                    ]}
-                    onPress={() => handleShareInvoice(item)}>
-                    <Ionicons name="logo-whatsapp" size={17} color="#fff" />
-                    <Text style={styles.linkButtonText}>
-                      {sharingInvoiceId === item.id ? 'Creating link…' : 'Send invoice'}
-                    </Text>
-                  </Pressable>
-                  {item.status === 'Accepted' ? (
-                    <Pressable style={[styles.paymentButton, styles.actionButtonShadow]} onPress={() => updateInvoiceStatus(item.id, 'Paid')}>
-                      <Text style={styles.paymentButtonText}>Payment done</Text>
-                    </Pressable>
-                  ) : (
-                    <Pressable style={[styles.acceptButton, styles.actionButtonShadow, { backgroundColor: palette.accent }]} onPress={() => updateInvoiceStatus(item.id, 'Accepted')}>
-                      <Text style={styles.acceptButtonText}>Accept</Text>
-                    </Pressable>
-                  )}
-                </View>
-              )}
-            </View>
+            <InvoiceListCard
+              invoice={item}
+              clientName={customer?.name ?? 'Unknown customer'}
+              summary={summary}
+              currencyFormatter={currencyFormatter}
+              // Same condition the old action rows used, so nothing gains or loses an action.
+              showActions={item.status !== 'Paid' && !isInvoiceClosed(item)}
+              isSending={sharingInvoiceId === item.id}
+              onOpen={() => router.push({ pathname: '/invoice/[invoiceId]', params: { invoiceId: item.id } })}
+              onSend={() => handleShareInvoice(item)}
+              onManagePayment={() => setManagePaymentId(item.id)}
+            />
           );
         }}
       />
@@ -347,6 +275,71 @@ export default function InvoicesScreen() {
       <RecordDepositModal invoiceId={depositInvoiceId} onClose={() => setDepositInvoiceId(null)} />
 
       <UpdatePaymentModal invoiceId={paymentInvoiceId} onClose={() => setPaymentInvoiceId(null)} />
+
+      {/* Every row here calls a handler this screen already had — only the labels changed. */}
+      <ManagePaymentSheet
+        visible={activeManagedInvoice !== null}
+        onClosed={() => {
+          if (!pendingPaymentAction) return;
+          const { kind, invoiceId } = pendingPaymentAction;
+          setPendingPaymentAction(null);
+          if (kind === 'deposit') setDepositInvoiceId(invoiceId);
+          else setPaymentInvoiceId(invoiceId);
+        }}
+        invoice={managePaymentInvoice}
+        clientName={managePaymentInvoice ? customerMap.get(managePaymentInvoice.customerId)?.name ?? 'Unknown customer' : ''}
+        summary={managePaymentSummary}
+        currencyFormatter={currencyFormatter}
+        onClose={() => setManagePaymentId(null)}
+        // The deposit and payment editors are their own modals, so the sheet steps aside first —
+        // two native modals must never be on screen at once.
+        onUpdateDeposit={() => {
+          const invoiceId = managePaymentId;
+          setManagePaymentId(null);
+          setPendingPaymentAction({ kind: 'deposit', invoiceId: invoiceId ?? '' });
+        }}
+        onRecordPayment={() => {
+          const invoiceId = managePaymentId;
+          setManagePaymentId(null);
+          setPendingPaymentAction({ kind: 'payment', invoiceId: invoiceId ?? '' });
+        }}
+        onMarkAsAccepted={() => {
+          if (managePaymentId) updateInvoiceStatus(managePaymentId, 'Accepted');
+          setManagePaymentId(null);
+        }}
+        onMarkAsPaid={() => {
+          if (managePaymentId) updateInvoiceStatus(managePaymentId, 'Paid');
+          setManagePaymentId(null);
+        }}
+      />
+
+      <InvoiceActionSheet
+        visible={showUtilityMenu}
+        onClose={() => setShowUtilityMenu(false)}
+        onClosed={() => {
+          if (!openDustbinAfterMenu) return;
+          setOpenDustbinAfterMenu(false);
+          router.push('/settings/invoices/trash');
+        }}
+        title="Invoices"
+        subtitle={
+          trashedInvoices.length
+            ? `${trashedInvoices.length} deleted ${trashedInvoices.length === 1 ? 'invoice' : 'invoices'} in the Dustbin`
+            : 'The Dustbin is empty'
+        }
+        items={[
+          {
+            key: 'dustbin',
+            icon: 'trash-outline',
+            label: 'Deleted invoices',
+            accessibilityHint: 'Opens the Dustbin, where deleted invoices can be restored',
+            onPress: () => {
+              setOpenDustbinAfterMenu(true);
+              setShowUtilityMenu(false);
+            },
+          },
+        ]}
+      />
 
       <Modal visible={showComposer} transparent animationType="slide" onRequestClose={() => setShowComposer(false)}>
         <View style={styles.modalBackdrop}>
@@ -370,10 +363,7 @@ export default function InvoicesScreen() {
               </Pressable>
             </View>
 
-            <ScrollView
-              showsVerticalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
-              contentContainerStyle={styles.modalScrollContent}>
+            <ScrollView {...modalScrollProps} contentContainerStyle={styles.modalScrollContent}>
             <Text style={[styles.fieldLabel, { color: palette.muter }]}>Customer source</Text>
             <View style={styles.modeRow}>
               <Pressable
@@ -509,6 +499,8 @@ export default function InvoicesScreen() {
             </Pressable>
             </ScrollView>
           </View>
+
+          <KeyboardDoneButton />
         </View>
       </Modal>
     </SafeAreaView>
@@ -563,6 +555,35 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: -0.45,
   },
+  headerActions: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+  },
+  headerActionPressed: {
+    opacity: 0.6,
+  },
+  utilityButton: {
+    alignItems: 'center',
+    height: 44,
+    justifyContent: 'center',
+    position: 'relative',
+    width: 40,
+  },
+  trashBadge: {
+    borderRadius: 999,
+    borderWidth: 2,
+    height: 10,
+    position: 'absolute',
+    right: 3,
+    top: 7,
+    width: 10,
+  },
+  trashBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '800',
+  },
   primaryButton: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -582,218 +603,11 @@ const styles = StyleSheet.create({
   list: {
     paddingBottom: 116,
   },
-  card: {
-    position: 'relative',
-    borderRadius: 26,
-    borderWidth: 1,
-    padding: 20,
-    marginBottom: 16,
-    shadowOpacity: 0.16,
-    shadowRadius: 18,
-    shadowOffset: { width: 8, height: 10 },
-    elevation: 5,
-  },
-  cardAccent: {
-    position: 'absolute',
-    top: 23,
-    left: 0,
-    width: 4,
-    height: 40,
-    borderTopRightRadius: 4,
-    borderBottomRightRadius: 4,
-  },
-  cardPressed: {
-    opacity: 0.7,
-  },
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 16,
-  },
-  invoiceIcon: {
-    width: 46,
-    height: 46,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  cardHeaderCopy: {
-    flex: 1,
-    minWidth: 0,
-    marginRight: 10,
-  },
-  cardTitle: {
-    fontSize: 17,
-    fontWeight: '800',
-    letterSpacing: -0.25,
-    marginBottom: 4,
-  },
-  customer: {
-    fontSize: 12,
-  },
-  metaPanel: {
-    borderRadius: 18,
-    padding: 10,
-  },
-  metaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  metaRowLast: {
-    marginBottom: 0,
-  },
-  metaIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 10,
-  },
-  metaCopy: {
-    flex: 1,
-  },
-  metaLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 0.45,
-    textTransform: 'uppercase',
-    marginBottom: 3,
-  },
-  metaValue: {
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  amountRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 16,
-  },
-  amountLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 0.55,
-    textTransform: 'uppercase',
-    marginBottom: 4,
-  },
-  amount: {
-    fontSize: 22,
-    fontWeight: '900',
-    letterSpacing: -0.45,
-  },
-  detailArrow: {
-    width: 38,
-    height: 38,
-    borderRadius: 13,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  paymentSummary: {
-    alignItems: 'center',
-    borderRadius: 16,
-    borderWidth: 1,
-    flexDirection: 'row',
-    marginTop: 14,
-    paddingHorizontal: 13,
-    paddingVertical: 11,
-  },
-  paymentSummaryItem: {
-    flex: 1,
-  },
-  paymentSummaryItemRight: {
-    alignItems: 'flex-end',
-  },
-  paymentSummaryDivider: {
-    height: 32,
-    marginHorizontal: 12,
-    width: StyleSheet.hairlineWidth,
-  },
-  paymentSummaryLabel: {
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 0.55,
-    marginBottom: 4,
-    textTransform: 'uppercase',
-  },
-  paymentSummaryValue: {
-    fontSize: 14,
-    fontWeight: '900',
-  },
-  paymentActionRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 14,
-  },
-  depositButton: {
-    alignItems: 'center',
-    borderRadius: 15,
-    borderWidth: 1,
-    flex: 1,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    minHeight: 46,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-  },
-  depositButtonLabel: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 7,
-  },
-  depositButtonText: {
-    fontSize: 13,
-    fontWeight: '900',
-  },
-  actionRow: {
-    marginTop: 14,
-    flexDirection: 'row',
-    gap: 10,
-  },
-  actionButtonShadow: {
-    shadowColor: '#020617',
-    shadowOpacity: 0.14,
-    shadowRadius: 9,
-    shadowOffset: { width: 3, height: 5 },
-    elevation: 3,
-  },
-  linkButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    borderRadius: 15,
-    backgroundColor: '#128C7E',
-  },
-  linkButtonText: {
-    color: '#fff',
-    fontWeight: '700',
-    marginLeft: 7,
-  },
-  acceptButton: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderRadius: 15,
-  },
-  acceptButtonText: {
-    color: '#fff',
-    fontWeight: '700',
-  },
-  paymentButton: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderRadius: 15,
-    backgroundColor: '#117A4C',
-  },
-  paymentButtonText: {
-    color: '#fff',
-    fontWeight: '700',
   },
   modalBackdrop: {
     flex: 1,

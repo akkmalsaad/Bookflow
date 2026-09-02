@@ -6,6 +6,8 @@ import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View 
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { InitialsAvatar } from '@/components/InitialsAvatar';
+import { KeyboardDoneButton } from '@/components/KeyboardDoneButton';
+import { modalScrollProps } from '@/components/modal-keyboard';
 import { StatusPill } from '@/components/StatusPill';
 import { UpdatePaymentModal } from '@/components/UpdatePaymentModal';
 import {
@@ -242,6 +244,7 @@ export default function CustomerProfileScreen() {
     // Only the part of the deposit that has not been received yet is recorded.
     const depositDue = Math.max(0, payment.depositAmount - payment.amountPaid);
     const invoiceId = payment.invoice.id;
+    const paymentActionId = `booking-deposit-${invoiceId}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
     Alert.alert(
       'Record deposit',
@@ -260,6 +263,7 @@ export default function CustomerProfileScreen() {
               method: 'Deposit',
               date: toDateKey(new Date()),
               kind: 'deposit',
+              sourceId: paymentActionId,
             });
             setBusyBookingId(null);
 
@@ -657,7 +661,7 @@ export default function CustomerProfileScreen() {
               </Pressable>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            <ScrollView {...modalScrollProps}>
               <Text style={[styles.fieldLabel, { color: palette.muter }]}>Name</Text>
               <TextInput
                 value={editName}
@@ -724,6 +728,8 @@ export default function CustomerProfileScreen() {
               </Pressable>
             </ScrollView>
           </View>
+
+          <KeyboardDoneButton />
         </View>
       </Modal>
     </SafeAreaView>

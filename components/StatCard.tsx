@@ -1,5 +1,3 @@
-import { Ionicons } from '@expo/vector-icons';
-import type { ComponentProps } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useTheme } from '@/context/theme-context';
@@ -8,30 +6,27 @@ type StatCardProps = {
   label: string;
   value: string;
   detail: string;
-  tone: 'blue' | 'green' | 'amber' | 'purple';
   isCurrency?: boolean;
   onPress: () => void;
   accessibilityLabel?: string;
 };
 
-const toneColors: Record<StatCardProps['tone'], { accent: string; icon: ComponentProps<typeof Ionicons>['name'] }> = {
-  blue: { accent: '#5271FF', icon: 'stats-chart' },
-  green: { accent: '#28A57A', icon: 'time' },
-  amber: { accent: '#D58A2A', icon: 'arrow-down-circle' },
-  purple: { accent: '#8968D8', icon: 'arrow-up-circle' },
-};
-
+/**
+ * One Business Snapshot metric: label, value, context.
+ *
+ * The number is the card — no icon, and no per-metric accent colour. Four differently coloured
+ * glyphs read as decoration rather than meaning, and they competed with the figure they sat above.
+ * Hierarchy now comes from type size and weight alone.
+ */
 export function StatCard({
   label,
   value,
   detail,
-  tone,
   isCurrency = false,
   onPress,
   accessibilityLabel,
 }: StatCardProps) {
   const { isDarkMode } = useTheme();
-  const colors = toneColors[tone];
   const surface = isDarkMode ? '#172033' : '#F7F9FD';
   const border = isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.92)';
 
@@ -39,6 +34,7 @@ export function StatCard({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? `Open ${label}`}
+      accessibilityHint={`${value}, ${detail}`}
       onPress={onPress}
       style={({ pressed }) => [
         styles.card,
@@ -50,12 +46,21 @@ export function StatCard({
         },
         pressed && styles.cardPressed,
       ]}>
-      <View style={styles.cardHeader}>
-        <Ionicons name={colors.icon} size={24} color={colors.accent} />
+      <View style={styles.copy}>
+        <Text style={[styles.label, { color: isDarkMode ? '#AEBBD0' : '#667085' }]} numberOfLines={1}>
+          {label}
+        </Text>
+        <Text
+          style={[styles.value, isCurrency && styles.currencyValue, { color: isDarkMode ? '#F8FAFC' : '#172033' }]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.72}>
+          {value}
+        </Text>
+        <Text style={[styles.detail, { color: isDarkMode ? '#8E9CB2' : '#8A94A6' }]} numberOfLines={1}>
+          {detail}
+        </Text>
       </View>
-      <Text style={[styles.label, { color: isDarkMode ? '#AEBBD0' : '#667085' }]}>{label}</Text>
-      <Text style={[styles.value, isCurrency && styles.currencyValue, { color: isDarkMode ? '#F8FAFC' : '#172033' }]}>{value}</Text>
-      <Text style={[styles.detail, { color: isDarkMode ? '#8E9CB2' : '#8A94A6' }]}>{detail}</Text>
     </Pressable>
   );
 }
@@ -74,8 +79,10 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 7, height: 9 },
     elevation: 5,
   },
-  cardHeader: {
-    marginBottom: 16,
+  copy: {
+    // Held so the four cards keep a common height now that the icon no longer sets it.
+    minHeight: 78,
+    justifyContent: 'flex-start',
   },
   cardPressed: {
     opacity: 0.84,
@@ -85,19 +92,21 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     textTransform: 'uppercase',
-    letterSpacing: 0.9,
-    marginBottom: 7,
+    letterSpacing: 0.7,
+    marginBottom: 8,
   },
   value: {
-    fontSize: 23,
-    fontWeight: '900',
-    letterSpacing: -0.6,
-    marginBottom: 6,
+    fontSize: 27,
+    fontWeight: '800',
+    letterSpacing: -0.9,
+    marginBottom: 5,
   },
   currencyValue: {
-    fontSize: 19,
+    fontSize: 22,
+    letterSpacing: -0.7,
   },
   detail: {
     fontSize: 12,
+    fontWeight: '500',
   },
 });

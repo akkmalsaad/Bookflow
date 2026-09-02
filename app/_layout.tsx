@@ -6,12 +6,15 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, LogBox, Pressable, StyleSheet, Text, View } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AnimatedSplash } from '@/components/AnimatedSplash';
 import { AppDataProvider, useAppData } from '@/context/app-data-context';
 import { AuthProvider, useAuth } from '@/context/auth-context';
+import { SubscriptionProvider } from '@/context/subscription-context';
+import { SnackbarProvider } from '@/context/snackbar-context';
 import { getThemePalette, ThemeProvider as AppThemeProvider, useTheme } from '@/context/theme-context';
 
 const publishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY ?? "";
@@ -76,8 +79,12 @@ function AppShell() {
           <Stack.Screen name="notifications" />
           <Stack.Screen name="income" />
           <Stack.Screen name="expense" />
+          <Stack.Screen name="business-insights" />
+          <Stack.Screen name="bookflow-insights" />
           <Stack.Screen name="invoice/[invoiceId]" />
           <Stack.Screen name="customer/[customerId]" />
+          <Stack.Screen name="settings" />
+          <Stack.Screen name="paywall" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
           <Stack.Screen name="modal" options={{ headerShown: true, presentation: 'modal', title: 'Modal' }} />
         </Stack.Protected>
         <Stack.Protected guard={!isAuthenticated}>
@@ -101,6 +108,9 @@ function AppShell() {
 }
 
 const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
   dataGate: {
     flex: 1,
     alignItems: 'center',
@@ -169,17 +179,27 @@ export default function RootLayout() {
   }, []);
 
   return (
-    <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache}>
-      <SafeAreaProvider>
+    // Required by react-native-gesture-handler for GestureDetector to receive touches. It is a
+    // plain flex:1 view, so nothing about the existing layout changes.
+    <GestureHandlerRootView style={styles.root}>
+      <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache}>
+        <SafeAreaProvider>
         <AppThemeProvider>
           <AuthProvider>
-            <AppDataProvider>
-              <AppShell />
-            </AppDataProvider>
+            {/* Inside AuthProvider: the RevenueCat app user id is kept in step with the Clerk user. */}
+            <SubscriptionProvider>
+              <AppDataProvider>
+                {/* Outside the router so a snackbar survives the navigation that follows it. */}
+                <SnackbarProvider>
+                  <AppShell />
+                </SnackbarProvider>
+              </AppDataProvider>
+            </SubscriptionProvider>
           </AuthProvider>
         </AppThemeProvider>
-        {showSplash ? <AnimatedSplash onFinish={handleSplashFinish} /> : null}
-      </SafeAreaProvider>
-    </ClerkProvider>
+          {showSplash ? <AnimatedSplash onFinish={handleSplashFinish} /> : null}
+        </SafeAreaProvider>
+      </ClerkProvider>
+    </GestureHandlerRootView>
   );
 }

@@ -1,19 +1,32 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { Alert, Animated, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Animated, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { StatusPill } from '@/components/StatusPill';
 import { Booking, getCurrencyFormatter, useAppData } from '@/context/app-data-context';
+import { SectionHeader } from '@/components/SectionHeader';
+import { JobStatusPill } from '@/components/booking/JobStatusPill';
+import { JobStatusSheet } from '@/components/booking/JobStatusSheet';
+import { useSnackbar } from '@/context/snackbar-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
-import { findBookingTimeConflict, normalizeBookingTime } from '@/lib/booking-conflicts';
+import { KeyboardDoneButton } from '@/components/KeyboardDoneButton';
+import { modalScrollProps } from '@/components/modal-keyboard';
+import type { BookingStatus } from '@/lib/booking-status';
+import {
+  addMinutesToTime,
+  findBookingTimeConflict,
+  normalizeBookingTime,
+  parsePackageDurationMinutes,
+} from '@/lib/booking-conflicts';
+import { getInvoiceNumber } from '@/lib/invoice-numbering';
 
 const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const hourOptions = Array.from({ length: 12 }, (_, index) => index + 1);
 const minuteOptions = Array.from({ length: 60 }, (_, index) => String(index).padStart(2, '0'));
 const periodOptions = ['AM', 'PM'] as const;
 type TimePeriod = typeof periodOptions[number];
+type ActiveTimePicker = 'start' | 'finish' | null;
 
 const WHEEL_ITEM_HEIGHT = 36;
 const WHEEL_VISIBLE_COUNT = 4;
@@ -26,61 +39,64 @@ function WheelColumn({
   onSelect,
   textColor,
   align = 'center',
+  itemPaddingLeft = 0,
 }: {
   items: string[];
   selectedIndex: number;
   onSelect: (index: number) => void;
   textColor: string;
   align?: 'center' | 'flex-start';
+  /** Keeps the AM/PM inset inside the scrollable area instead of as dead padding beside it. */
+  itemPaddingLeft?: number;
 }) {
   const scrollRef = useRef<ScrollView>(null);
   const scrollY = useRef(new Animated.Value(selectedIndex * WHEEL_ITEM_HEIGHT)).current;
-  const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The index the parent already knows about, so momentum does not re-commit the same value.
+  const committedIndex = useRef(selectedIndex);
+  const hasPositioned = useRef(false);
 
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ y: selectedIndex * WHEEL_ITEM_HEIGHT, animated: false });
-    scrollY.setValue(selectedIndex * WHEEL_ITEM_HEIGHT);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items.length]);
+  const commitOffset = (offsetY: number) => {
+    const index = Math.max(0, Math.min(items.length - 1, Math.round(offsetY / WHEEL_ITEM_HEIGHT)));
+    if (index === committedIndex.current) return;
+    committedIndex.current = index;
+    onSelect(index);
+  };
 
-  useEffect(() => () => {
-    if (settleTimer.current) clearTimeout(settleTimer.current);
-  }, []);
-
-  const snapToIndex = (index: number, animated: boolean) => {
+  const selectIndex = (index: number) => {
     const clamped = Math.max(0, Math.min(items.length - 1, index));
-    scrollRef.current?.scrollTo({ y: clamped * WHEEL_ITEM_HEIGHT, animated });
+    scrollRef.current?.scrollTo({ y: clamped * WHEEL_ITEM_HEIGHT, animated: true });
+    if (clamped === committedIndex.current) return;
+    committedIndex.current = clamped;
     onSelect(clamped);
   };
 
-  const scheduleSettle = (offsetY: number) => {
-    if (settleTimer.current) clearTimeout(settleTimer.current);
-    settleTimer.current = setTimeout(() => {
-      snapToIndex(Math.round(offsetY / WHEEL_ITEM_HEIGHT), true);
-    }, 140);
-  };
-
   return (
-    <View style={{ height: WHEEL_HEIGHT, overflow: 'hidden', width: '100%' }}>
+    <View style={styles.wheelViewport}>
       <Animated.ScrollView
         ref={scrollRef}
         showsVerticalScrollIndicator={false}
         snapToInterval={WHEEL_ITEM_HEIGHT}
         decelerationRate="fast"
-        contentContainerStyle={{ paddingVertical: WHEEL_PADDING }}
+        nestedScrollEnabled
+        contentContainerStyle={styles.wheelContent}
+        // Positioned once the content is measured, so reopening the picker lands on the saved value.
+        onContentSizeChange={() => {
+          if (hasPositioned.current) return;
+          hasPositioned.current = true;
+          scrollRef.current?.scrollTo({ y: selectedIndex * WHEEL_ITEM_HEIGHT, animated: false });
+        }}
         onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
           useNativeDriver: true,
-          listener: (event) => scheduleSettle((event as any).nativeEvent.contentOffset.y),
         })}
         scrollEventThrottle={16}
-        onMomentumScrollEnd={(event) => {
-          if (settleTimer.current) clearTimeout(settleTimer.current);
-          const index = Math.round(event.nativeEvent.contentOffset.y / WHEEL_ITEM_HEIGHT);
-          snapToIndex(index, true);
-        }}
+        // Values are only read once the wheel settles — never mid-drag, and never by pushing the
+        // scroll position around while the finger is still down.
+        onMomentumScrollEnd={(event) => commitOffset(event.nativeEvent.contentOffset.y)}
         onScrollEndDrag={(event) => {
-          const index = Math.round(event.nativeEvent.contentOffset.y / WHEEL_ITEM_HEIGHT);
-          snapToIndex(index, true);
+          const { velocity, contentOffset } = event.nativeEvent;
+          // A flick hands over to momentum, which commits when it stops.
+          if (velocity && Math.abs(velocity.y) > 0.05) return;
+          commitOffset(contentOffset.y);
         }}>
         {items.map((label, index) => {
           const inputRange = [
@@ -93,7 +109,12 @@ function WheelColumn({
           const opacity = scrollY.interpolate({ inputRange, outputRange: [0.22, 0.48, 1, 0.48, 0.22], extrapolate: 'clamp' });
           const scale = scrollY.interpolate({ inputRange, outputRange: [0.8, 0.9, 1, 0.9, 0.8], extrapolate: 'clamp' });
           return (
-            <Pressable key={label} onPress={() => snapToIndex(index, true)} style={[styles.wheelItem, { alignItems: align }]}>
+            <Pressable
+              key={label}
+              accessibilityRole="button"
+              accessibilityLabel={label}
+              onPress={() => selectIndex(index)}
+              style={[styles.wheelItem, { alignItems: align, paddingLeft: itemPaddingLeft }]}>
               <Animated.Text style={[styles.wheelItemText, { color: textColor, opacity, transform: [{ scale }] }]}>{label}</Animated.Text>
             </Pressable>
           );
@@ -132,13 +153,6 @@ function getSuggestedEndTime(startTime: string) {
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
 }
 
-function getStatusTone(status: string) {
-  if (status === 'Confirmed') return 'blue';
-  if (status === 'Completed') return 'green';
-  if (status === 'Inquiry') return 'amber';
-  return 'red';
-}
-
 function toIsoDate(date: Date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -160,7 +174,8 @@ export default function BookingsScreen() {
   const params = useLocalSearchParams<{ composeForCustomerId?: string }>();
   const handledDeepLinkRef = useRef('');
   const { isDarkMode } = useTheme();
-  const { packages, bookings, customers, invoices, createBooking, currency } = useAppData();
+  const { packages, bookings, customers, createBooking, updateBookingStatus, currency } = useAppData();
+  const { showSnackbar } = useSnackbar();
   const palette = getThemePalette(isDarkMode);
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const customerMap = new Map(customers.map((customer) => [customer.id, customer]));
@@ -179,9 +194,15 @@ export default function BookingsScreen() {
   const [draftPrice, setDraftPrice] = useState(String(packages[0]?.price ?? 0));
   const [draftStartTime, setDraftStartTime] = useState('10:00');
   const [draftEndTime, setDraftEndTime] = useState('11:00');
-  const [openTimeMenu, setOpenTimeMenu] = useState<'start' | 'finish' | null>(null);
+  // Once the finish time is dialled in by hand it stops following the package, until it is reset.
+  const [isEndTimeManual, setIsEndTimeManual] = useState(false);
+  const [activeTimePicker, setActiveTimePicker] = useState<ActiveTimePicker>(null);
+  const isTimePickerOpen = activeTimePicker !== null;
   const [draftLocation, setDraftLocation] = useState('');
   const [formError, setFormError] = useState('');
+  // The booking whose job status is being changed. One at a time, so a second tap while the sheet
+  // is open cannot start a competing edit.
+  const [statusBookingId, setStatusBookingId] = useState<string | null>(null);
   const dropdownAnim = useRef(new Animated.Value(0)).current;
 
   const firstBookingDate = bookings[0]?.date ?? toIsoDate(new Date());
@@ -235,6 +256,14 @@ export default function BookingsScreen() {
   };
 
   const selectedPackage = packages.find((item) => item.id === selectedPackageId) ?? packages[0];
+  const packageDurationMinutes = parsePackageDurationMinutes(selectedPackage?.duration);
+
+  /**
+   * The finish time a package implies for a given start. Packages whose duration cannot be read
+   * ("Half day") fall back to the previous +1 hour default rather than inventing a length.
+   */
+  const getPackageEndTime = (startTime: string, durationMinutes = packageDurationMinutes) =>
+    (durationMinutes ? addMinutesToTime(startTime, durationMinutes) : null) ?? getSuggestedEndTime(startTime);
 
   const openComposer = () => {
     if (!packages.length) {
@@ -253,8 +282,9 @@ export default function BookingsScreen() {
     setShowPackageDropdown(false);
     setDraftPrice(String(packages[0].price));
     setDraftStartTime('10:00');
-    setDraftEndTime('11:00');
-    setOpenTimeMenu(null);
+    setDraftEndTime(getPackageEndTime('10:00', parsePackageDurationMinutes(packages[0].duration)));
+    setIsEndTimeManual(false);
+    setActiveTimePicker(null);
     setDraftLocation('');
     setDraftNotes('');
     setFormError('');
@@ -279,13 +309,36 @@ export default function BookingsScreen() {
     const chosenPackage = packages.find((item) => item.id === packageId);
     setSelectedPackageId(packageId);
     setDraftPrice(String(chosenPackage?.price ?? 0));
+    if (!isEndTimeManual) {
+      setDraftEndTime(getPackageEndTime(draftStartTime, parsePackageDurationMinutes(chosenPackage?.duration)));
+    }
     setShowPackageDropdown(false);
   };
 
-  const updateTimePart = (part: 'hour' | 'minute' | 'period', value: number | string) => {
-    if (!openTimeMenu) return;
+  const statusBooking = bookings.find((item) => item.id === statusBookingId) ?? null;
 
-    const currentTime = openTimeMenu === 'start' ? draftStartTime : draftEndTime;
+  const handleStatusSelect = (status: BookingStatus) => {
+    if (!statusBookingId) return;
+
+    const result = updateBookingStatus(statusBookingId, status);
+    setStatusBookingId(null);
+
+    if (!result.ok) {
+      showSnackbar({ message: result.error ?? 'The job status could not be updated.', tone: 'danger' });
+    }
+  };
+
+  /** Hands the finish time back to the package after it has been overridden. */
+  const resetEndTimeToPackage = () => {
+    setIsEndTimeManual(false);
+    setDraftEndTime(getPackageEndTime(draftStartTime));
+    setFormError('');
+  };
+
+  const updateTimePart = (part: 'hour' | 'minute' | 'period', value: number | string) => {
+    if (!activeTimePicker) return;
+
+    const currentTime = activeTimePicker === 'start' ? draftStartTime : draftEndTime;
     const currentParts = getTimeParts(currentTime);
     const nextTime = to24HourTime(
       part === 'hour' ? Number(value) : currentParts.hour,
@@ -293,24 +346,28 @@ export default function BookingsScreen() {
       part === 'period' ? value as TimePeriod : currentParts.period,
     );
 
-    if (openTimeMenu === 'start') {
+    if (activeTimePicker === 'start') {
       setDraftStartTime(nextTime);
-      if (draftEndTime <= nextTime) {
+      if (!isEndTimeManual) {
+        // Keeps the booking the length the package says it is as the start moves.
+        setDraftEndTime(getPackageEndTime(nextTime));
+      } else if (draftEndTime <= nextTime) {
         setDraftEndTime(getSuggestedEndTime(nextTime));
       }
     } else {
       setDraftEndTime(nextTime);
+      setIsEndTimeManual(true);
     }
     setFormError('');
   };
 
   const toggleTimeMenu = (menu: 'start' | 'finish') => {
-    if (openTimeMenu === menu) {
-      setOpenTimeMenu(null);
+    if (activeTimePicker === menu) {
+      setActiveTimePicker(null);
       return;
     }
 
-    setOpenTimeMenu(menu);
+    setActiveTimePicker(menu);
     setShowCustomerDropdown(false);
     setShowPackageDropdown(false);
   };
@@ -368,13 +425,16 @@ export default function BookingsScreen() {
     }
 
     setShowComposer(false);
-    setOpenTimeMenu(null);
+    setActiveTimePicker(null);
     setDraftNotes('');
     setCustomerQuery('');
     setShowCustomerDropdown(false);
     setDraftPrice(String(selectedPackage.price));
     setFormError('');
-    Alert.alert('Booking saved', `Draft invoice ${result.invoice.id} was created automatically.`);
+    showSnackbar({
+      message: `Booking saved · draft invoice ${getInvoiceNumber(result.invoice)} created`,
+      tone: 'success',
+    });
   };
 
   const flatListData: (Booking | { readonly id: 'empty-state'; readonly __empty: true })[] = selectedDayBookings.length > 0
@@ -397,7 +457,7 @@ export default function BookingsScreen() {
             <View style={styles.headerRow}>
               <View style={styles.headerTitleGroup}>
                 <View style={[styles.headerIcon, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
-                  <Ionicons name="calendar-clear-outline" size={23} color={palette.accent} />
+                  <Ionicons name="calendar-outline" size={23} color={palette.accent} />
                 </View>
                 <View>
                   <Text style={[styles.eyebrow, { color: palette.accent }]}>Bookings</Text>
@@ -456,16 +516,16 @@ export default function BookingsScreen() {
             </View>
 
             <View style={styles.eventsHeader}>
-              <View style={[styles.eventsIcon, { backgroundColor: accentSoft }]}>
-                <Ionicons name="time-outline" size={18} color={palette.accent} />
-              </View>
-              <View style={styles.eventsHeaderCopy}>
-                <Text style={[styles.eventsEyebrow, { color: palette.muter }]}>Schedule</Text>
-                <Text style={[styles.eventsTitle, { color: palette.text }]}>{formatDisplayDate(selectedDate)}</Text>
-              </View>
-              <View style={[styles.eventCountPill, { backgroundColor: softInset }]}>
-                <Text style={[styles.eventCountText, { color: palette.accent }]}>{selectedDayBookings.length}</Text>
-              </View>
+              <SectionHeader
+                icon="calendar-outline"
+                eyebrow="Schedule"
+                title={formatDisplayDate(selectedDate)}
+                rightElement={
+                  <View style={[styles.eventCountPill, { backgroundColor: softInset }]}>
+                    <Text style={[styles.eventCountText, { color: palette.accent }]}>{selectedDayBookings.length}</Text>
+                  </View>
+                }
+              />
             </View>
           </>
         )}
@@ -482,8 +542,6 @@ export default function BookingsScreen() {
           }
 
           const customer = customerMap.get(item.customerId);
-          const invoice = invoices.find((candidate) => candidate.bookingId === item.id);
-          const statusTone = getStatusTone(item.status);
 
           return (
             <View style={[styles.card, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, shadowColor: palette.background }]}>
@@ -493,7 +551,7 @@ export default function BookingsScreen() {
                   <Text style={[styles.cardTitle, { color: palette.text }]} numberOfLines={1}>{item.title}</Text>
                   <Text style={[styles.customer, { color: palette.muter }]} numberOfLines={1}>{customer?.name ?? 'Unknown customer'}</Text>
                 </View>
-                <StatusPill label={item.status} tone={statusTone} />
+                {/* The job status lives once per card, on the pill in the footer. */}
               </View>
 
               <View style={styles.scheduleMetaRow}>
@@ -525,12 +583,11 @@ export default function BookingsScreen() {
                   <Ionicons name="cash-outline" size={17} color={palette.muter} />
                   <Text style={[styles.amount, { color: palette.text }]}>{currencyFormatter.format(item.price)}</Text>
                 </View>
-                {invoice && (
-                  <Pressable style={[styles.invoiceButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]} onPress={() => router.push('/(tabs)/invoices')}>
-                    <Ionicons name="document-text-outline" size={15} color="#fff" />
-                    <Text style={styles.invoiceButtonText}>Invoice · {invoice.status}</Text>
-                  </Pressable>
-                )}
+                <JobStatusPill
+                  status={item.status}
+                  onPress={() => setStatusBookingId(item.id)}
+                  disabled={statusBookingId !== null}
+                />
               </View>
             </View>
           );
@@ -553,8 +610,10 @@ export default function BookingsScreen() {
             </View>
 
             <ScrollView
-              showsVerticalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
+              {...modalScrollProps}
+              // The wheels own every vertical gesture while a picker is open, so the form behind
+              // them cannot scroll out from under the finger.
+              scrollEnabled={!isTimePickerOpen}
               contentContainerStyle={styles.modalScrollContent}>
 
             <Text style={[styles.fieldLabel, { color: palette.muter }]}>Package</Text>
@@ -669,7 +728,14 @@ export default function BookingsScreen() {
                     style={[styles.searchInput, { backgroundColor: softSurface, borderColor: softBorder, color: palette.text }]}
                   />
 
-                  <View style={styles.dropdownList}>
+                  {/* The list scrolls itself. Without this the rows were laid out in a plain View
+                      that the panel simply clipped, so every drag fell through to the form behind
+                      it and moved the whole modal instead. Mirrors the package dropdown above. */}
+                  <ScrollView
+                    nestedScrollEnabled
+                    keyboardShouldPersistTaps="handled"
+                    style={styles.dropdownScroll}
+                    contentContainerStyle={styles.dropdownList}>
                     {filteredCustomers.length > 0 ? (
                       filteredCustomers.map((customer) => (
                         <Pressable
@@ -687,7 +753,7 @@ export default function BookingsScreen() {
                     ) : (
                       <Text style={[styles.emptySearchText, { color: palette.muter }]}>No matching customer</Text>
                     )}
-                  </View>
+                  </ScrollView>
                 </Animated.View>
               </>
             ) : (
@@ -760,15 +826,34 @@ export default function BookingsScreen() {
                   style={[
                     styles.timeSelectButton,
                     { backgroundColor: softInset, borderColor: softBorder },
-                    openTimeMenu === 'start' && { backgroundColor: accentSoft, borderColor: palette.accent },
+                    activeTimePicker === 'start' && { backgroundColor: accentSoft, borderColor: palette.accent },
                   ]}>
                   <Ionicons name="time-outline" size={18} color={palette.accent} />
                   <Text style={[styles.timeSelectText, { color: palette.text }]}>{formatTime(draftStartTime)}</Text>
-                  <Ionicons name={openTimeMenu === 'start' ? 'chevron-up' : 'chevron-down'} size={16} color={palette.muter} />
+                  <Ionicons name={activeTimePicker === 'start' ? 'chevron-up' : 'chevron-down'} size={16} color={palette.muter} />
                 </Pressable>
               </View>
               <View style={styles.timeField}>
-                <Text style={[styles.fieldLabel, { color: palette.muter }]}>Finish time</Text>
+                <View style={[styles.timeFieldLabelRow, styles.timeLabelSpacing]}>
+                  <Text style={[styles.fieldLabel, styles.timeFieldLabel, { color: palette.muter }]}>Finish time</Text>
+                  {isEndTimeManual ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Use the package duration for the finish time"
+                      accessibilityHint={
+                        selectedPackage ? `Sets it from ${selectedPackage.duration}` : undefined
+                      }
+                      hitSlop={8}
+                      onPress={resetEndTimeToPackage}
+                      style={({ pressed }) => pressed && styles.autoTagPressed}>
+                      <Text style={[styles.autoTag, { color: palette.accent }]}>Auto</Text>
+                    </Pressable>
+                  ) : packageDurationMinutes ? (
+                    <Text style={[styles.autoTag, styles.autoTagIdle, { color: palette.muter }]}>
+                      Auto
+                    </Text>
+                  ) : null}
+                </View>
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={`Choose finish time, currently ${formatTime(draftEndTime)}`}
@@ -776,26 +861,29 @@ export default function BookingsScreen() {
                   style={[
                     styles.timeSelectButton,
                     { backgroundColor: softInset, borderColor: softBorder },
-                    openTimeMenu === 'finish' && { backgroundColor: accentSoft, borderColor: palette.accent },
+                    activeTimePicker === 'finish' && { backgroundColor: accentSoft, borderColor: palette.accent },
                   ]}>
                   <Ionicons name="time-outline" size={18} color={palette.accent} />
                   <Text style={[styles.timeSelectText, { color: palette.text }]}>{formatTime(draftEndTime)}</Text>
-                  <Ionicons name={openTimeMenu === 'finish' ? 'chevron-up' : 'chevron-down'} size={16} color={palette.muter} />
+                  <Ionicons name={activeTimePicker === 'finish' ? 'chevron-up' : 'chevron-down'} size={16} color={palette.muter} />
                 </Pressable>
               </View>
             </View>
 
-            {openTimeMenu ? (
+            {activeTimePicker ? (
+              // No responder handlers on this panel: claiming the gesture here takes it away from
+              // the wheels' scroll views, which stops them scrolling. The parent ScrollView is
+              // already disabled while a picker is open, so nothing behind it can move anyway.
               <View style={[styles.timeMenu, { backgroundColor: softInset, borderColor: softBorder }]}>
                 <View style={styles.timeMenuHeader}>
-                  <Text style={[styles.timeMenuTitle, { color: palette.text }]}>Choose {openTimeMenu === 'start' ? 'start' : 'finish'} time</Text>
+                  <Text style={[styles.timeMenuTitle, { color: palette.text }]}>Choose {activeTimePicker === 'start' ? 'start' : 'finish'} time</Text>
                   <Text style={[styles.timeMenuValue, { color: palette.accent }]}>
-                    {formatTime(openTimeMenu === 'start' ? draftStartTime : draftEndTime)}
+                    {formatTime(activeTimePicker === 'start' ? draftStartTime : draftEndTime)}
                   </Text>
                 </View>
 
                 {(() => {
-                  const currentParts = getTimeParts(openTimeMenu === 'start' ? draftStartTime : draftEndTime);
+                  const currentParts = getTimeParts(activeTimePicker === 'start' ? draftStartTime : draftEndTime);
                   const hourIndex = hourOptions.indexOf(currentParts.hour);
                   const minuteIndex = minuteOptions.indexOf(currentParts.minute);
                   const periodIndex = periodOptions.indexOf(currentParts.period);
@@ -804,6 +892,7 @@ export default function BookingsScreen() {
                       <View style={[styles.wheelHighlight, { top: WHEEL_PADDING, backgroundColor: accentSoft }]} pointerEvents="none" />
                       <View style={styles.wheelColumnHour}>
                         <WheelColumn
+                          key={`hour-${activeTimePicker}`}
                           items={hourOptions.map(String)}
                           selectedIndex={hourIndex}
                           onSelect={(index) => updateTimePart('hour', hourOptions[index])}
@@ -812,6 +901,7 @@ export default function BookingsScreen() {
                       </View>
                       <View style={styles.wheelColumnMinute}>
                         <WheelColumn
+                          key={`minute-${activeTimePicker}`}
                           items={minuteOptions}
                           selectedIndex={minuteIndex}
                           onSelect={(index) => updateTimePart('minute', minuteOptions[index])}
@@ -820,11 +910,13 @@ export default function BookingsScreen() {
                       </View>
                       <View style={styles.wheelColumnPeriod}>
                         <WheelColumn
+                          key={`period-${activeTimePicker}`}
                           items={periodOptions as unknown as string[]}
                           selectedIndex={periodIndex}
                           onSelect={(index) => updateTimePart('period', periodOptions[index])}
                           textColor={palette.text}
                           align="flex-start"
+                          itemPaddingLeft={16}
                         />
                       </View>
                     </View>
@@ -838,7 +930,7 @@ export default function BookingsScreen() {
                   accessibilityRole="button"
                   accessibilityState={{ disabled: draftEndTime <= draftStartTime }}
                   disabled={draftEndTime <= draftStartTime}
-                  onPress={() => setOpenTimeMenu(null)}
+                  onPress={() => setActiveTimePicker(null)}
                   style={[
                     styles.timeDoneButton,
                     { backgroundColor: palette.accent },
@@ -880,8 +972,18 @@ export default function BookingsScreen() {
             </Pressable>
             </ScrollView>
           </View>
+
+          <KeyboardDoneButton />
         </View>
       </Modal>
+
+      <JobStatusSheet
+        visible={statusBooking !== null}
+        status={statusBooking?.status}
+        bookingTitle={statusBooking?.title}
+        onSelect={handleStatusSelect}
+        onClose={() => setStatusBookingId(null)}
+      />
     </SafeAreaView>
   );
 }
@@ -1019,34 +1121,9 @@ const styles = StyleSheet.create({
     bottom: 6,
   },
   eventsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
     marginTop: 24,
     marginBottom: 14,
     paddingHorizontal: 4,
-  },
-  eventsIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 11,
-  },
-  eventsHeaderCopy: {
-    flex: 1,
-  },
-  eventsEyebrow: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
-    marginBottom: 2,
-  },
-  eventsTitle: {
-    fontSize: 17,
-    fontWeight: '800',
-    letterSpacing: -0.2,
   },
   eventCountPill: {
     minWidth: 34,
@@ -1153,6 +1230,8 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   amount: {
+    // Shrinks with the price row so a long amount and the status pill can share a narrow card.
+    flexShrink: 1,
     fontSize: 14,
     fontWeight: '800',
     marginLeft: 8,
@@ -1162,24 +1241,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     marginLeft: 8,
-  },
-  invoiceButton: {
-    borderRadius: 12,
-    paddingHorizontal: 11,
-    paddingVertical: 9,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
-    shadowOffset: { width: 3, height: 6 },
-    elevation: 4,
-  },
-  invoiceButtonText: {
-    color: '#fff',
-    fontWeight: '700',
-    fontSize: 12,
-    marginLeft: 5,
   },
   modalBackdrop: {
     flex: 1,
@@ -1256,6 +1317,32 @@ const styles = StyleSheet.create({
   timeField: {
     flex: 1,
   },
+  timeFieldLabelRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  timeLabelSpacing: {
+    marginBottom: 8,
+    marginTop: 14,
+  },
+  timeFieldLabel: {
+    // The row owns the spacing the label used to carry on its own.
+    marginBottom: 0,
+    marginTop: 0,
+  },
+  autoTag: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.65,
+    textTransform: 'uppercase',
+  },
+  autoTagIdle: {
+    opacity: 0.7,
+  },
+  autoTagPressed: {
+    opacity: 0.6,
+  },
   timeSelectButton: {
     minHeight: 48,
     borderWidth: 1,
@@ -1312,7 +1399,14 @@ const styles = StyleSheet.create({
   },
   wheelColumnPeriod: {
     flex: 1,
-    paddingLeft: 16,
+  },
+  wheelViewport: {
+    height: WHEEL_HEIGHT,
+    overflow: 'hidden',
+    width: '100%',
+  },
+  wheelContent: {
+    paddingVertical: WHEEL_PADDING,
   },
   wheelItem: {
     height: WHEEL_ITEM_HEIGHT,
@@ -1388,6 +1482,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 18,
     marginBottom: 12,
+  },
+  dropdownScroll: {
+    // Bounded so the list has somewhere to scroll inside the panel's animated 220pt cap, rather
+    // than growing past it and being clipped.
+    flexGrow: 0,
+    flexShrink: 1,
   },
   dropdownList: {
     paddingHorizontal: 8,

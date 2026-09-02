@@ -1,16 +1,22 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import * as Haptics from 'expo-haptics';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { NotificationPermissionPrompt } from '@/components/NotificationPermissionPrompt';
+import { SectionHeader } from '@/components/SectionHeader';
 import { PriorityStack } from '@/components/PriorityStack';
 import { StatCard } from '@/components/StatCard';
 import { StatusPill } from '@/components/StatusPill';
 import { getCurrencyFormatter, useAppData } from '@/context/app-data-context';
+import { useSubscription } from '@/context/subscription-context';
+import { useSnackbar } from '@/context/snackbar-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { getFinancialMetrics, getFinancialPeriodBounds } from '@/lib/financial-metrics';
 import { getNotificationPermissionStatus, syncTodayPriorityNotifications } from '@/lib/notifications';
+import { getInvoiceNumber } from '@/lib/invoice-numbering';
 
 function getLocalDateKey(date: Date) {
   const year = date.getFullYear();
@@ -26,14 +32,22 @@ function formatShortDate(dateKey: string) {
 export default function HomeScreen() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
-  const { bookings, customers, financeEntries, invoices, reminders, notifications, currency, businessProfile } = useAppData();
+  const { isPro } = useSubscription();
+  const { bookings, customers, financeEntries, invoices, payments, reminders, notifications, currency, businessProfile, updateBookingStatus } = useAppData();
+  const { showSnackbar } = useSnackbar();
   const palette = getThemePalette(isDarkMode);
   const unreadNotificationCount = notifications.filter((notification) => !notification.isOpened).length;
   const hasUnreadNotifications = unreadNotificationCount > 0;
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const todayKey = getLocalDateKey(new Date());
-  const currentMonthKey = todayKey.slice(0, 7);
-  const todaysBookings = useMemo(() => bookings.filter((booking) => booking.date === todayKey), [bookings, todayKey]);
+  const todaysBookings = useMemo(
+    () =>
+      bookings.filter(
+        (booking) =>
+          booking.date === todayKey && booking.status !== 'Completed' && booking.status !== 'Cancelled',
+      ),
+    [bookings, todayKey],
+  );
   const upcomingBookings = bookings.filter((booking) => booking.date >= todayKey && booking.status !== 'Cancelled');
   const nextBookingDate = upcomingBookings.reduce<string | null>(
     (soonest, booking) => (soonest === null || booking.date < soonest ? booking.date : soonest),
@@ -41,6 +55,42 @@ export default function HomeScreen() {
   );
   const upcomingDetail = nextBookingDate ? `Next: ${formatShortDate(nextBookingDate)}` : 'No bookings scheduled';
   const customerMap = new Map(customers.map((customer) => [customer.id, customer]));
+
+  /**
+   * Marks a priority job done through the same booking-status writer the Calendar's Job Status
+   * sheet uses — there is one status mechanism, not two. The previous status is captured first so
+   * Undo restores exactly what was there rather than assuming 'Confirmed'.
+   */
+  const handleCompleteBooking = useCallback(
+    (bookingId: string) => {
+      const booking = bookings.find((item) => item.id === bookingId);
+      if (!booking) return;
+
+      const previousStatus = booking.status;
+      const result = updateBookingStatus(bookingId, 'Completed');
+
+      if (!result.ok) {
+        showSnackbar({ message: result.error ?? 'The job could not be completed.', tone: 'danger' });
+        return;
+      }
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      showSnackbar({
+        message: 'Job completed',
+        tone: 'success',
+        action: {
+          label: 'Undo',
+          onPress: () => {
+            const undone = updateBookingStatus(bookingId, previousStatus);
+            if (!undone.ok) {
+              showSnackbar({ message: undone.error ?? 'The job could not be restored.', tone: 'danger' });
+            }
+          },
+        },
+      });
+    },
+    [bookings, showSnackbar, updateBookingStatus],
+  );
 
   const [showNotificationPrompt, setShowNotificationPrompt] = useState(false);
   const hasResolvedNotificationPromptRef = useRef(false);
@@ -81,14 +131,12 @@ export default function HomeScreen() {
     hasResolvedNotificationPromptRef.current = true;
     setShowNotificationPrompt(false);
   };
-  const currentMonthTransactions = financeEntries.filter((entry) => entry.date.startsWith(currentMonthKey));
-  const totalRevenue = currentMonthTransactions
-    .filter((entry) => entry.type === 'income')
-    .reduce((sum, entry) => sum + entry.amount, 0);
-  const totalExpense = currentMonthTransactions
-    .filter((entry) => entry.type === 'expense')
-    .reduce((sum, entry) => sum + entry.amount, 0);
-  const totalIncome = totalRevenue - totalExpense;
+  const financialMetrics = getFinancialMetrics({
+    financeEntries,
+    invoices,
+    payments,
+    bounds: getFinancialPeriodBounds('this-month'),
+  });
   const softSurface = isDarkMode ? '#172033' : '#F7F9FD';
   const softInset = isDarkMode ? '#111A2B' : '#EEF2F8';
   const softBorder = isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.9)';
@@ -109,9 +157,12 @@ export default function HomeScreen() {
               },
             ]}>
             <Image
-              source={require('../../assets/images/bookflow-logo.png')}
+              source={isPro && businessProfile.logoUrl
+                ? { uri: businessProfile.logoUrl }
+                : require('../../assets/images/bookflow-logo.png')}
               style={styles.logoImage}
               resizeMode="contain"
+              accessibilityLabel={isPro && businessProfile.logoUrl ? `${businessProfile.name || 'Business'} logo` : 'Bookflow logo'}
             />
           </View>
           <View style={styles.headerCopy}>
@@ -161,36 +212,32 @@ export default function HomeScreen() {
             shadowColor: softShadow,
           },
         ]}>
-        <View style={styles.sectionHeader}>
-          <View style={styles.sectionTitleGroup}>
-            <View style={[styles.sectionIcon, { backgroundColor: isDarkMode ? '#29284B' : '#E9E8FF' }]}>
-              <Ionicons name="flash" size={17} color={palette.accent} />
-            </View>
-            <View>
-              <Text style={[styles.sectionTitle, { color: palette.text }]}>Today’s priority</Text>
-            </View>
-          </View>
-          <Text style={[styles.link, { color: palette.accent }]}>View all</Text>
+        <View style={styles.sectionHeaderWrap}>
+          <SectionHeader
+            icon="calendar-outline"
+            title="Today’s priority"
+            rightElement={<Text style={[styles.link, { color: palette.accent }]}>View all</Text>}
+          />
         </View>
 
-        <PriorityStack bookings={todaysBookings} customerMap={customerMap} currencyFormatter={currencyFormatter} palette={palette} />
+        <PriorityStack
+          bookings={todaysBookings}
+          customerMap={customerMap}
+          currencyFormatter={currencyFormatter}
+          palette={palette}
+          onComplete={handleCompleteBooking}
+        />
       </View>
 
       <View style={styles.snapshotHeader}>
-        <View>
-          <Text style={[styles.sectionTitle, { color: palette.text }]}>Business snapshot</Text>
-        </View>
-        <View style={[styles.snapshotIcon, { backgroundColor: softInset }]}>
-          <Ionicons name="analytics-outline" size={18} color={palette.accent} />
-        </View>
+        <SectionHeader icon="bar-chart-outline" title="Business snapshot" />
       </View>
 
       <View style={styles.statsGrid}>
         <StatCard
           label="Revenue"
-          value={currencyFormatter.format(totalRevenue)}
+          value={currencyFormatter.format(financialMetrics.revenue)}
           detail="This month"
-          tone="blue"
           isCurrency
           onPress={() => router.push('/finance')}
           accessibilityLabel="Open Finance"
@@ -199,24 +246,21 @@ export default function HomeScreen() {
           label="Upcoming"
           value={String(upcomingBookings.length)}
           detail={upcomingDetail}
-          tone="green"
           onPress={() => router.push('/bookings')}
           accessibilityLabel="Open upcoming bookings"
         />
         <StatCard
-          label="Income"
-          value={currencyFormatter.format(totalIncome)}
+          label="Net Profit"
+          value={currencyFormatter.format(financialMetrics.netProfit)}
           detail="After expenses"
-          tone="amber"
           isCurrency
           onPress={() => router.push('/income')}
-          accessibilityLabel="Open income breakdown"
+          accessibilityLabel="Open net profit breakdown"
         />
         <StatCard
           label="Expense"
-          value={currencyFormatter.format(totalExpense)}
+          value={currencyFormatter.format(financialMetrics.expenses)}
           detail="This month"
-          tone="purple"
           isCurrency
           onPress={() => router.push('/expense')}
           accessibilityLabel="Open expense breakdown"
@@ -232,37 +276,33 @@ export default function HomeScreen() {
             shadowColor: softShadow,
           },
         ]}>
-        <View style={styles.sectionHeader}>
-          <View style={styles.sectionTitleGroup}>
-            <View style={[styles.sectionIcon, { backgroundColor: isDarkMode ? '#43341B' : '#FFF2D9' }]}>
-              <Ionicons name="notifications-outline" size={18} color={palette.warning} />
-            </View>
-            <View>
-              <Text style={[styles.sectionTitle, { color: palette.text }]}>Reminder queue</Text>
-            </View>
-          </View>
-          <View style={[styles.softCountPill, { backgroundColor: softInset }]}>
-            <Text style={[styles.link, { color: palette.accent }]}>{reminders.length} active</Text>
-          </View>
+        <View style={styles.sectionHeaderWrap}>
+          <SectionHeader
+            icon="notifications-outline"
+            title="Reminder queue"
+            rightElement={
+              <View style={[styles.softCountPill, { backgroundColor: softInset }]}>
+                <Text style={[styles.link, { color: palette.accent }]}>{reminders.length} active</Text>
+              </View>
+            }
+          />
         </View>
 
         <View style={styles.softList}>
           {reminders.slice(0, 2).map((reminder, index) => (
-            <View
-              key={reminder.id}
-              style={[
-                styles.reminderRow,
-                { backgroundColor: softInset },
-                index > 0 && styles.softRowSpacing,
-              ]}>
-              <View style={[styles.rowIcon, { backgroundColor: softSurface }]}>
-                <Ionicons name="paper-plane-outline" size={17} color={palette.accent} />
+            <View key={reminder.id}>
+              {index > 0 ? <View style={[styles.rowDivider, { backgroundColor: softInset }]} /> : null}
+              <View style={styles.listRow}>
+                <View style={styles.rowCopy}>
+                  <Text style={[styles.reminderTitle, { color: palette.text }]} numberOfLines={1}>
+                    {reminder.title}
+                  </Text>
+                  <Text style={[styles.reminderMeta, { color: palette.muter }]} numberOfLines={1}>
+                    {reminder.dueDate} · {reminder.channel}
+                  </Text>
+                </View>
+                <StatusPill label={reminder.status} tone={reminder.status === 'sent' ? 'green' : reminder.status === 'failed' ? 'red' : 'amber'} />
               </View>
-              <View style={styles.rowCopy}>
-                <Text style={[styles.reminderTitle, { color: palette.text }]}>{reminder.title}</Text>
-                <Text style={[styles.reminderMeta, { color: palette.muter }]}>{reminder.dueDate} • {reminder.channel}</Text>
-              </View>
-              <StatusPill label={reminder.status} tone={reminder.status === 'sent' ? 'green' : reminder.status === 'failed' ? 'red' : 'amber'} />
             </View>
           ))}
         </View>
@@ -277,42 +317,38 @@ export default function HomeScreen() {
             shadowColor: softShadow,
           },
         ]}>
-        <View style={styles.sectionHeader}>
-          <View style={styles.sectionTitleGroup}>
-            <View style={[styles.sectionIcon, { backgroundColor: isDarkMode ? '#173A35' : '#DFF7EF' }]}>
-              <Ionicons name="receipt-outline" size={18} color={palette.success} />
-            </View>
-            <View>
-              <Text style={[styles.sectionTitle, { color: palette.text }]}>Recent invoices</Text>
-            </View>
-          </View>
-          <Text style={[styles.link, { color: palette.accent }]}>Open</Text>
+        <View style={styles.sectionHeaderWrap}>
+          <SectionHeader
+            icon="receipt-outline"
+            title="Recent invoices"
+            rightElement={<Text style={[styles.link, { color: palette.accent }]}>Open</Text>}
+          />
         </View>
 
         <View style={styles.softList}>
           {invoices.slice(0, 3).map((invoice, index) => {
             const customer = customerMap.get(invoice.customerId);
             const tone =
-              invoice.status === 'Paid' ? 'green' : invoice.status === 'Accepted' ? 'blue' : invoice.status === 'Overdue' ? 'amber' : invoice.status === 'Declined' ? 'red' : 'gray';
+              invoice.status === 'Paid' ? 'green' : invoice.status === 'Accepted' ? 'blue' : invoice.status === 'Overdue' ? 'amber' : invoice.status === 'Declined' || invoice.status === 'Void' ? 'red' : 'gray';
 
             return (
-              <View
-                key={invoice.id}
-                style={[
-                  styles.invoiceRow,
-                  { backgroundColor: softInset },
-                  index > 0 && styles.softRowSpacing,
-                ]}>
-                <View style={[styles.rowIcon, { backgroundColor: softSurface }]}>
-                  <Ionicons name="document-text-outline" size={17} color={palette.accent} />
-                </View>
-                <View style={styles.rowCopy}>
-                  <Text style={[styles.invoiceId, { color: palette.text }]}>{invoice.id}</Text>
-                  <Text style={[styles.invoiceCustomer, { color: palette.muter }]}>{customer?.name ?? 'Unknown customer'}</Text>
-                </View>
-                <View style={styles.invoiceMeta}>
-                  <Text style={[styles.amount, { color: palette.text }]}>{currencyFormatter.format(invoice.amount)}</Text>
-                  <StatusPill label={invoice.status} tone={tone} />
+              <View key={invoice.id}>
+                {index > 0 ? <View style={[styles.rowDivider, { backgroundColor: softInset }]} /> : null}
+                <View style={styles.listRow}>
+                  <View style={styles.rowCopy}>
+                    <Text style={[styles.invoiceId, { color: palette.text }]} numberOfLines={1}>
+                      {getInvoiceNumber(invoice)}
+                    </Text>
+                    <Text style={[styles.invoiceCustomer, { color: palette.muter }]} numberOfLines={1}>
+                      {customer?.name ?? 'Unknown customer'}
+                    </Text>
+                  </View>
+                  <View style={styles.invoiceMeta}>
+                    <Text style={[styles.amount, { color: palette.text }]} numberOfLines={1}>
+                      {currencyFormatter.format(invoice.amount)}
+                    </Text>
+                    <StatusPill label={invoice.status} tone={tone} />
+                  </View>
                 </View>
               </View>
             );
@@ -434,53 +470,17 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 8, height: 10 },
     elevation: 5,
   },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  sectionHeaderWrap: {
     marginBottom: 18,
-  },
-  sectionTitleGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    marginRight: 10,
-  },
-  sectionIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 11,
-  },
-  sectionTitle: {
-    fontSize: 17,
-    fontWeight: '800',
-    letterSpacing: -0.25,
-  },
-  sectionSubtitle: {
-    fontSize: 11,
-    lineHeight: 16,
-    marginTop: 2,
   },
   link: {
     fontWeight: '700',
     fontSize: 12,
   },
   snapshotHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 4,
     marginTop: 2,
-  },
-  snapshotIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 13,
-    alignItems: 'center',
-    justifyContent: 'center',
+    marginBottom: 14,
+    paddingHorizontal: 4,
   },
   softCountPill: {
     borderRadius: 999,
@@ -490,23 +490,17 @@ const styles = StyleSheet.create({
   softList: {
     width: '100%',
   },
-  softRowSpacing: {
-    marginTop: 10,
-  },
-  reminderRow: {
+  /** One row per record, separated by a hairline rather than each sitting in its own card. */
+  listRow: {
+    alignItems: 'center',
     flexDirection: 'row',
-    alignItems: 'center',
-    minHeight: 66,
-    padding: 11,
-    borderRadius: 18,
+    minHeight: 56,
+    paddingHorizontal: 2,
+    paddingVertical: 10,
   },
-  rowIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 13,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 10,
+  rowDivider: {
+    height: StyleSheet.hairlineWidth,
+    marginHorizontal: 2,
   },
   rowCopy: {
     flex: 1,
@@ -520,13 +514,6 @@ const styles = StyleSheet.create({
   },
   reminderMeta: {
     fontSize: 12,
-  },
-  invoiceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    minHeight: 66,
-    padding: 11,
-    borderRadius: 18,
   },
   invoiceId: {
     fontSize: 14,

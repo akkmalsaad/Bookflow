@@ -2,6 +2,7 @@ import * as Linking from 'expo-linking';
 import { Alert, Platform } from 'react-native';
 
 import type { Customer, Invoice } from '@/context/app-data-context';
+import { getInvoiceNumber } from '@/lib/invoice-numbering';
 
 type ShareInvoiceOptions = {
   invoice: Invoice;
@@ -36,7 +37,7 @@ export async function shareInvoiceOnWhatsApp({
     const message = [
       `Hi ${customer.name},`,
       '',
-      `Here is invoice ${invoice.id} for ${currencyFormatter.format(invoice.amount)}.`,
+      `Here is invoice ${getInvoiceNumber(invoice)} for ${currencyFormatter.format(invoice.amount)}.`,
       `Due date: ${invoice.dueDate}`,
       '',
       `Review and respond to your invoice: ${invoiceUrl}`,

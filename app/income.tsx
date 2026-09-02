@@ -4,10 +4,12 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleProp, StyleSheet, Text, View, ViewStyle } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { SectionHeader } from '@/components/SectionHeader';
 import { MonthlyTrendChart } from '@/components/MonthlyTrendChart';
 import { TrendRange, TrendRangeTabs } from '@/components/TrendRangeTabs';
 import { FinanceEntry, getCurrencyFormatter, useAppData } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { getFinancialMetrics, getFinancialPeriodBounds } from '@/lib/financial-metrics';
 
 const CATEGORY_COLORS = ['#4F46E5', '#0EA5E9', '#10B981', '#F59E0B', '#EC4899', '#8B5CF6', '#14B8A6', '#EF4444'];
 const ICON_GREEN = '#1DAA72';
@@ -110,21 +112,32 @@ function SoftRow({
 export default function IncomeScreen() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
-  const { financeEntries, currency } = useAppData();
+  const { financeEntries, invoices, payments, currency } = useAppData();
   const palette = getThemePalette(isDarkMode);
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const tone = softTone(isDarkMode);
   const [trendRange, setTrendRange] = useState<TrendRange>('6months');
-
-  const incomeEntries = useMemo(
-    () =>
-      financeEntries
-        .filter((entry) => entry.type === 'income')
-        .sort((a, b) => (a.date < b.date ? 1 : -1)),
-    [financeEntries],
+  const selectedBounds = useMemo(
+    () => getFinancialPeriodBounds(
+      trendRange === 'month' ? 'this-month' : trendRange === 'year' ? 'year-to-date' : 'last-6-months',
+    ),
+    [trendRange],
+  );
+  const financialMetrics = useMemo(
+    () => getFinancialMetrics({ financeEntries, invoices, payments, bounds: selectedBounds }),
+    [financeEntries, invoices, payments, selectedBounds],
+  );
+  const allTimeMetrics = useMemo(
+    () => getFinancialMetrics({ financeEntries, invoices, payments }),
+    [financeEntries, invoices, payments],
   );
 
-  const totalIncome = incomeEntries.reduce((sum, entry) => sum + entry.amount, 0);
+  const incomeEntries = useMemo(
+    () => [...financialMetrics.receivedPayments].sort((a, b) => (a.date < b.date ? 1 : -1)),
+    [financialMetrics.receivedPayments],
+  );
+
+  const totalIncome = financialMetrics.revenue;
   const averageIncome = incomeEntries.length ? totalIncome / incomeEntries.length : 0;
 
   const highestEntry = useMemo(
@@ -154,12 +167,12 @@ export default function IncomeScreen() {
 
   const monthlyTotals = useMemo(() => {
     const totals = new Map<string, number>();
-    incomeEntries.forEach((entry) => {
+    allTimeMetrics.receivedPayments.forEach((entry) => {
       const monthKey = entry.date.slice(0, 7);
       totals.set(monthKey, (totals.get(monthKey) ?? 0) + entry.amount);
     });
     return totals;
-  }, [incomeEntries]);
+  }, [allTimeMetrics.receivedPayments]);
 
   const monthlyTrend = useMemo(() => {
     const now = new Date();
@@ -327,7 +340,9 @@ export default function IncomeScreen() {
           </SoftCard>
         ) : (
           <>
-            <Text style={[styles.sectionTitle, { color: palette.text }]}>Monthly trend</Text>
+            <View style={styles.sectionHeader}>
+              <SectionHeader icon="stats-chart-outline" title="Monthly trend" />
+            </View>
             <TrendRangeTabs value={trendRange} onChange={setTrendRange} color={palette.accent} isDarkMode={isDarkMode} />
             <SoftCard isDarkMode={isDarkMode} style={styles.chartOuter}>
               <MonthlyTrendChart
@@ -338,7 +353,9 @@ export default function IncomeScreen() {
               />
             </SoftCard>
 
-            <Text style={[styles.sectionTitle, { color: palette.text }]}>By category</Text>
+            <View style={styles.sectionHeader}>
+              <SectionHeader icon="pricetags-outline" title="By category" />
+            </View>
             <SoftCard isDarkMode={isDarkMode} style={styles.chartOuter}>
               <View style={[styles.stackedBarTrack, { backgroundColor: isDarkMode ? '#0E1729' : '#E4EAF5' }]}>
                 <View style={styles.stackedBar}>
@@ -373,7 +390,9 @@ export default function IncomeScreen() {
               </View>
             </SoftCard>
 
-            <Text style={[styles.sectionTitle, { color: palette.text }]}>Transactions</Text>
+            <View style={styles.sectionHeader}>
+              <SectionHeader icon="swap-vertical-outline" title="Transactions" />
+            </View>
             <View style={styles.list}>
               {incomeEntries.map((item) => (
                 <SoftRow key={item.id} isDarkMode={isDarkMode} style={styles.entryCard}>
@@ -515,9 +534,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
   },
-  sectionTitle: {
-    fontSize: 17,
-    fontWeight: '800',
+  sectionHeader: {
     marginBottom: 12,
   },
   chartOuter: {

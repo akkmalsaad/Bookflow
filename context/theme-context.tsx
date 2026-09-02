@@ -1,4 +1,8 @@
 import React, { createContext, useContext, useMemo, useState } from 'react';
+import { useColorScheme } from 'react-native';
+
+/** 'system' follows the device appearance; the other two pin it regardless of the device. */
+export type ThemePreference = 'system' | 'light' | 'dark';
 
 export type AppPalette = {
   background: string;
@@ -20,6 +24,8 @@ type ThemeContextValue = {
   isDarkMode: boolean;
   toggleTheme: () => void;
   setTheme: (darkMode: boolean) => void;
+  themePreference: ThemePreference;
+  setThemePreference: (preference: ThemePreference) => void;
 };
 
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
@@ -59,15 +65,21 @@ export function getThemePalette(isDarkMode: boolean): AppPalette {
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  const systemScheme = useColorScheme();
+  // Defaults to Light, which is how the app has always started. Choosing System is opt-in, and the
+  // preference lives for the session only — nothing about the theme is persisted yet.
+  const [themePreference, setThemePreference] = useState<ThemePreference>('light');
+  const isDarkMode = themePreference === 'system' ? systemScheme === 'dark' : themePreference === 'dark';
 
   const value = useMemo<ThemeContextValue>(
     () => ({
       isDarkMode,
-      toggleTheme: () => setIsDarkMode((current) => !current),
-      setTheme: (darkMode: boolean) => setIsDarkMode(darkMode),
+      toggleTheme: () => setThemePreference(isDarkMode ? 'light' : 'dark'),
+      setTheme: (darkMode: boolean) => setThemePreference(darkMode ? 'dark' : 'light'),
+      themePreference,
+      setThemePreference,
     }),
-    [isDarkMode],
+    [isDarkMode, themePreference],
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

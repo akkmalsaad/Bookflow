@@ -1,11 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useMemo, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { InitialsAvatar } from '@/components/InitialsAvatar';
+import { KeyboardDoneButton } from '@/components/KeyboardDoneButton';
+import { modalScrollProps } from '@/components/modal-keyboard';
 import { getCompactCurrencyFormatter, useAppData } from '@/context/app-data-context';
+import { useSnackbar } from '@/context/snackbar-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 import {
   customerSortOptions,
@@ -19,6 +22,7 @@ export default function CustomersScreen() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
   const { customers, bookings, invoices, payments, addCustomer, currency } = useAppData();
+  const { showSnackbar } = useSnackbar();
   const palette = getThemePalette(isDarkMode);
   const [showComposer, setShowComposer] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -52,13 +56,22 @@ export default function CustomersScreen() {
   const activeSortLabel = customerSortOptions.find((option) => option.key === sortKey)?.label ?? 'Recently added';
 
   const handleAddCustomer = () => {
-    addCustomer({
+    const savedCustomer = addCustomer({
       name,
       email,
       phone,
       location,
       notes,
     });
+
+    // A name and an email are both required. Without this the form used to clear and close even
+    // when nothing had been saved.
+    if (!savedCustomer) {
+      showSnackbar({ message: 'Enter a name and an email address to save this customer.', tone: 'danger' });
+      return;
+    }
+
+    showSnackbar({ message: `${savedCustomer.name} added to customers`, tone: 'success' });
 
     setName('');
     setEmail('');
@@ -232,6 +245,7 @@ export default function CustomersScreen() {
               </Pressable>
             </View>
 
+            <ScrollView {...modalScrollProps} contentContainerStyle={styles.modalScrollContent}>
             <Text style={[styles.fieldLabel, { color: palette.muter }]}>Name</Text>
             <TextInput value={name} onChangeText={setName} style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]} placeholder="Nur Aisyah Rahman" placeholderTextColor={palette.muter} />
 
@@ -250,7 +264,10 @@ export default function CustomersScreen() {
             <Pressable style={[styles.submitButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]} onPress={handleAddCustomer}>
               <Text style={styles.submitButtonText}>Save customer</Text>
             </Pressable>
+            </ScrollView>
           </View>
+
+          <KeyboardDoneButton />
         </View>
       </Modal>
     </SafeAreaView>
@@ -453,6 +470,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(15, 23, 42, 0.58)',
     justifyContent: 'flex-end',
+  },
+  modalScrollContent: {
+    paddingBottom: 4,
   },
   modalCard: {
     borderTopLeftRadius: 30,

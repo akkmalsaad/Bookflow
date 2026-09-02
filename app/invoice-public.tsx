@@ -1,7 +1,8 @@
 import { Redirect, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   Platform,
   Pressable,
   ScrollView,
@@ -13,13 +14,37 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/context/auth-context';
+import { renderInvoiceBody, type InvoiceRenderData } from '@/lib/invoice-design';
 import { getSupabaseFunctionUrl } from '@/lib/supabase';
 
-type InvoiceStatus = 'Sent' | 'Accepted' | 'Declined' | 'Paid' | 'Cancelled';
+/**
+ * Renders the invoice exactly as the PDF does.
+ *
+ * `renderInvoiceBody` is the same function `lib/invoice-pdf` calls, so the document the customer
+ * scrolls through and the file the business downloads come from one renderer rather than from two
+ * layouts that would drift apart. This route only ever runs on web — native redirects above — so a
+ * DOM node here is the intended target, not an escape hatch.
+ */
+function TemplatedInvoiceDocument({ data }: { data: InvoiceRenderData }) {
+  return React.createElement('div', {
+    style: { width: '100%' },
+    // The markup is built by BookFlow from the invoice's own frozen snapshot; every value inside it
+    // is HTML-escaped by the renderer, and no customer-supplied content reaches it unescaped.
+    dangerouslySetInnerHTML: { __html: renderInvoiceBody(data) },
+  });
+}
+
+type InvoiceStatus = 'Sent' | 'Accepted' | 'Declined' | 'Paid' | 'Cancelled' | 'Void';
 
 type InvoicePayload = {
+  /**
+   * The frozen presentation model written when the link was created. Links made before invoice
+   * customisation existed do not have it, and fall back to the original layout below.
+   */
+  render?: InvoiceRenderData;
   invoice: {
     id: string;
+    invoiceNumber?: string;
     amount: number;
     depositPaid?: number;
     dueDate: string;
@@ -28,7 +53,7 @@ type InvoicePayload = {
     terms?: string;
   };
   customer: { name: string; email: string; phone: string };
-  businessProfile: { name: string; ssmRegistrationNo?: string; phone: string; email: string; address: string };
+  businessProfile: { name: string; ssmRegistrationNo?: string; phone: string; email: string; address: string; logoUrl?: string };
   currency: 'MYR' | 'IDR' | 'USD';
   serviceName?: string;
   packageDetails?: string;
@@ -177,6 +202,9 @@ function PublicInvoiceScreen() {
   );
   const deposit = payload.invoice.depositPaid ?? 0;
   const balance = status === 'Paid' ? 0 : Math.max(0, payload.invoice.amount - deposit);
+  // Cancelled and Void are what the app writes when an invoice is moved to the dustbin or voided. The
+  // customer is only ever told the invoice is no longer active, never why.
+  const isInactive = status === 'Cancelled' || status === 'Void';
   const canRespond = status === 'Sent';
   const stackContent = width < 680;
 
@@ -184,20 +212,74 @@ function PublicInvoiceScreen() {
     <SafeAreaView style={styles.page}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.container}>
-          <Text style={styles.brand}>BOOKFLOW</Text>
+          {payload.render ? (
+            <View style={styles.templatedCard}>
+              <TemplatedInvoiceDocument data={payload.render} />
+              <View style={styles.templatedActions}>
+                {isInactive ? (
+                  <Text accessibilityRole="alert" style={styles.inactiveBanner}>
+                    This invoice is no longer active. Please contact the sender if you need a new one.
+                  </Text>
+                ) : null}
+                {notice ? <Text style={styles.notice}>{notice}</Text> : null}
+                {error ? <Text style={styles.inlineError}>{error}</Text> : null}
+                {canRespond ? (
+                  <View style={[styles.actions, stackContent && styles.actionsStacked]}>
+                    <Pressable
+                      accessibilityRole="button"
+                      disabled={Boolean(pendingAction)}
+                      onPress={() => respond('Declined')}
+                      style={({ pressed }) => [styles.actionButton, styles.declineButton, pressed && styles.pressed]}>
+                      {pendingAction === 'Declined' ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.actionButtonText}>Decline invoice</Text>}
+                    </Pressable>
+                    <Pressable
+                      accessibilityRole="button"
+                      disabled={Boolean(pendingAction)}
+                      onPress={() => respond('Accepted')}
+                      style={({ pressed }) => [styles.actionButton, styles.acceptButton, pressed && styles.pressed]}>
+                      {pendingAction === 'Accepted' ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.actionButtonText}>Accept invoice</Text>}
+                    </Pressable>
+                  </View>
+                ) : isInactive ? (
+                  <Text style={styles.resolved}>This invoice is no longer active.</Text>
+                ) : (
+                  <Text style={styles.resolved}>This invoice is {status.toLowerCase()}.</Text>
+                )}
+              </View>
+              <Text style={styles.footer}>Secure invoice link generated by Bookflow</Text>
+            </View>
+          ) : (
+            <>
+          {payload.businessProfile.logoUrl ? (
+            <Image
+              source={{ uri: payload.businessProfile.logoUrl }}
+              style={styles.businessLogo}
+              resizeMode="contain"
+              accessibilityLabel={`${payload.businessProfile.name || 'Business'} logo`}
+            />
+          ) : (
+            <Text style={styles.brand}>BOOKFLOW</Text>
+          )}
           <View style={styles.card}>
             <View style={styles.rule} />
             <View style={styles.content}>
               <View style={[styles.header, stackContent && styles.headerStacked]}>
                 <View>
                   <Text style={styles.eyebrow}>Invoice</Text>
-                  <Text selectable style={styles.invoiceId}>{payload.invoice.id}</Text>
+                  <Text selectable style={styles.invoiceId}>{payload.invoice.invoiceNumber || payload.invoice.id}</Text>
                 </View>
-                <View style={styles.statusPill}>
-                  <Text style={styles.statusText}>{status}</Text>
+                <View style={[styles.statusPill, isInactive && styles.statusPillInactive]}>
+                  <Text style={[styles.statusText, isInactive && styles.statusTextInactive]}>
+                    {isInactive ? 'No longer active' : status}
+                  </Text>
                 </View>
               </View>
 
+              {isInactive ? (
+                <Text accessibilityRole="alert" style={styles.inactiveBanner}>
+                  This invoice is no longer active. Please contact the sender if you need a new one.
+                </Text>
+              ) : null}
               {notice ? <Text style={styles.notice}>{notice}</Text> : null}
               {error ? <Text style={styles.inlineError}>{error}</Text> : null}
 
@@ -262,12 +344,16 @@ function PublicInvoiceScreen() {
                     {pendingAction === 'Accepted' ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.actionButtonText}>Accept invoice</Text>}
                   </Pressable>
                 </View>
+              ) : isInactive ? (
+                <Text style={styles.resolved}>This invoice is no longer active.</Text>
               ) : (
                 <Text style={styles.resolved}>This invoice is {status.toLowerCase()}.</Text>
               )}
             </View>
             <Text style={styles.footer}>Secure invoice link generated by Bookflow</Text>
           </View>
+            </>
+          )}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -281,7 +367,10 @@ const styles = StyleSheet.create({
   container: { width: '100%', maxWidth: 760, alignSelf: 'center' },
   loadingText: { marginTop: 14, color: '#667085', fontSize: 15, fontWeight: '600' },
   brand: { marginBottom: 18, color: '#4F46E5', fontSize: 13, fontWeight: '800', letterSpacing: 1.8 },
+  businessLogo: { width: 148, height: 62, marginBottom: 18 },
   card: { overflow: 'hidden', backgroundColor: '#FFFFFF', borderColor: '#E4E7EC', borderWidth: 1, borderRadius: 24 },
+  templatedCard: { overflow: 'hidden', backgroundColor: '#FFFFFF', borderColor: '#E4E7EC', borderWidth: 1, borderRadius: 20 },
+  templatedActions: { paddingHorizontal: 28, paddingBottom: 8 },
   rule: { height: 7, backgroundColor: '#4F46E5' },
   content: { padding: 28 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 18 },
@@ -290,6 +379,9 @@ const styles = StyleSheet.create({
   invoiceId: { marginTop: 5, color: '#172033', fontSize: 30, fontWeight: '800', letterSpacing: -0.8 },
   statusPill: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: '#EEF2FF' },
   statusText: { color: '#4338CA', fontSize: 11, fontWeight: '800', textTransform: 'uppercase' },
+  statusPillInactive: { backgroundColor: '#F2F4F7' },
+  statusTextInactive: { color: '#475467' },
+  inactiveBanner: { marginTop: 20, padding: 14, borderRadius: 12, backgroundColor: '#F2F4F7', color: '#344054', fontWeight: '700', lineHeight: 20 },
   notice: { marginTop: 20, padding: 14, borderRadius: 12, backgroundColor: '#ECFDF3', color: '#067647', fontWeight: '700' },
   inlineError: { marginTop: 20, padding: 14, borderRadius: 12, backgroundColor: '#FEF3F2', color: '#B42318', fontWeight: '700' },
   parties: { flexDirection: 'row', gap: 16, marginTop: 26 },

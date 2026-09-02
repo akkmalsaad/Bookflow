@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { DatePickerField } from '@/components/DatePickerField';
@@ -42,6 +42,7 @@ export function UpdatePaymentModal({ invoiceId, onClose, onSaved }: Props) {
   const [notes, setNotes] = useState('');
   const [error, setError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const paymentActionIdRef = useRef('');
 
   useEffect(() => {
     if (!invoice) return;
@@ -52,6 +53,7 @@ export function UpdatePaymentModal({ invoiceId, onClose, onSaved }: Props) {
     setNotes('');
     setError('');
     setIsSaving(false);
+    paymentActionIdRef.current = `payment-action-${invoice.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     // Re-seed only when a different invoice opens the modal.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [invoice?.id]);
@@ -96,6 +98,7 @@ export function UpdatePaymentModal({ invoiceId, onClose, onSaved }: Props) {
       method,
       date,
       notes,
+      sourceId: paymentActionIdRef.current,
     });
     setIsSaving(false);
 
@@ -119,7 +122,10 @@ export function UpdatePaymentModal({ invoiceId, onClose, onSaved }: Props) {
       onPrimary={handleSave}
       onClose={onClose}
       palette={palette}
-      isDarkMode={isDarkMode}>
+      isDarkMode={isDarkMode}
+      // Reached from the Manage payment sheet, so it slides up from below rather than popping —
+      // the hand-off then reads as one continuous movement.
+      entrance="sheet">
       {customer ? (
         <Text style={[styles.reference, { color: palette.muter }]} numberOfLines={1}>
           {customer.name}
@@ -149,9 +155,12 @@ export function UpdatePaymentModal({ invoiceId, onClose, onSaved }: Props) {
 
       <Text style={[paymentModalStyles.fieldLabel, { color: palette.muter }]}>Payment amount</Text>
       <CurrencyAmountInput
-        autoFocus
         currency={currency}
         hasError={Boolean(error)}
+        // No return key: the decimal pad has none, so asking for one only makes iOS float its own
+        // "Done" over the checkmark that already dismisses the keyboard. Matches the deposit and
+        // transaction modals, which both do this.
+        hideReturnKey
         isDarkMode={isDarkMode}
         onChangeText={handleAmountChange}
         palette={palette}

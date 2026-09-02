@@ -4,10 +4,12 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleProp, StyleSheet, Text, View, ViewStyle } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { SectionHeader } from '@/components/SectionHeader';
 import { MonthlyTrendChart } from '@/components/MonthlyTrendChart';
 import { TrendRange, TrendRangeTabs } from '@/components/TrendRangeTabs';
 import { FinanceEntry, getCurrencyFormatter, useAppData } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { getFinancialMetrics, getFinancialPeriodBounds } from '@/lib/financial-metrics';
 
 const CATEGORY_COLORS = ['#E11D48', '#F59E0B', '#8B5CF6', '#0EA5E9', '#EC4899', '#10B981', '#F97316', '#4F46E5'];
 const ICON_RED = '#E11D48';
@@ -112,21 +114,35 @@ function SoftRow({
 export default function ExpenseScreen() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
-  const { financeEntries, currency } = useAppData();
+  const { financeEntries, invoices, payments, currency } = useAppData();
   const palette = getThemePalette(isDarkMode);
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const tone = softTone(isDarkMode);
   const [trendRange, setTrendRange] = useState<TrendRange>('6months');
+  const selectedBounds = useMemo(
+    () => getFinancialPeriodBounds(
+      trendRange === 'month' ? 'this-month' : trendRange === 'year' ? 'year-to-date' : 'last-6-months',
+    ),
+    [trendRange],
+  );
+  const financialMetrics = useMemo(
+    () => getFinancialMetrics({ financeEntries, invoices, payments, bounds: selectedBounds }),
+    [financeEntries, invoices, payments, selectedBounds],
+  );
+  const allTimeMetrics = useMemo(
+    () => getFinancialMetrics({ financeEntries, invoices, payments }),
+    [financeEntries, invoices, payments],
+  );
 
   const expenseEntries = useMemo(
     () =>
-      financeEntries
+      [...financialMetrics.transactions]
         .filter((entry) => entry.type === 'expense')
         .sort((a, b) => (a.date < b.date ? 1 : -1)),
-    [financeEntries],
+    [financialMetrics.transactions],
   );
 
-  const totalExpense = expenseEntries.reduce((sum, entry) => sum + entry.amount, 0);
+  const totalExpense = financialMetrics.expenses;
   const averageExpense = expenseEntries.length ? totalExpense / expenseEntries.length : 0;
 
   const highestEntry = useMemo(
@@ -156,12 +172,12 @@ export default function ExpenseScreen() {
 
   const monthlyTotals = useMemo(() => {
     const totals = new Map<string, number>();
-    expenseEntries.forEach((entry) => {
+    allTimeMetrics.transactions.filter((entry) => entry.type === 'expense').forEach((entry) => {
       const monthKey = entry.date.slice(0, 7);
       totals.set(monthKey, (totals.get(monthKey) ?? 0) + entry.amount);
     });
     return totals;
-  }, [expenseEntries]);
+  }, [allTimeMetrics.transactions]);
 
   const monthlyTrend = useMemo(() => {
     const now = new Date();
@@ -329,7 +345,9 @@ export default function ExpenseScreen() {
           </SoftCard>
         ) : (
           <>
-            <Text style={[styles.sectionTitle, { color: palette.text }]}>Monthly trend</Text>
+            <View style={styles.sectionHeader}>
+              <SectionHeader icon="stats-chart-outline" title="Monthly trend" />
+            </View>
             <TrendRangeTabs value={trendRange} onChange={setTrendRange} color={palette.danger} isDarkMode={isDarkMode} />
             <SoftCard isDarkMode={isDarkMode} style={styles.chartOuter}>
               <MonthlyTrendChart
@@ -340,7 +358,9 @@ export default function ExpenseScreen() {
               />
             </SoftCard>
 
-            <Text style={[styles.sectionTitle, { color: palette.text }]}>By category</Text>
+            <View style={styles.sectionHeader}>
+              <SectionHeader icon="pricetags-outline" title="By category" />
+            </View>
             <SoftCard isDarkMode={isDarkMode} style={styles.chartOuter}>
               <View style={[styles.stackedBarTrack, { backgroundColor: isDarkMode ? '#0E1729' : '#E4EAF5' }]}>
                 <View style={styles.stackedBar}>
@@ -375,7 +395,9 @@ export default function ExpenseScreen() {
               </View>
             </SoftCard>
 
-            <Text style={[styles.sectionTitle, { color: palette.text }]}>Transactions</Text>
+            <View style={styles.sectionHeader}>
+              <SectionHeader icon="swap-vertical-outline" title="Transactions" />
+            </View>
             <View style={styles.list}>
               {expenseEntries.map((item) => (
                 <SoftRow key={item.id} isDarkMode={isDarkMode} style={styles.entryCard}>
@@ -517,9 +539,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
   },
-  sectionTitle: {
-    fontSize: 17,
-    fontWeight: '800',
+  sectionHeader: {
     marginBottom: 12,
   },
   chartOuter: {
