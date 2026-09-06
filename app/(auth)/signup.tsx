@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Link } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { usePostHog } from 'posthog-react-native';
 
 import {
   AuthDivider,
@@ -23,6 +24,7 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function SignupScreen() {
   const { signInWithSocial, signUp, verifyEmail } = useAuth();
+  const posthog = usePostHog();
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
 
@@ -109,6 +111,7 @@ export default function SignupScreen() {
     setIsSubmitting(true);
     try {
       await verifyEmail(verificationCode);
+      posthog.capture('account_created', { method: 'password' });
       setShowVerification(false);
     } catch (error) {
       setVerificationError(error instanceof Error ? error.message : 'We could not verify your email. Please try again.');

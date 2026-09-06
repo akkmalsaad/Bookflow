@@ -3,6 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Animated, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { usePostHog } from 'posthog-react-native';
 
 import { SuccessFeedback } from '@/components/feedback/SuccessFeedback';
 import { useConfirmedSave } from '@/components/feedback/useConfirmedSave';
@@ -185,6 +186,7 @@ export default function BookingsScreen() {
   const handledDeepLinkRef = useRef('');
   const { isDarkMode } = useTheme();
   const { packages, bookings, customers, createBooking, updateBookingStatus, currency } = useAppData();
+  const posthog = usePostHog();
   const { showSnackbar } = useSnackbar();
   const palette = getThemePalette(isDarkMode);
   // The schedule is a single column of text-heavy cards, so it uses the narrower reading column;
@@ -360,7 +362,10 @@ export default function BookingsScreen() {
 
     if (!result.ok) {
       showSnackbar({ message: result.error ?? 'The job status could not be updated.', tone: 'danger' });
+      return;
     }
+
+    posthog.capture('booking_status_updated', { status });
   };
 
   /** Hands the finish time back to the package after it has been overridden. */
@@ -474,6 +479,10 @@ export default function BookingsScreen() {
       return false;
     }
 
+    posthog.capture('booking_created', {
+      customer_source: customerMode,
+      has_deposit: numericDeposit > 0,
+    });
     return true;
   });
 

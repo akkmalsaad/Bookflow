@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { usePostHog } from 'posthog-react-native';
 
 import { SuccessFeedback } from '@/components/feedback/SuccessFeedback';
 import { useConfirmedSave } from '@/components/feedback/useConfirmedSave';
@@ -32,6 +33,7 @@ function todayKey() {
 export function UpdatePaymentModal({ invoiceId, onClose, onSaved }: Props) {
   const { isDarkMode } = useTheme();
   const { invoices, payments, customers, currency, recordInvoicePayment } = useAppData();
+  const posthog = usePostHog();
   const palette = getThemePalette(isDarkMode);
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const invoice = invoices.find((item) => item.id === invoiceId) ?? null;
@@ -107,6 +109,7 @@ export function UpdatePaymentModal({ invoiceId, onClose, onSaved }: Props) {
       return false;
     }
 
+    posthog.capture('payment_recorded', { method });
     savedAmount.current = parsed;
     return true;
   });

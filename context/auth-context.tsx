@@ -1,6 +1,8 @@
 import { useAuth as useClerkAuth, useSignIn, useSignUp, useSSO, useUser } from '@clerk/expo';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, type ReactNode } from 'react';
 
+import { posthog } from '@/lib/posthog';
+
 export type AuthUser = {
   id: string;
   email: string;
@@ -60,6 +62,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const email = clerkUser.primaryEmailAddress?.emailAddress ?? '';
     return { id: clerkUser.id, email, name: fullName || email.split('@')[0] || 'Bookflow user' };
   }, [clerkUser, isSignedIn]);
+
+  const identifiedUserIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!user) {
+      if (identifiedUserIdRef.current) {
+        posthog?.reset();
+        identifiedUserIdRef.current = null;
+      }
+      return;
+    }
+
+    if (identifiedUserIdRef.current === user.id) return;
+
+    // Identity only: the email and name stay on the `user` object for BookFlow's own use and are
+    // deliberately not sent to PostHog.
+    posthog?.identify(user.id);
+    identifiedUserIdRef.current = user.id;
+  }, [user]);
 
   // @clerk/expo wraps getToken with a new function when its auth hook rerenders.
   // Keep Bookflow's backend adapter stable while always calling Clerk's latest
@@ -141,6 +161,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     signOut: async () => {
       await clerkSignOut();
+      posthog?.reset();
+      identifiedUserIdRef.current = null;
     },
 
     verifyPassword: async (password) => {

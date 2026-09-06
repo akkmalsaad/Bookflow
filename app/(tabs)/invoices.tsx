@@ -5,6 +5,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { Animated, FlatList, Keyboard, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { usePostHog } from 'posthog-react-native';
 
 import { RecordDepositModal } from '@/components/RecordDepositModal';
 import { KeyboardDoneButton } from '@/components/KeyboardDoneButton';
@@ -24,6 +25,7 @@ export default function InvoicesScreen() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
   const { customers, invoices, trashedInvoices, packages, payments, addCustomer, addInvoice, createInvoiceShareLink, refreshInvoiceStatuses, invoiceDraft, setInvoiceDraft, updateInvoiceStatus, currency } = useAppData();
+  const posthog = usePostHog();
   const palette = getThemePalette(isDarkMode);
   // Invoice rows are dense text, so they stay one column inside the narrower reading width.
   const { readingStyle, sheetStyle, isPhone } = useResponsive();
@@ -184,6 +186,10 @@ export default function InvoicesScreen() {
       terms: selectedPackage?.info ?? invoiceDraft?.terms,
     });
 
+    posthog.capture('invoice_created', {
+      customer_source: customerMode,
+      source: invoiceDraft ? 'booking' : 'standalone',
+    });
     successActive.current = true;
     setShowSuccess(true);
     Keyboard.dismiss();

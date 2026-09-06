@@ -4,7 +4,7 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native
 import * as SplashScreen from 'expo-splash-screen';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useCallback, useEffect, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, LogBox, Pressable, StyleSheet, Text, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
@@ -16,8 +16,10 @@ import { AuthProvider, useAuth } from '@/context/auth-context';
 import { SubscriptionProvider } from '@/context/subscription-context';
 import { SnackbarProvider } from '@/context/snackbar-context';
 import { getThemePalette, ThemeProvider as AppThemeProvider, useTheme } from '@/context/theme-context';
+import { posthog } from '@/lib/posthog';
 import { useResponsive } from '@/lib/responsive';
 import * as Sentry from '@sentry/react-native';
+import { PostHogProvider } from 'posthog-react-native';
 
 Sentry.init({
   dsn: 'https://7a8195f3ba780f8e273bf72bf039ac08@o4512021511274496.ingest.de.sentry.io/4512021521825872',
@@ -57,6 +59,14 @@ SplashScreen.preventAutoHideAsync().catch(() => {});
 LogBox.ignoreLogs([
   'expo-notifications: Android Push notifications (remote notifications) functionality provided by expo-notifications was removed from Expo Go',
 ]);
+
+function AnalyticsProvider({ children }: { children: ReactNode }) {
+  if (!posthog) {
+    return children;
+  }
+
+  return <PostHogProvider client={posthog}>{children}</PostHogProvider>;
+}
 
 function AppShell() {
   const { isDarkMode } = useTheme();
@@ -218,6 +228,7 @@ export default Sentry.wrap(function RootLayout() {
     <GestureHandlerRootView style={styles.root}>
       <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache}>
         <SafeAreaProvider>
+        <AnalyticsProvider>
         <AppThemeProvider>
           <AuthProvider>
             {/* Inside AuthProvider: the RevenueCat app user id is kept in step with the Clerk user. */}
@@ -231,6 +242,7 @@ export default Sentry.wrap(function RootLayout() {
             </SubscriptionProvider>
           </AuthProvider>
         </AppThemeProvider>
+        </AnalyticsProvider>
           {showSplash ? <AnimatedSplash onFinish={handleSplashFinish} /> : null}
         </SafeAreaProvider>
       </ClerkProvider>

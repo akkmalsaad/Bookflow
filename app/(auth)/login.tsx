@@ -1,6 +1,7 @@
 import { Link } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { usePostHog } from 'posthog-react-native';
 
 import {
   AuthDivider,
@@ -22,6 +23,7 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function LoginScreen() {
   const { signIn, signInWithSocial, sendPasswordResetCode, verifyPasswordResetCode, submitNewPassword } = useAuth();
+  const posthog = usePostHog();
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
 
@@ -85,6 +87,7 @@ export default function LoginScreen() {
     setIsSubmitting(true);
     try {
       await signIn({ email: safeEmail, password });
+      posthog.capture('user_signed_in', { method: 'password' });
     } catch (error) {
       setFormError(error instanceof Error ? error.message : 'We could not sign you in. Please check your details and try again.');
     } finally {

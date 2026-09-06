@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 import { FlatList, Keyboard, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useMemo, useRef, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { usePostHog } from 'posthog-react-native';
 
 import { InitialsAvatar } from '@/components/InitialsAvatar';
 import { KeyboardDoneButton } from '@/components/KeyboardDoneButton';
@@ -25,6 +26,7 @@ export default function CustomersScreen() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
   const { customers, bookings, invoices, payments, addCustomer, currency } = useAppData();
+  const posthog = usePostHog();
   const { showSnackbar } = useSnackbar();
   const palette = getThemePalette(isDarkMode);
   // Customer cards are compact, so they pair up from tablet width. The screen's own 20pt inset
@@ -80,6 +82,7 @@ export default function CustomersScreen() {
       return;
     }
 
+    posthog.capture('customer_created');
     successActive.current = true;
     setShowSuccess(true);
     Keyboard.dismiss();

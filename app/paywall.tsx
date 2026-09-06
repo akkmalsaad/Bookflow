@@ -4,6 +4,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { usePostHog } from 'posthog-react-native';
 
 import { getSoftTokens } from '@/components/settings/tokens';
 import { useSubscription } from '@/context/subscription-context';
@@ -39,6 +40,7 @@ export default function PaywallScreen() {
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
   const { readingStyle, isPhone } = useResponsive();
+  const posthog = usePostHog();
   const soft = getSoftTokens(isDarkMode);
 
   const {
@@ -105,6 +107,13 @@ export default function PaywallScreen() {
       return;
     }
 
+    if (outcome.status === 'purchased') {
+      posthog.capture('subscription_purchased', {
+        plan: selectedPlan,
+        entitlement_granted: outcome.isPro,
+      });
+    }
+
     if (outcome.status === 'purchased' && !outcome.isPro) {
       // A completed transaction that did not grant the entitlement means the product is not
       // attached to `pro` in the dashboard, or the receipt is still being processed.
@@ -118,7 +127,7 @@ export default function PaywallScreen() {
       await refreshSubscription();
     }
     // The `isPro` effect above closes the screen once the entitlement lands.
-  }, [isBusy, purchase, refreshSubscription, selectedPackage]);
+  }, [isBusy, posthog, purchase, refreshSubscription, selectedPackage, selectedPlan]);
 
   const handleRestore = useCallback(async () => {
     if (isBusy) return;
@@ -129,13 +138,16 @@ export default function PaywallScreen() {
       Alert.alert('Restore failed', outcome.message);
       return;
     }
+    if (outcome.status === 'purchased') {
+      posthog.capture('subscription_restored', { entitlement_granted: outcome.isPro });
+    }
     if (outcome.status === 'purchased' && !outcome.isPro) {
       Alert.alert(
         'Nothing to restore',
         'We could not find an active Bookflow Pro subscription for this store account.',
       );
     }
-  }, [isBusy, restore]);
+  }, [isBusy, posthog, restore]);
 
   // `canPurchase` comes from the subscription context, which knows which store is configured —
   // App Store, Play Store or the development Test Store. A development build purchases normally on
