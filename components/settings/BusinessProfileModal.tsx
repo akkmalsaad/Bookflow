@@ -151,7 +151,7 @@ export function BusinessProfileModal({ visible, onClose }: Props) {
                   <Text style={[styles.modalEyebrow, { color: palette.accent }]}>Business</Text>
                   <Text style={[styles.modalTitle, { color: palette.text }]}>Edit business profile</Text>
                 </View>
-                <Pressable disabled={isSaving} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close business profile" style={[styles.closeButton, { backgroundColor: soft.inset }]}>
+                <Pressable disabled={isSaving} hitSlop={8} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close business profile" style={[styles.closeButton, { backgroundColor: soft.inset }]}>
                   <Ionicons name="close" size={22} color={palette.text} />
                 </Pressable>
               </View>

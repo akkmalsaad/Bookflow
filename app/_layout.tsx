@@ -16,6 +16,27 @@ import { AuthProvider, useAuth } from '@/context/auth-context';
 import { SubscriptionProvider } from '@/context/subscription-context';
 import { SnackbarProvider } from '@/context/snackbar-context';
 import { getThemePalette, ThemeProvider as AppThemeProvider, useTheme } from '@/context/theme-context';
+import { useResponsive } from '@/lib/responsive';
+import * as Sentry from '@sentry/react-native';
+
+Sentry.init({
+  dsn: 'https://7a8195f3ba780f8e273bf72bf039ac08@o4512021511274496.ingest.de.sentry.io/4512021521825872',
+
+  // Adds more context data to events (IP address, cookies, user, etc.)
+  // For more information, visit: https://docs.sentry.io/platforms/react-native/data-management/data-collected/
+  sendDefaultPii: true,
+
+  // Enable Logs
+  enableLogs: true,
+
+  // Configure Session Replay
+  replaysSessionSampleRate: 0.1,
+  replaysOnErrorSampleRate: 1,
+  integrations: [Sentry.mobileReplayIntegration(), Sentry.feedbackIntegration()],
+
+  // uncomment the line below to enable Spotlight (https://spotlightjs.com)
+  // spotlight: __DEV__,
+});
 
 const publishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY ?? "";
 
@@ -42,6 +63,7 @@ function AppShell() {
   const { isAuthenticated, isLoaded } = useAuth();
   const { isLoading: isDataLoading, loadError, reload, retrySync, syncError } = useAppData();
   const palette = getThemePalette(isDarkMode);
+  const { isPhone } = useResponsive();
 
   if (!isLoaded) {
     return null;
@@ -96,7 +118,12 @@ function AppShell() {
       {syncError ? (
         <View
           accessibilityLiveRegion="polite"
-          style={[styles.syncBanner, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+          style={[
+            styles.syncBanner,
+            // Left/right anchoring gives way to a centred, capped card once there is room to spare.
+            !isPhone && styles.syncBannerCapped,
+            { backgroundColor: palette.surface, borderColor: palette.border },
+          ]}>
           <Text style={[styles.syncBannerText, { color: palette.text }]}>Some changes haven’t synced.</Text>
           <Pressable accessibilityRole="button" hitSlop={8} onPress={retrySync}>
             <Text style={[styles.syncRetryText, { color: palette.accent }]}>Retry</Text>
@@ -155,6 +182,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
+  syncBannerCapped: {
+    left: undefined,
+    right: undefined,
+    alignSelf: 'center',
+    width: '100%',
+    maxWidth: 520,
+  },
   syncBannerText: {
     flex: 1,
     marginRight: 12,
@@ -167,7 +201,7 @@ const styles = StyleSheet.create({
   },
 });
 
-export default function RootLayout() {
+export default Sentry.wrap(function RootLayout() {
   const [showSplash, setShowSplash] = useState(true);
 
   useEffect(() => {
@@ -202,4 +236,4 @@ export default function RootLayout() {
       </ClerkProvider>
     </GestureHandlerRootView>
   );
-}
+});

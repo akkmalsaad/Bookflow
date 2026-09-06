@@ -12,6 +12,7 @@ import { useAppData, type BusinessProfile } from '@/context/app-data-context';
 import { useSnackbar } from '@/context/snackbar-context';
 import { useSubscription } from '@/context/subscription-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { useResponsive } from '@/lib/responsive';
 import {
   ACCENT_PRESETS,
   buildInvoiceRenderData,
@@ -48,6 +49,8 @@ export default function InvoiceCustomisationScreen() {
   const insets = useSafeAreaInsets();
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
+  // The preview is a page proof: it keeps a page's width instead of spanning the whole iPad.
+  const { readingStyle } = useResponsive();
   const soft = getSoftTokens(isDarkMode);
   const { showSnackbar } = useSnackbar();
   const { isPro } = useSubscription();
@@ -406,7 +409,7 @@ export default function InvoiceCustomisationScreen() {
 
       <Modal visible={showPreview} animationType="slide" onRequestClose={() => setShowPreview(false)}>
         <View style={[styles.previewScreen, { backgroundColor: palette.background }]}>
-          <View style={[styles.previewHeader, { paddingTop: insets.top + 8 }]}>
+          <View style={[styles.previewHeader, readingStyle, { paddingTop: insets.top + 8 }]}>
             <Text style={[styles.previewTitle, { color: palette.text }]}>Preview</Text>
             <Pressable
               accessibilityRole="button"
@@ -419,7 +422,7 @@ export default function InvoiceCustomisationScreen() {
           </View>
           <ScrollView
             style={styles.previewScroll}
-            contentContainerStyle={[styles.previewContent, { paddingBottom: insets.bottom + 40 }]}
+            contentContainerStyle={[styles.previewContent, readingStyle, { paddingBottom: insets.bottom + 40 }]}
             showsVerticalScrollIndicator={false}>
             <InvoicePreview data={preview} />
             <Text style={[styles.previewNote, { color: palette.muter }]}>

@@ -1,13 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import * as Haptics from 'expo-haptics';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { NotificationPermissionPrompt } from '@/components/NotificationPermissionPrompt';
+import { SuccessFeedback } from '@/components/feedback/SuccessFeedback';
 import { SectionHeader } from '@/components/SectionHeader';
 import { PriorityStack } from '@/components/PriorityStack';
+import { ResponsiveGrid } from '@/components/layout/ResponsiveGrid';
 import { StatCard } from '@/components/StatCard';
 import { StatusPill } from '@/components/StatusPill';
 import { getCurrencyFormatter, useAppData } from '@/context/app-data-context';
@@ -17,6 +18,7 @@ import { getThemePalette, useTheme } from '@/context/theme-context';
 import { getFinancialMetrics, getFinancialPeriodBounds } from '@/lib/financial-metrics';
 import { getNotificationPermissionStatus, syncTodayPriorityNotifications } from '@/lib/notifications';
 import { getInvoiceNumber } from '@/lib/invoice-numbering';
+import { useResponsive } from '@/lib/responsive';
 
 function getLocalDateKey(date: Date) {
   const year = date.getFullYear();
@@ -36,6 +38,8 @@ export default function HomeScreen() {
   const { bookings, customers, financeEntries, invoices, payments, reminders, notifications, currency, businessProfile, updateBookingStatus } = useAppData();
   const { showSnackbar } = useSnackbar();
   const palette = getThemePalette(isDarkMode);
+  // Phones get `null` here, so the dashboard renders exactly the layout it always has.
+  const { contentStyle, statColumnCount } = useResponsive();
   const unreadNotificationCount = notifications.filter((notification) => !notification.isOpened).length;
   const hasUnreadNotifications = unreadNotificationCount > 0;
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
@@ -56,17 +60,19 @@ export default function HomeScreen() {
   const upcomingDetail = nextBookingDate ? `Next: ${formatShortDate(nextBookingDate)}` : 'No bookings scheduled';
   const customerMap = new Map(customers.map((customer) => [customer.id, customer]));
 
+  const [showJobDone, setShowJobDone] = useState(false);
+
   /**
    * Marks a priority job done through the same booking-status writer the Calendar's Job Status
-   * sheet uses — there is one status mechanism, not two. The previous status is captured first so
-   * Undo restores exactly what was there rather than assuming 'Confirmed'.
+   * sheet uses — there is one status mechanism, not two. Success is confirmed with the same
+   * animation every other BookFlow save uses, which fires its own success haptic; only a failure
+   * still falls back to the snackbar.
    */
   const handleCompleteBooking = useCallback(
     (bookingId: string) => {
       const booking = bookings.find((item) => item.id === bookingId);
       if (!booking) return;
 
-      const previousStatus = booking.status;
       const result = updateBookingStatus(bookingId, 'Completed');
 
       if (!result.ok) {
@@ -74,20 +80,7 @@ export default function HomeScreen() {
         return;
       }
 
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-      showSnackbar({
-        message: 'Job completed',
-        tone: 'success',
-        action: {
-          label: 'Undo',
-          onPress: () => {
-            const undone = updateBookingStatus(bookingId, previousStatus);
-            if (!undone.ok) {
-              showSnackbar({ message: undone.error ?? 'The job could not be restored.', tone: 'danger' });
-            }
-          },
-        },
-      });
+      setShowJobDone(true);
     },
     [bookings, showSnackbar, updateBookingStatus],
   );
@@ -144,7 +137,7 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]}>
-      <ScrollView style={styles.screenScroll} contentContainerStyle={styles.content}>
+      <ScrollView style={styles.screenScroll} contentContainerStyle={[styles.content, contentStyle]}>
       <View style={styles.topHeader}>
         <View style={styles.headerLeft}>
           <View
@@ -233,7 +226,7 @@ export default function HomeScreen() {
         <SectionHeader icon="bar-chart-outline" title="Business snapshot" />
       </View>
 
-      <View style={styles.statsGrid}>
+      <ResponsiveGrid columns={statColumnCount} style={styles.statsGrid}>
         <StatCard
           label="Revenue"
           value={currencyFormatter.format(financialMetrics.revenue)}
@@ -265,7 +258,7 @@ export default function HomeScreen() {
           onPress={() => router.push('/expense')}
           accessibilityLabel="Open expense breakdown"
         />
-      </View>
+      </ResponsiveGrid>
 
       <View
         style={[
@@ -361,11 +354,25 @@ export default function HomeScreen() {
         onAllow={handleAllowNotifications}
         onDismiss={handleDismissNotificationPrompt}
       />
+      <Modal visible={showJobDone} transparent animationType="fade" onRequestClose={() => {}}>
+        <View style={styles.successBackdrop}>
+          <SuccessFeedback
+            visible={showJobDone}
+            title="Job completed"
+            onComplete={() => setShowJobDone(false)}
+          />
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  /** The same dim every other BookFlow success state is presented over. */
+  successBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.58)',
+  },
   screen: {
     flex: 1,
     overflow: 'hidden',
@@ -454,9 +461,6 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   statsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginHorizontal: -6,
     marginTop: 12,
     marginBottom: 10,
   },

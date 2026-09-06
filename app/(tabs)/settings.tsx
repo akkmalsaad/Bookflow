@@ -14,6 +14,7 @@ import { CURRENCY_OPTIONS, useAppData } from '@/context/app-data-context';
 import { useAuth } from '@/context/auth-context';
 import { useSubscription } from '@/context/subscription-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { useResponsive } from '@/lib/responsive';
 
 const APPEARANCE_LABELS = { system: 'System', light: 'Light', dark: 'Dark' } as const;
 
@@ -21,9 +22,10 @@ export default function SettingsScreen() {
   const router = useRouter();
   const { isDarkMode, themePreference } = useTheme();
   const { signOut, user, verifyPassword, deleteAccount } = useAuth();
-  const { packages, businessProfile, currency, deleteAllData, deleteWorkspace } = useAppData();
+  const { businessProfile, currency, deleteAllData, deleteWorkspace } = useAppData();
   const { isPro, isLoadingSubscription } = useSubscription();
   const palette = getThemePalette(isDarkMode);
+  const { readingStyle } = useResponsive();
   const soft = getSoftTokens(isDarkMode);
 
   const [showProfileEditor, setShowProfileEditor] = useState(false);
@@ -79,7 +81,7 @@ export default function SettingsScreen() {
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.scrollContent, readingStyle]}>
         <View style={styles.headerRow}>
           <View style={[styles.headerIcon, { backgroundColor: soft.surface, borderColor: soft.border, shadowColor: soft.shadow }]}>
             <Ionicons name="settings-outline" size={21} color={palette.accent} />
@@ -100,26 +102,14 @@ export default function SettingsScreen() {
           <SettingsRow
             icon="cube-outline"
             title="Services & packages"
-            subtitle={`${packages.length} ${packages.length === 1 ? 'service' : 'services'} available`}
+            subtitle="Services, pricing, duration & deposit"
             onPress={() => setShowServicesManager(true)}
-          />
-          <SettingsRow
-            icon="calendar-outline"
-            title="Booking defaults"
-            subtitle="Duration, deposit & reminders"
-            onPress={() => router.push('/settings/booking-defaults')}
           />
           <SettingsRow
             icon="receipt-outline"
             title="Invoice settings"
-            subtitle="Numbers, notes & payment terms"
+            subtitle="Numbers, payment terms & payment methods"
             onPress={() => router.push('/settings/invoice-settings')}
-          />
-          <SettingsRow
-            icon="wallet-outline"
-            title="Payment settings"
-            subtitle="Deposit & payment methods"
-            onPress={() => router.push('/settings/payment-settings')}
           />
         </SettingsSection>
 

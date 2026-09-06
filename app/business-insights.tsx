@@ -15,6 +15,7 @@ import { getSoftTokens } from '@/components/settings/tokens';
 import { getCompactCurrencyFormatter, useAppData } from '@/context/app-data-context';
 import { useSubscription } from '@/context/subscription-context';
 import { getThemePalette, useTheme, type AppPalette } from '@/context/theme-context';
+import { useResponsive } from '@/lib/responsive';
 import {
   calculateBusinessInsights,
   type BusinessInsightsMetrics,
@@ -40,6 +41,8 @@ export default function BusinessInsightsScreen() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
+  // Metric cards and charts, so this screen gets the wider card column rather than the reading one.
+  const { contentStyle } = useResponsive();
   const soft = getSoftTokens(isDarkMode);
   const { isLoadingSubscription, isPro } = useSubscription();
   const {
@@ -96,7 +99,7 @@ export default function BusinessInsightsScreen() {
 
   return (
     <SafeAreaView edges={['top', 'left', 'right']} style={[styles.screen, { backgroundColor: palette.background }]}>
-      <View style={styles.header}>
+      <View style={[styles.header, contentStyle]}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Back to Finance"
@@ -115,7 +118,7 @@ export default function BusinessInsightsScreen() {
         </View>
       </View>
 
-      <View style={styles.periodRow}>
+      <View style={[styles.periodRow, contentStyle]}>
         <InsightsPeriodSelector value={period} onChange={setPeriod} variant="flat" />
       </View>
 
@@ -137,7 +140,7 @@ export default function BusinessInsightsScreen() {
         </View>
       ) : (
         <ScrollView
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[styles.content, contentStyle]}
           showsVerticalScrollIndicator={false}
           contentInsetAdjustmentBehavior="automatic">
           <SectionCard
@@ -301,8 +304,9 @@ export default function BusinessInsightsScreen() {
               <SimpleMetric
                 icon="person-add-outline"
                 label="New Clients"
-                value="—"
-                footer="Creation date unavailable"
+                value={String(metrics.newClients)}
+                footer={changeLabel(metrics.newClientChange)}
+                footerColor={changeTone(metrics.newClientChange, palette)}
                 isDarkMode={isDarkMode}
               />
               <SimpleMetric
@@ -759,7 +763,7 @@ const styles = StyleSheet.create({
   periodRow: { alignItems: 'flex-end', paddingHorizontal: 20, paddingTop: 16 },
   pressed: { opacity: 0.7 },
 
-  content: { alignSelf: 'center', maxWidth: 900, paddingBottom: 40, paddingHorizontal: 20, paddingTop: 20, width: '100%' },
+  content: { alignSelf: 'center', paddingBottom: 40, paddingHorizontal: 20, paddingTop: 20, width: '100%' },
   loadingBody: { alignItems: 'center', flex: 1, justifyContent: 'center' },
   loadingText: { fontSize: 13, fontWeight: '600', marginTop: 12 },
   errorCard: {

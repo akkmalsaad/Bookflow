@@ -10,9 +10,19 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.akkmal.Bookflow",
+      "bundleIdentifier": "com.akkmal.bookflow.dev",
+      "usesAppleSignIn": false,
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "UISupportedInterfaceOrientations": [
+          "UIInterfaceOrientationPortrait"
+        ],
+        "UISupportedInterfaceOrientations~ipad": [
+          "UIInterfaceOrientationPortrait",
+          "UIInterfaceOrientationPortraitUpsideDown",
+          "UIInterfaceOrientationLandscapeLeft",
+          "UIInterfaceOrientationLandscapeRight"
+        ]
       }
     },
     "android": {
@@ -31,6 +41,7 @@
       "favicon": "./assets/images/Bookflow apps icon-fullbleed.png"
     },
     "plugins": [
+      "./plugins/withPersonalTeamSigning",
       "expo-router",
       [
         "expo-splash-screen",
@@ -55,7 +66,12 @@
         }
       ],
       "expo-secure-store",
-      "@clerk/expo",
+      [
+        "@clerk/expo",
+        {
+          "appleSignIn": false
+        }
+      ],
       "expo-web-browser",
       [
         "expo-image-picker",
@@ -63,6 +79,14 @@
           "photosPermission": "Allow Bookflow to access your photos so you can choose a business logo.",
           "cameraPermission": false,
           "microphonePermission": false
+        }
+      ],
+      [
+        "@sentry/react-native/expo",
+        {
+          "url": "https://sentry.io/",
+          "project": "bookflow",
+          "organization": "akkmal-saad"
         }
       ]
     ],

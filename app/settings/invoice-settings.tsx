@@ -10,10 +10,11 @@ import {
 } from '@/components/settings/SettingsDetailScreen';
 import { InvoiceSettingSheet, type InvoiceSettingField } from '@/components/settings/InvoiceSettingSheet';
 import { SettingsRow, SettingsSection } from '@/components/settings/SettingsList';
+import { paymentMethods } from '@/components/UpdatePaymentModal';
 import { useAppData } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 import { useSubscription } from '@/context/subscription-context';
-import { getInvoiceTemplate } from '@/lib/invoice-design';
+import { getInvoiceTemplate, normalizeBankDetails } from '@/lib/invoice-design';
 import { formatPaymentTerms, generateInvoiceNumber } from '@/lib/invoice-numbering';
 
 export default function InvoiceSettingsScreen() {
@@ -28,11 +29,20 @@ export default function InvoiceSettingsScreen() {
   const templateName = getInvoiceTemplate(invoiceSettings.design.templateId).name;
   const instructions = invoiceSettings.paymentInstructions.trim();
 
+  // Bank and DuitNow details live on the business profile and are edited on the customisation
+  // screen, which is also what prints them. This row summarises them so Payment is a complete
+  // picture without becoming a second place that owns the values.
+  const bank = normalizeBankDetails(businessProfile.paymentDetails);
+  const bankSummary = [bank.bankName, bank.accountNumber].map((value) => value.trim()).filter(Boolean).join(' · ');
+  const duitNowSummary = bank.duitNowId.trim() ? `DuitNow ${bank.duitNowId.trim()}` : '';
+  const paymentDetailsSubtitle =
+    [bankSummary, duitNowSummary].filter(Boolean).join(' · ') || 'Add your bank or DuitNow details';
+
   return (
     <SettingsDetailScreen
       eyebrow="Business"
       title="Invoice settings"
-      description="What appears on the invoices you send to customers.">
+      description="What appears on the invoices you send to customers, and how customers pay you.">
       <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter, marginTop: 0 }]}>Business details</Text>
       <SettingsInfoRow label="Business name" value={businessProfile.name || 'Not set'} />
       <SettingsInfoRow label="SSM registration no." value={businessProfile.ssmRegistrationNo || 'Not set'} />
@@ -40,17 +50,7 @@ export default function InvoiceSettingsScreen() {
       <SettingsInfoRow label="Email" value={businessProfile.email || 'Not set'} />
       <SettingsInfoRow label="Address" value={businessProfile.address || 'Not set'} />
 
-      <SettingsSection title="Invoice appearance">
-        <SettingsRow
-          icon="color-palette-outline"
-          title="Invoice customisation"
-          subtitle={`${templateName} template${isPro ? '' : ' · Pro templates available'}`}
-          value="PRO"
-          onPress={() => router.push('/settings/invoice-customisation')}
-        />
-      </SettingsSection>
-
-      <SettingsSection title="Invoice configuration">
+      <SettingsSection title="Invoice details">
         <SettingsRow
           icon="pricetag-outline"
           title="Invoice number format"
@@ -64,10 +64,36 @@ export default function InvoiceSettingsScreen() {
           onPress={() => setEditing('paymentTerms')}
         />
         <SettingsRow
+          icon="document-text-outline"
+          title="Invoice prefix & default notes"
+          subtitle="Prefix, terms & conditions and thank-you message"
+          onPress={() => router.push('/settings/invoice-customisation')}
+        />
+      </SettingsSection>
+
+      <SettingsSection title="Payment">
+        <SettingsRow
           icon="card-outline"
           title="Payment instructions"
           subtitle={instructions ? instructions.replace(/\s+/g, ' ') : 'Not set'}
           onPress={() => setEditing('paymentInstructions')}
+        />
+        <SettingsRow
+          icon="business-outline"
+          title="Bank & DuitNow details"
+          subtitle={paymentDetailsSubtitle}
+          onPress={() => router.push('/settings/invoice-customisation')}
+        />
+      </SettingsSection>
+      <SettingsInfoRow label="Payment methods you can record" value={paymentMethods.join(' · ')} />
+
+      <SettingsSection title="Invoice appearance">
+        <SettingsRow
+          icon="color-palette-outline"
+          title="Invoice customisation"
+          subtitle={`${templateName} template${isPro ? '' : ' · Pro templates available'}`}
+          value="PRO"
+          onPress={() => router.push('/settings/invoice-customisation')}
         />
       </SettingsSection>
 
@@ -82,8 +108,8 @@ export default function InvoiceSettingsScreen() {
       </SettingsSection>
 
       <SettingsNotice
-        title="Business details"
-        body="Business name, registration number, phone, email and address are managed under Business Profile and automatically included on invoices. The invoice defaults above — numbering, payment terms and payment instructions — are configured here and applied to new invoices. Each invoice keeps the details it was created with, so changing anything here never rewrites an invoice you have already sent."
+        title="How these settings apply"
+        body="Business name, registration number, phone, email and address are managed under Business Profile and automatically included on invoices. The defaults above — numbering, payment terms, payment instructions and bank details — are applied to new invoices. Each invoice keeps the details it was created with, so changing anything here never rewrites an invoice you have already sent. Deposits are set per booking from the service you choose, under Services & packages."
       />
 
       <InvoiceSettingSheet

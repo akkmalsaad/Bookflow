@@ -13,6 +13,7 @@ import { Customer, getCurrencyFormatter, Invoice, useAppData } from '@/context/a
 import { useSnackbar } from '@/context/snackbar-context';
 import { useSubscription } from '@/context/subscription-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { useResponsive } from '@/lib/responsive';
 import { getInvoiceRemovalAction, isInvoiceClosed } from '@/lib/invoice-lifecycle';
 import { getInvoicePaymentSummary } from '@/lib/invoice-payments';
 import { saveInvoiceAsPdf } from '@/lib/invoice-pdf';
@@ -65,6 +66,7 @@ export default function InvoiceAcceptanceScreen() {
   } = useAppData();
   const { showSnackbar } = useSnackbar();
   const palette = getThemePalette(isDarkMode);
+  const { readingStyle } = useResponsive();
   const [isSavingPdf, setIsSavingPdf] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
   const [depositInvoiceId, setDepositInvoiceId] = useState<string | null>(null);
@@ -221,7 +223,7 @@ export default function InvoiceAcceptanceScreen() {
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={[styles.content, readingStyle]} showsVerticalScrollIndicator={false}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Back to invoices"

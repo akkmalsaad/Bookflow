@@ -10,6 +10,7 @@ import { getSoftTokens } from '@/components/settings/tokens';
 import { getCompactCurrencyFormatter, useAppData } from '@/context/app-data-context';
 import { useSubscription } from '@/context/subscription-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { useResponsive } from '@/lib/responsive';
 import {
   calculateBusinessInsights,
   INSIGHTS_PERIODS,
@@ -26,6 +27,7 @@ export default function BookflowInsightsScreen() {
   const params = useLocalSearchParams<{ period?: string }>();
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
+  const { contentStyle } = useResponsive();
   const soft = getSoftTokens(isDarkMode);
   const { isLoadingSubscription, isPro } = useSubscription();
   const { financeEntries, bookings, customers, invoices, payments, currency } = useAppData();
@@ -86,7 +88,7 @@ export default function BookflowInsightsScreen() {
 
   return (
     <SafeAreaView edges={['top', 'left', 'right']} style={[styles.screen, { backgroundColor: palette.background }]}>
-      <View style={styles.header}>
+      <View style={[styles.header, contentStyle]}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Back to Business Insights"
@@ -107,12 +109,12 @@ export default function BookflowInsightsScreen() {
         </View>
       </View>
 
-      <View style={styles.periodRow}>
+      <View style={[styles.periodRow, contentStyle]}>
         <Text style={[styles.periodHint, { color: palette.muter }]}>Showing the same period across every insight</Text>
         <InsightsPeriodSelector value={period} onChange={setPeriod} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={[styles.content, contentStyle]} showsVerticalScrollIndicator={false}>
         <InsightGroup
           title="Needs Attention"
           subtitle="Time-sensitive changes and payment issues"

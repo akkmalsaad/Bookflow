@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { getSoftTokens } from '@/components/settings/tokens';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { useResponsive } from '@/lib/responsive';
 
 type Props = {
   /** Omit for a screen whose title already says everything the eyebrow would. */
@@ -26,10 +27,13 @@ export function SettingsDetailScreen({ eyebrow, title, description, children, fo
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
   const soft = getSoftTokens(isDarkMode);
+  // Settings detail screens are mostly rows, toggles and prose, so they use the narrower reading
+  // column rather than the full card column the dashboard gets.
+  const { readingStyle, isPhone } = useResponsive();
 
   return (
     <SafeAreaView edges={['top', 'left', 'right']} style={[styles.screen, { backgroundColor: palette.background }]}>
-      <View style={styles.header}>
+      <View style={[styles.header, readingStyle]}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Go back"
@@ -48,14 +52,18 @@ export function SettingsDetailScreen({ eyebrow, title, description, children, fo
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={[styles.content, readingStyle]} showsVerticalScrollIndicator={false}>
         {description ? <Text style={[styles.description, { color: palette.muter }]}>{description}</Text> : null}
         {children}
       </ScrollView>
 
       {footer ? (
-        <SafeAreaView edges={['bottom']} style={[styles.footer, { borderTopColor: soft.divider }]}>
-          {footer}
+        <SafeAreaView
+          edges={['bottom']}
+          // The band's own inset moves onto the inner column on tablets, so the two do not stack.
+          style={[styles.footer, !isPhone && styles.footerBleed, { borderTopColor: soft.divider }]}>
+          {/* The hairline stays edge to edge; only the control inside it follows the column. */}
+          <View style={readingStyle}>{footer}</View>
         </SafeAreaView>
       ) : null}
     </SafeAreaView>
@@ -234,6 +242,9 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 20,
     paddingTop: 14,
+  },
+  footerBleed: {
+    paddingHorizontal: 0,
   },
   notice: {
     borderRadius: 20,

@@ -4,6 +4,8 @@ import { Animated, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, Tex
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { SuccessFeedback } from '@/components/feedback/SuccessFeedback';
+import { useConfirmedSave } from '@/components/feedback/useConfirmedSave';
 import { Booking, getCurrencyFormatter, useAppData } from '@/context/app-data-context';
 import { SectionHeader } from '@/components/SectionHeader';
 import { JobStatusPill } from '@/components/booking/JobStatusPill';
@@ -19,7 +21,8 @@ import {
   normalizeBookingTime,
   parsePackageDurationMinutes,
 } from '@/lib/booking-conflicts';
-import { getInvoiceNumber } from '@/lib/invoice-numbering';
+import { getServiceDepositDefault, resolveServiceDepositAmount } from '@/lib/service-defaults';
+import { useResponsive } from '@/lib/responsive';
 
 const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const hourOptions = Array.from({ length: 12 }, (_, index) => index + 1);
@@ -160,6 +163,13 @@ function toIsoDate(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
+/** Renders a resolved deposit for the form; a service without one leaves the field empty. */
+function formatDepositDraft(amount: number | null) {
+  if (amount === null || amount <= 0) return '';
+  // Whole amounts lose the trailing .00 so the field reads the way the user would type it.
+  return Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
+}
+
 function formatDisplayDate(dateString: string) {
   const date = new Date(`${dateString}T00:00:00`);
   return new Intl.DateTimeFormat('en-GB', {
@@ -177,9 +187,13 @@ export default function BookingsScreen() {
   const { packages, bookings, customers, createBooking, updateBookingStatus, currency } = useAppData();
   const { showSnackbar } = useSnackbar();
   const palette = getThemePalette(isDarkMode);
+  // The schedule is a single column of text-heavy cards, so it uses the narrower reading column;
+  // the month grid is capped tighter still so a day cell never turns into a letterbox.
+  const { readingStyle, calendarStyle, sheetStyle, dayCellHeight } = useResponsive();
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const customerMap = new Map(customers.map((customer) => [customer.id, customer]));
   const [showComposer, setShowComposer] = useState(false);
+  const feedback = useConfirmedSave(showComposer);
   const [draftNotes, setDraftNotes] = useState('');
   const [selectedCustomerId, setSelectedCustomerId] = useState(customers[0]?.id ?? '');
   const [customerMode, setCustomerMode] = useState<'existing' | 'new'>(customers.length ? 'existing' : 'new');
@@ -192,6 +206,10 @@ export default function BookingsScreen() {
   const [selectedPackageId, setSelectedPackageId] = useState(packages[0]?.id ?? '');
   const [showPackageDropdown, setShowPackageDropdown] = useState(false);
   const [draftPrice, setDraftPrice] = useState(String(packages[0]?.price ?? 0));
+  const [draftDeposit, setDraftDeposit] = useState('');
+  // Mirrors isEndTimeManual: once the deposit is typed by hand it stops tracking the service and
+  // the price, until a different service is chosen.
+  const [isDepositManual, setIsDepositManual] = useState(false);
   const [draftStartTime, setDraftStartTime] = useState('10:00');
   const [draftEndTime, setDraftEndTime] = useState('11:00');
   // Once the finish time is dialled in by hand it stops following the package, until it is reset.
@@ -234,7 +252,7 @@ export default function BookingsScreen() {
     const searchTerm = customerQuery.trim().toLowerCase();
     if (!searchTerm) return true;
     return customer.name.toLowerCase().includes(searchTerm) || customer.email.toLowerCase().includes(searchTerm);
-  }).slice(0, 8);
+  });
 
   useEffect(() => {
     Animated.timing(dropdownAnim, {
@@ -281,6 +299,8 @@ export default function BookingsScreen() {
     setSelectedPackageId(packages[0].id);
     setShowPackageDropdown(false);
     setDraftPrice(String(packages[0].price));
+    setDraftDeposit(formatDepositDraft(resolveServiceDepositAmount(packages[0], packages[0].price)));
+    setIsDepositManual(false);
     setDraftStartTime('10:00');
     setDraftEndTime(getPackageEndTime('10:00', parsePackageDurationMinutes(packages[0].duration)));
     setIsEndTimeManual(false);
@@ -307,13 +327,28 @@ export default function BookingsScreen() {
 
   const handlePackageSelection = (packageId: string) => {
     const chosenPackage = packages.find((item) => item.id === packageId);
+    const nextPrice = chosenPackage?.price ?? 0;
     setSelectedPackageId(packageId);
-    setDraftPrice(String(chosenPackage?.price ?? 0));
+    setDraftPrice(String(nextPrice));
     if (!isEndTimeManual) {
       setDraftEndTime(getPackageEndTime(draftStartTime, parsePackageDurationMinutes(chosenPackage?.duration)));
     }
+    // Deliberately choosing another service re-fills the deposit even after a manual edit, which is
+    // the one case where overwriting what was typed is what the user is asking for.
+    setDraftDeposit(formatDepositDraft(resolveServiceDepositAmount(chosenPackage, nextPrice)));
+    setIsDepositManual(false);
     setShowPackageDropdown(false);
   };
+
+  // Says where the prefilled figure came from, and stays honest once it has been overridden.
+  const serviceDeposit = getServiceDepositDefault(selectedPackage);
+  const depositHint = isDepositManual
+    ? 'Saved with this booking only.'
+    : serviceDeposit
+      ? serviceDeposit.type === 'percent'
+        ? `${serviceDeposit.value}% default from ${selectedPackage?.name ?? 'this service'}. Editable.`
+        : `Default from ${selectedPackage?.name ?? 'this service'}. Editable.`
+      : 'This service has no default deposit. Leave blank or enter one.';
 
   const statusBooking = bookings.find((item) => item.id === statusBookingId) ?? null;
 
@@ -372,7 +407,7 @@ export default function BookingsScreen() {
     setShowPackageDropdown(false);
   };
 
-  const handleAddBooking = () => {
+  const handleAddBooking = () => feedback.run(() => {
     const numericPrice = Number(draftPrice);
     const isNewCustomerValid = Boolean(newCustomerName.trim());
     const hasValidCustomer = customerMode === 'existing' ? Boolean(selectedCustomerId) : isNewCustomerValid;
@@ -382,7 +417,7 @@ export default function BookingsScreen() {
 
     if (!selectedPackage || !hasValidCustomer || Number.isNaN(numericPrice) || numericPrice <= 0 || !startTime || !endTime || !hasValidTimeRange) {
       setFormError('Choose a package and add valid customer, price, start time, and later finish time.');
-      return;
+      return false;
     }
 
     const conflictingBooking = findBookingTimeConflict(bookings, selectedDate, startTime, endTime);
@@ -395,7 +430,19 @@ export default function BookingsScreen() {
       setFormError(
         `Time unavailable. ${conflictingBooking.title} is already booked on ${formatDisplayDate(selectedDate)} from ${conflictTime}. Choose a non-overlapping time.`,
       );
-      return;
+      return false;
+    }
+
+    // Blank means no deposit, which is a perfectly normal booking — only a typed value is checked.
+    const trimmedDeposit = draftDeposit.trim();
+    const numericDeposit = trimmedDeposit ? Number(trimmedDeposit) : 0;
+    if (trimmedDeposit && (Number.isNaN(numericDeposit) || numericDeposit < 0)) {
+      setFormError('Enter a deposit amount of zero or more, or leave it blank.');
+      return false;
+    }
+    if (numericDeposit > numericPrice) {
+      setFormError('The deposit cannot be more than the booking price.');
+      return false;
     }
 
     const result = createBooking({
@@ -415,26 +462,33 @@ export default function BookingsScreen() {
       location: draftLocation.trim() || 'Client location',
       packageName: selectedPackage.name,
       price: numericPrice,
+      // The value finally on the form, not the service's — editing the service later must never
+      // reach back into this booking.
+      depositAmount: numericDeposit > 0 ? numericDeposit : undefined,
       status: 'Inquiry',
       notes: draftNotes.trim() || 'New booking created from quick add.',
     });
 
     if (!result) {
       setFormError('The booking could not be saved. Check the customer and booking details.');
-      return;
+      return false;
     }
 
+    return true;
+  });
+
+  const completeBooking = () => {
     setShowComposer(false);
     setActiveTimePicker(null);
     setDraftNotes('');
     setCustomerQuery('');
     setShowCustomerDropdown(false);
-    setDraftPrice(String(selectedPackage.price));
+    if (selectedPackage) {
+      setDraftPrice(String(selectedPackage.price));
+      setDraftDeposit(formatDepositDraft(resolveServiceDepositAmount(selectedPackage, selectedPackage.price)));
+    }
+    setIsDepositManual(false);
     setFormError('');
-    showSnackbar({
-      message: `Booking saved · draft invoice ${getInvoiceNumber(result.invoice)} created`,
-      tone: 'success',
-    });
   };
 
   const flatListData: (Booking | { readonly id: 'empty-state'; readonly __empty: true })[] = selectedDayBookings.length > 0
@@ -470,13 +524,23 @@ export default function BookingsScreen() {
               </Pressable>
             </View>
 
-            <View style={[styles.calendarCard, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
+            <View style={[styles.calendarCard, calendarStyle, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
               <View style={styles.monthHeader}>
-                <Pressable onPress={goToPreviousMonth} style={[styles.arrowButton, { backgroundColor: softInset, borderColor: softBorder }]}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Previous month"
+                  hitSlop={8}
+                  onPress={goToPreviousMonth}
+                  style={[styles.arrowButton, { backgroundColor: softInset, borderColor: softBorder }]}>
                   <Ionicons name="chevron-back" size={18} color={palette.text} />
                 </Pressable>
                 <Text style={[styles.monthLabel, { color: palette.text }]}>{monthLabel}</Text>
-                <Pressable onPress={goToNextMonth} style={[styles.arrowButton, { backgroundColor: softInset, borderColor: softBorder }]}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Next month"
+                  hitSlop={8}
+                  onPress={goToNextMonth}
+                  style={[styles.arrowButton, { backgroundColor: softInset, borderColor: softBorder }]}>
                   <Ionicons name="chevron-forward" size={18} color={palette.text} />
                 </Pressable>
               </View>
@@ -500,6 +564,7 @@ export default function BookingsScreen() {
                       key={`${cell.dateKey}-cell`}
                       style={[
                         styles.dayCell,
+                        { height: dayCellHeight },
                         cell.isCurrentMonth ? { backgroundColor: softSurface } : { backgroundColor: softInset, opacity: 0.52 },
                         isSelected && { backgroundColor: palette.accent, shadowColor: palette.accent, shadowOpacity: 0.22, elevation: 3 },
                         isToday && { borderWidth: 2, borderColor: isSelected ? '#FFFFFF' : palette.accent },
@@ -592,30 +657,33 @@ export default function BookingsScreen() {
             </View>
           );
         }}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[styles.listContent, readingStyle]}
       />
 
-      <Modal visible={showComposer} transparent animationType="slide" onRequestClose={() => setShowComposer(false)}>
+      <Modal visible={showComposer} transparent animationType="slide" onRequestClose={() => { if (!feedback.saving && !feedback.success) setShowComposer(false); }}>
         <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
+          <View style={[styles.modalCard, sheetStyle, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }, feedback.success && { display: 'none' }]}>
             <View style={[styles.modalHandle, { backgroundColor: palette.border }]} />
-            <View style={styles.modalHeader}>
+            <View accessibilityElementsHidden={feedback.success} importantForAccessibility={feedback.success ? 'no-hide-descendants' : 'auto'} style={styles.modalHeader}>
               <View>
                 <Text style={[styles.modalEyebrow, { color: palette.accent }]}>Create</Text>
                 <Text style={[styles.modalTitle, { color: palette.text }]}>New booking</Text>
               </View>
-              <Pressable onPress={() => setShowComposer(false)} style={[styles.closeButton, { backgroundColor: softInset }]}>
+              <Pressable disabled={feedback.saving || feedback.success} hitSlop={8} onPress={() => setShowComposer(false)} style={[styles.closeButton, { backgroundColor: softInset }]}>
                 <Ionicons name="close" size={24} color={palette.text} />
               </Pressable>
             </View>
 
             <ScrollView
+              accessibilityElementsHidden={feedback.success}
+              importantForAccessibility={feedback.success ? 'no-hide-descendants' : 'auto'}
               {...modalScrollProps}
               // The wheels own every vertical gesture while a picker is open, so the form behind
               // them cannot scroll out from under the finger.
               scrollEnabled={!isTimePickerOpen}
               contentContainerStyle={styles.modalScrollContent}>
 
+            <View pointerEvents={feedback.pending ? 'none' : 'auto'}>
             <Text style={[styles.fieldLabel, { color: palette.muter }]}>Package</Text>
             <Pressable
               accessibilityRole="button"
@@ -802,12 +870,37 @@ export default function BookingsScreen() {
             <Text style={[styles.fieldLabel, { color: palette.muter }]}>Price</Text>
             <TextInput
               value={draftPrice}
-              onChangeText={setDraftPrice}
+              onChangeText={(value) => {
+                setDraftPrice(value);
+                // A percentage deposit follows the price it is a percentage of, right up until the
+                // deposit is typed by hand.
+                if (!isDepositManual) {
+                  setDraftDeposit(formatDepositDraft(resolveServiceDepositAmount(selectedPackage, Number(value))));
+                }
+              }}
               keyboardType="numeric"
               placeholder="0"
               placeholderTextColor={palette.muter}
               style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
             />
+
+            <Text style={[styles.fieldLabel, { color: palette.muter }]}>Deposit</Text>
+            <TextInput
+              value={draftDeposit}
+              onChangeText={(value) => {
+                setDraftDeposit(value);
+                setIsDepositManual(true);
+                setFormError('');
+              }}
+              keyboardType="numeric"
+              placeholder="Optional"
+              placeholderTextColor={palette.muter}
+              accessibilityLabel="Deposit amount"
+              style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
+            />
+            <Text style={[styles.depositHint, { color: palette.muter }]}>
+              {depositHint}
+            </Text>
 
             <Text style={[styles.fieldLabel, { color: palette.muter }]}>Event date</Text>
             <TextInput
@@ -965,13 +1058,15 @@ export default function BookingsScreen() {
               <Text style={[styles.invoiceNoticeText, { color: palette.text }]}>A draft invoice will be created automatically from this booking.</Text>
             </View>
 
-            {formError ? <Text style={styles.formError}>{formError}</Text> : null}
+            </View>
+            {formError || feedback.error ? <Text accessibilityRole="alert" style={styles.formError}>{feedback.error || formError}</Text> : null}
 
-            <Pressable style={[styles.submitButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]} onPress={handleAddBooking}>
-              <Text style={styles.submitButtonText}>Save booking &amp; create invoice</Text>
+            <Pressable style={[styles.submitButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]} disabled={feedback.saving || feedback.success} onPress={handleAddBooking}>
+              <Text style={styles.submitButtonText}>{feedback.saving ? 'Saving…' : feedback.pending ? 'Retry save' : 'Save booking & create invoice'}</Text>
             </Pressable>
             </ScrollView>
           </View>
+          <SuccessFeedback visible={feedback.success} title="Booking created" message="The booking has been added to your schedule." onComplete={completeBooking} />
 
           <KeyboardDoneButton />
         </View>
@@ -1228,6 +1323,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexShrink: 1,
     marginRight: 10,
+  },
+  depositHint: {
+    fontSize: 11.5,
+    fontWeight: '500',
+    lineHeight: 16,
+    marginTop: 6,
   },
   amount: {
     // Shrinks with the price row so a long amount and the status pill can share a narrow card.

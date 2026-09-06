@@ -7,6 +7,7 @@ import { Animated, Easing, Platform, StyleSheet, View, useWindowDimensions } fro
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useTheme } from '@/context/theme-context';
+import { useResponsive } from '@/lib/responsive';
 
 type TabIconName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -75,6 +76,7 @@ export default function TabLayout() {
   const { isDarkMode } = useTheme();
   const insets = useSafeAreaInsets();
   const { width: screenWidth } = useWindowDimensions();
+  const { tabBarMaxWidth } = useResponsive();
 
   const tabSceneStyleInterpolator = React.useCallback(
     ({ current }: { current: { progress: Animated.AnimatedInterpolation<number> } }) => ({
@@ -112,7 +114,13 @@ export default function TabLayout() {
 
   const safeBottomOffset = Math.max(10, insets.bottom);
   const safeHorizontalOffset = Math.max(20, Math.max(insets.left, insets.right) + 12);
-  const safeTabBarWidth = Math.max(0, screenWidth - safeHorizontalOffset * 2);
+  // Phones keep the full inset-to-inset bar. On a tablet the bar stops growing and centres, so six
+  // icons are not strung out across 1366pt with the reachable middle left empty.
+  const safeTabBarWidth = Math.min(
+    Math.max(0, screenWidth - safeHorizontalOffset * 2),
+    tabBarMaxWidth,
+  );
+  const tabBarSideMargin = Math.max(safeHorizontalOffset, (screenWidth - safeTabBarWidth) / 2);
 
   return (
     <Tabs
@@ -141,7 +149,7 @@ export default function TabLayout() {
         tabBarStyle: {
           position: 'absolute',
           width: safeTabBarWidth,
-          marginHorizontal: safeHorizontalOffset,
+          marginHorizontal: tabBarSideMargin,
           bottom: safeBottomOffset,
           height: 68,
           paddingTop: 8,

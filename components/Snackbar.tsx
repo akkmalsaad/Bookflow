@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { getSoftTokens } from '@/components/settings/tokens';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { useResponsive } from '@/lib/responsive';
 
 export type SnackbarTone = 'default' | 'success' | 'danger';
 
@@ -39,6 +40,7 @@ export function Snackbar({ message, tone = 'default', action, onDismiss }: Props
   const palette = getThemePalette(isDarkMode);
   const soft = getSoftTokens(isDarkMode);
   const insets = useSafeAreaInsets();
+  const { isPhone } = useResponsive();
   const opacity = useRef(new Animated.Value(0)).current;
   // Starts above its resting place so the notification drops in from the top of the screen.
   const translateY = useRef(new Animated.Value(-12)).current;
@@ -65,6 +67,8 @@ export function Snackbar({ message, tone = 'default', action, onDismiss }: Props
       <View
         style={[
           styles.card,
+          // A toast spanning a 1366pt screen reads as a banner; on tablets it stays a card.
+          !isPhone && styles.cardCapped,
           { backgroundColor: soft.surface, borderColor: soft.border, shadowColor: soft.shadow },
         ]}>
         <Ionicons name={TONE_ICONS[tone]} size={18} color={accent} />
@@ -101,6 +105,11 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 16,
     zIndex: 30,
+  },
+  cardCapped: {
+    alignSelf: 'center',
+    maxWidth: 520,
+    width: '100%',
   },
   card: {
     alignItems: 'center',

@@ -37,6 +37,7 @@ export function ServiceFormModal({ visible, service, onClose, onSubmit }: Props)
           accessibilityRole="button"
           accessibilityLabel={isEdit ? 'Close service editor' : 'Close new service form'}
           onPress={onClose}
+          hitSlop={8}
           style={[styles.closeButton, { backgroundColor: soft.inset }]}>
           <Ionicons name="close" size={22} color={palette.text} />
         </Pressable>

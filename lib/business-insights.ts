@@ -62,7 +62,8 @@ export type BusinessInsightsMetrics = {
   bookingChange: number | null;
   completedBookings: number;
   completionRate: number | null;
-  newClients: null;
+  newClients: number;
+  newClientChange: number | null;
   repeatClients: number;
   repeatClientRate: number | null;
   averageBookingValue: number | null;
@@ -129,6 +130,16 @@ export function getInsightsBounds(period: InsightsPeriod, now = new Date()): Ins
 
 function isWithin(value: string | undefined, start: string, end: string) {
   return isWithinFinancialBounds(value, { start, end });
+}
+
+function getCreatedDate(record: { id: string; createdAt?: string }) {
+  if (record.createdAt) return record.createdAt;
+
+  const timestamp = Number(record.id.match(/(?:^|-)(\d{13})(?:-|$)/)?.[1]);
+  if (!Number.isFinite(timestamp)) return undefined;
+
+  const date = new Date(timestamp);
+  return Number.isNaN(date.getTime()) ? undefined : dateKey(date);
 }
 
 function isOnOrBefore(value: string | undefined, end: string) {
@@ -221,15 +232,28 @@ export function calculateBusinessInsights({
   const outstanding = currentFinancials.outstanding;
   const overdue = overdueInvoices.reduce((total, item) => total + item.balance, 0);
 
-  const periodBookings = bookings.filter(
-    (booking) => booking.status !== 'Cancelled' && isWithin(booking.date, bounds.start, bounds.end),
+  // Booking performance is acquisition activity, so it follows the date the booking was made—not
+  // the event date, which may be months in the future. Timestamp-based legacy ids are a safe
+  // fallback for workspaces created before `createdAt` was stored explicitly.
+  const validBookings = bookings.filter((booking) => booking.status !== 'Cancelled');
+  const periodBookings = validBookings.filter((booking) =>
+    isWithin(getCreatedDate(booking), bounds.start, bounds.end),
   );
-  const previousBookings = bookings.filter(
-    (booking) => booking.status !== 'Cancelled' && isWithin(booking.date, bounds.previousStart, bounds.previousEnd),
+  const previousBookings = validBookings.filter((booking) =>
+    isWithin(getCreatedDate(booking), bounds.previousStart, bounds.previousEnd),
   );
   const completedBookings = periodBookings.filter((booking) => booking.status === 'Completed').length;
   const bookingsPerClient = groupAmounts(periodBookings, (booking) => booking.customerId, () => 1);
-  const repeatClients = Array.from(bookingsPerClient.values()).filter((count) => count > 1).length;
+  const allBookingsPerClient = groupAmounts(validBookings, (booking) => booking.customerId, () => 1);
+  const repeatClients = Array.from(bookingsPerClient.keys()).filter(
+    (customerId) => (allBookingsPerClient.get(customerId) ?? 0) > 1,
+  ).length;
+  const periodClients = customers.filter((customer) =>
+    isWithin(getCreatedDate(customer), bounds.start, bounds.end),
+  );
+  const previousClients = customers.filter((customer) =>
+    isWithin(getCreatedDate(customer), bounds.previousStart, bounds.previousEnd),
+  );
 
   // Booking-linked revenue must come from explicit payment records. Manual ledger income cannot be
   // attributed to a booking without guessing, so it remains part of revenue but not service/client metrics.
@@ -282,6 +306,7 @@ export function calculateBusinessInsights({
   const expenseChange = percentageChange(expenses, previousExpenses);
   const profitChange = percentageChange(profit, previousProfit);
   const bookingChange = percentageChange(periodBookings.length, previousBookings.length);
+  const newClientChange = percentageChange(periodClients.length, previousClients.length);
   const insights: BusinessInsight[] = [];
 
   if (overdue > 0) {
@@ -344,7 +369,11 @@ export function calculateBusinessInsights({
 
   return {
     bounds,
-    hasData: currentEntries.length > 0 || periodBookings.length > 0 || periodInvoices.length > 0,
+    hasData:
+      currentEntries.length > 0 ||
+      periodBookings.length > 0 ||
+      periodClients.length > 0 ||
+      periodInvoices.length > 0,
     revenue,
     expenses,
     profit,
@@ -359,7 +388,8 @@ export function calculateBusinessInsights({
     bookingChange,
     completedBookings,
     completionRate: periodBookings.length ? percentage(completedBookings, periodBookings.length) : null,
-    newClients: null,
+    newClients: periodClients.length,
+    newClientChange,
     repeatClients,
     repeatClientRate: bookingsPerClient.size ? percentage(repeatClients, bookingsPerClient.size) : null,
     averageBookingValue: applicableBookingIds.size ? attributableRevenue / applicableBookingIds.size : null,

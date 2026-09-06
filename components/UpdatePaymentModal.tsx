@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { SuccessFeedback } from '@/components/feedback/SuccessFeedback';
+import { useConfirmedSave } from '@/components/feedback/useConfirmedSave';
 import { DatePickerField } from '@/components/DatePickerField';
 import {
   CurrencyAmountInput,
@@ -41,7 +43,8 @@ export function UpdatePaymentModal({ invoiceId, onClose, onSaved }: Props) {
   const [date, setDate] = useState(todayKey);
   const [notes, setNotes] = useState('');
   const [error, setError] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
+  const feedback = useConfirmedSave(invoiceId !== null);
+  const savedAmount = useRef(0);
   const paymentActionIdRef = useRef('');
 
   useEffect(() => {
@@ -52,7 +55,6 @@ export function UpdatePaymentModal({ invoiceId, onClose, onSaved }: Props) {
     setDate(todayKey());
     setNotes('');
     setError('');
-    setIsSaving(false);
     paymentActionIdRef.current = `payment-action-${invoice.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     // Re-seed only when a different invoice opens the modal.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -77,21 +79,20 @@ export function UpdatePaymentModal({ invoiceId, onClose, onSaved }: Props) {
     );
   };
 
-  const handleSave = () => {
-    if (!invoice || isSaving) return;
+  const handleSave = () => feedback.run(() => {
+    if (!invoice) return false;
 
     const parsed = parseAmountInput(amount);
     if (parsed === null) {
       setError('Enter a payment amount greater than zero.');
-      return;
+      return false;
     }
 
     if (toCents(parsed) > outstandingCents) {
       setError(`The payment cannot exceed the ${currencyFormatter.format(summary?.outstanding ?? 0)} outstanding.`);
-      return;
+      return false;
     }
 
-    setIsSaving(true);
     const result = recordInvoicePayment({
       invoiceId: invoice.id,
       amount: parsed,
@@ -100,16 +101,15 @@ export function UpdatePaymentModal({ invoiceId, onClose, onSaved }: Props) {
       notes,
       sourceId: paymentActionIdRef.current,
     });
-    setIsSaving(false);
 
     if (!result.ok) {
       setError(result.error ?? 'The payment could not be recorded.');
-      return;
+      return false;
     }
 
-    onSaved?.(parsed);
-    onClose();
-  };
+    savedAmount.current = parsed;
+    return true;
+  });
 
   return (
     <PaymentModalShell
@@ -117,8 +117,13 @@ export function UpdatePaymentModal({ invoiceId, onClose, onSaved }: Props) {
       eyebrow="Payment received"
       title="Update payment"
       description="Record a payment received for this invoice. The remaining balance updates automatically."
-      primaryLabel={isSaving ? 'Saving…' : 'Save payment'}
-      primaryDisabled={isSaving}
+      primaryLabel={feedback.saving ? 'Saving…' : feedback.pending ? 'Retry save' : 'Save payment'}
+      primaryDisabled={feedback.saving || feedback.success}
+      closeDisabled={feedback.saving || feedback.success}
+      formDisabled={feedback.pending}
+      saveError={feedback.error}
+      feedbackActive={feedback.success}
+      feedback={<SuccessFeedback visible={feedback.success} title="Payment recorded" message="Invoice balance has been updated." onComplete={() => { onSaved?.(savedAmount.current); onClose(); }} />}
       onPrimary={handleSave}
       onClose={onClose}
       palette={palette}
@@ -166,7 +171,7 @@ export function UpdatePaymentModal({ invoiceId, onClose, onSaved }: Props) {
         palette={palette}
         value={amount}
       />
-      {error ? <Text style={[paymentModalStyles.error, { color: palette.danger }]}>{error}</Text> : null}
+      {error ? <Text accessibilityRole="alert" style={[paymentModalStyles.error, { color: palette.danger }]}>{error}</Text> : null}
 
       <PaymentBalanceRow
         label="Remaining after payment"

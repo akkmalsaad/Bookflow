@@ -1,4 +1,5 @@
 import { normalizeInvoiceDesign } from '@/lib/invoice-design';
+import { normalizeServiceDeposit } from '@/lib/service-defaults';
 
 import type {
   Booking,
@@ -176,6 +177,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 const str = (value: unknown, fallback = '') => (typeof value === 'string' ? value : fallback);
 const num = (value: unknown, fallback = 0) => (typeof value === 'number' && Number.isFinite(value) ? value : fallback);
 const optionalStr = (value: unknown) => (typeof value === 'string' ? value : undefined);
+/** Drops zero and anything unusable, so an absent amount stays absent rather than becoming 0. */
+const optionalPositiveNum = (value: unknown) =>
+  typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
 const nullableStr = (value: unknown) =>
   typeof value === 'string' ? value : value === null ? null : undefined;
 
@@ -202,6 +206,8 @@ const SANITIZERS = {
       duration: str(value.duration),
       price: num(value.price),
       info: str(value.info),
+      // Optional pair: a file written before service deposits existed simply yields neither field.
+      ...normalizeServiceDeposit(value.defaultDepositType, value.defaultDepositValue),
     };
   },
   customers: (value: Record<string, unknown>): Customer | null => {
@@ -231,6 +237,7 @@ const SANITIZERS = {
       location: str(value.location),
       packageName: str(value.packageName),
       price: num(value.price),
+      depositAmount: optionalPositiveNum(value.depositAmount),
       status: BOOKING_STATUSES.includes(status) ? status : 'Inquiry',
       notes: str(value.notes),
     };

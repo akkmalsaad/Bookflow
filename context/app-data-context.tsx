@@ -23,6 +23,7 @@ import {
   type InvoiceBankDetails,
   type InvoiceDesign,
 } from '@/lib/invoice-design';
+import { normalizeServiceDeposit, type ServiceDepositType } from '@/lib/service-defaults';
 import {
   mergeWorkspaceBackup,
   type BookflowBackup,
@@ -34,9 +35,19 @@ export type PackageOption = {
   id: string;
   name: string;
   details: string;
+  /** Free text ("8 hours"); parsed by parsePackageDurationMinutes where a length is needed. */
   duration: string;
   price: number;
   info: string;
+  /**
+   * Default deposit for bookings created from this service. Both fields are optional and always
+   * move together — a service saved before deposits existed simply has neither, and keeps working.
+   *
+   * These only ever *prefill* a new booking. Editing them never touches a booking or invoice that
+   * already exists.
+   */
+  defaultDepositType?: ServiceDepositType;
+  defaultDepositValue?: number;
 };
 
 export type BusinessProfile = {
@@ -65,6 +76,8 @@ export type BusinessLogoUpload = {
 
 export type Customer = {
   id: string;
+  /** Local calendar date when this client was added, used by period-based insights. */
+  createdAt?: string;
   name: string;
   email: string;
   phone: string;
@@ -74,6 +87,8 @@ export type Customer = {
 
 export type Booking = {
   id: string;
+  /** Local calendar date when this booking was created, separate from its future event date. */
+  createdAt?: string;
   customerId: string;
   title: string;
   date: string;
@@ -83,6 +98,14 @@ export type Booking = {
   location: string;
   packageName: string;
   price: number;
+  /**
+   * The deposit agreed for this job, copied from the service's default at creation and editable on
+   * the form. It is what the customer *owes* up front — money actually received is still an
+   * InvoicePayment with kind 'deposit', and the two must not be confused.
+   *
+   * Optional: bookings made before this existed, and jobs with no deposit, simply omit it.
+   */
+  depositAmount?: number;
   /**
    * The job's own lifecycle, deliberately separate from Invoice['status'] (invoice state) and from
    * the InvoicePayment records (payment state). Nothing about billing belongs in here.
@@ -303,6 +326,8 @@ type AppDataContextValue = {
   syncError: string | null;
   reload: () => void;
   retrySync: () => void;
+  /** Resolves only after the next workspace snapshot is acknowledged by Supabase. */
+  confirmWorkspaceSave: () => Promise<void>;
   packages: PackageOption[];
   customers: Customer[];
   bookings: Booking[];
@@ -430,6 +455,26 @@ function getInvoiceDueDate(eventDate: string) {
 
 function getLocalTodayKey(date = new Date()) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function getCreationDateFromId(id: string) {
+  const timestamp = Number(id.match(/(?:^|-)(\d{13})(?:-|$)/)?.[1]);
+  if (!Number.isFinite(timestamp)) return undefined;
+
+  const date = new Date(timestamp);
+  return Number.isNaN(date.getTime()) ? undefined : getLocalTodayKey(date);
+}
+
+function normalizeCustomerCreationDates(customers: Customer[]) {
+  return customers.map((customer) =>
+    customer.createdAt ? customer : { ...customer, createdAt: getCreationDateFromId(customer.id) },
+  );
+}
+
+function normalizeBookingCreationDates(bookings: Booking[]) {
+  return bookings.map((booking) =>
+    booking.createdAt ? booking : { ...booking, createdAt: getCreationDateFromId(booking.id) },
+  );
 }
 
 /**
@@ -676,7 +721,12 @@ function parseWorkspace(value: Json, user: AuthUser): PersistedAppData {
   const profile = data.businessProfile;
   const currency = data.currency;
   const parsedInvoices = Array.isArray(data.invoices) ? (data.invoices as Invoice[]) : fallback.invoices;
-  const parsedCustomers = Array.isArray(data.customers) ? (data.customers as Customer[]) : fallback.customers;
+  const parsedCustomers = normalizeCustomerCreationDates(
+    Array.isArray(data.customers) ? (data.customers as Customer[]) : fallback.customers,
+  );
+  const parsedBookings = normalizeBookingCreationDates(
+    Array.isArray(data.bookings) ? (data.bookings as Booking[]) : fallback.bookings,
+  );
   const parsedPayments = migrateInvoicePayments(
     parsedInvoices,
     Array.isArray(data.payments) ? (data.payments as InvoicePayment[]) : [],
@@ -690,7 +740,7 @@ function parseWorkspace(value: Json, user: AuthUser): PersistedAppData {
     version: 1,
     packages: Array.isArray(data.packages) ? (data.packages as PackageOption[]) : fallback.packages,
     customers: parsedCustomers,
-    bookings: Array.isArray(data.bookings) ? (data.bookings as Booking[]) : fallback.bookings,
+    bookings: parsedBookings,
     invoices: parsedInvoices,
     payments: parsedPayments,
     financeEntries: reconcileInvoicePaymentFinanceEntries(
@@ -744,6 +794,25 @@ function needsFinanceSourceMigration(value: Json) {
     const entry = value as Partial<FinanceEntry>;
     return !entry.sourceType || !entry.sourceId || entry.category === 'Accepted invoice';
   });
+}
+
+function needsInsightsDateMigration(value: Json) {
+  if (!value || Array.isArray(value) || typeof value !== 'object') return false;
+  const data = value as Record<string, unknown>;
+
+  return [data.customers, data.bookings].some(
+    (records) =>
+      Array.isArray(records) &&
+      records.some((value) => {
+        if (!value || Array.isArray(value) || typeof value !== 'object') return false;
+        const record = value as { id?: unknown; createdAt?: unknown };
+        return (
+          typeof record.id === 'string' &&
+          typeof record.createdAt !== 'string' &&
+          Boolean(getCreationDateFromId(record.id))
+        );
+      }),
+  );
 }
 
 /**
@@ -824,6 +893,18 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const loadedUserIdRef = useRef<string | null>(null);
   const lastQueuedSnapshotRef = useRef('');
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const [confirmationRevision, setConfirmationRevision] = useState(0);
+  const requestedRevisionRef = useRef(0);
+  const saveWaitersRef = useRef<{ revision: number; resolve: () => void; reject: (error: Error) => void }[]>([]);
+  const confirmWorkspaceSave = useCallback(() => new Promise<void>((resolve, reject) => {
+    if (!canSaveRef.current || !supabase || !user) {
+      reject(new Error('Your Supabase workspace is not connected.'));
+      return;
+    }
+    const revision = ++requestedRevisionRef.current;
+    saveWaitersRef.current.push({ revision, resolve, reject });
+    setConfirmationRevision(revision);
+  }), [supabase, user]);
   const bookingsRef = useRef<Booking[]>([]);
   // Invoices whose public link is mid-write. The status poll must not read the old remote value
   // back over the local one while a trash, restore or void is still landing.
@@ -877,6 +958,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       const swept = sweepExpiredDustbinInvoices(parsed);
       const workspace = swept.workspace;
       const shouldPersistFinanceMigration = Boolean(row && needsFinanceSourceMigration(row.data));
+      const shouldPersistInsightsMigration = Boolean(row && needsInsightsDateMigration(row.data));
 
       if (!row) {
         const { error: insertError } = await supabase.from('bookflow_workspaces').insert({
@@ -904,7 +986,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       // Let the normal save queue persist source metadata, legacy payment reconciliation and any
       // dustbin sweep once. Blanking the snapshot is what makes the save effect see a change.
       lastQueuedSnapshotRef.current =
-        shouldPersistFinanceMigration || swept.expiredIds.size > 0 ? '' : JSON.stringify(workspace);
+        shouldPersistFinanceMigration || shouldPersistInsightsMigration || swept.expiredIds.size > 0
+          ? ''
+          : JSON.stringify(workspace);
       canSaveRef.current = true;
       loadedUserIdRef.current = user.id;
 
@@ -936,6 +1020,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     return () => {
       isCancelled = true;
       canSaveRef.current = false;
+      saveWaitersRef.current.splice(0).forEach(({ reject }) => reject(new Error('Workspace connection changed.')));
     };
   }, [isAuthenticated, reloadKey, supabase, user?.id]);
 
@@ -960,7 +1045,11 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     };
     const serialized = JSON.stringify(workspace);
 
-    if (serialized === lastQueuedSnapshotRef.current) return;
+    // A pending effect from an older render must not acknowledge a newer mutation.
+    // Only attach requests whose revision was committed with this workspace snapshot.
+    const waiters = saveWaitersRef.current.filter((waiter) => waiter.revision <= confirmationRevision);
+    if (serialized === lastQueuedSnapshotRef.current && waiters.length === 0) return;
+    saveWaitersRef.current = saveWaitersRef.current.filter((waiter) => waiter.revision > confirmationRevision);
     lastQueuedSnapshotRef.current = serialized;
 
     saveQueueRef.current = saveQueueRef.current
@@ -973,12 +1062,19 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
             updated_at: new Date().toISOString(),
           });
 
-          setSyncError(error?.message ?? null);
+          if (error) throw new Error(error.message);
+          if (!canSaveRef.current || loadedUserIdRef.current !== user.id) {
+            throw new Error('Workspace connection changed.');
+          }
+          setSyncError(null);
+          waiters.forEach(({ resolve }) => resolve());
         } catch (error) {
-          setSyncError(error instanceof Error ? error.message : 'Bookflow could not sync changes to Supabase.');
+          const failure = error instanceof Error ? error : new Error('Bookflow could not sync changes to Supabase.');
+          setSyncError(failure.message);
+          waiters.forEach(({ reject }) => reject(failure));
         }
       });
-  }, [allFinanceEntries, allInvoices, allPayments, bookings, businessProfile, currency, customers, invoiceSettings, notifications, packages, reminders, supabase, syncRetryKey, user]);
+  }, [allFinanceEntries, allInvoices, allPayments, bookings, businessProfile, confirmationRevision, currency, customers, invoiceSettings, notifications, packages, reminders, supabase, syncRetryKey, user]);
 
   /**
    * The single place Dustbin is filtered out. Every screen, selector and finance calculation reads
@@ -1461,6 +1557,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       loadError,
       syncError,
       reload: () => setReloadKey((current) => current + 1),
+      confirmWorkspaceSave,
       retrySync: () => {
         lastQueuedSnapshotRef.current = '';
         setSyncRetryKey((current) => current + 1);
@@ -1510,11 +1607,28 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
             details: service.details.trim(),
             duration: service.duration.trim(),
             info: service.info.trim(),
+            // Drops both fields unless they form a usable pair, so a partly filled deposit can
+            // never be stored in a state the booking form cannot read back.
+            ...normalizeServiceDeposit(service.defaultDepositType, service.defaultDepositValue),
           },
         ]);
       },
       updatePackage: (id: string, updates: Partial<PackageOption>) => {
-        setPackages((current) => current.map((pkg) => (pkg.id === id ? { ...pkg, ...updates } : pkg)));
+        setPackages((current) =>
+          current.map((pkg) => {
+            if (pkg.id !== id) return pkg;
+
+            const next = { ...pkg, ...updates };
+            // An edit that clears the deposit must actually remove both fields rather than merge
+            // the old pair back in, so `normalizeServiceDeposit` decides on the incoming values.
+            const isDepositEdit = 'defaultDepositType' in updates || 'defaultDepositValue' in updates;
+            if (!isDepositEdit) return next;
+
+            delete next.defaultDepositType;
+            delete next.defaultDepositValue;
+            return { ...next, ...normalizeServiceDeposit(updates.defaultDepositType, updates.defaultDepositValue) };
+          }),
+        );
       },
       removePackage: (id: string) => {
         setPackages((current) => current.filter((item) => item.id !== id));
@@ -1530,6 +1644,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         const createdCustomer: Customer = {
           ...customer,
           id: `cust-${Date.now()}`,
+          createdAt: getLocalTodayKey(),
           name: safeName,
           email: safeEmail,
         };
@@ -1592,14 +1707,25 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         const resolvedCustomer: Customer = existingCustomer ?? {
           ...booking.newCustomer!,
           id: `cust-${createdAt}`,
+          createdAt: getLocalTodayKey(new Date(createdAt)),
           name: safeNewCustomerName,
           email: safeNewCustomerEmail,
           phone: booking.newCustomer?.phone.trim() ?? '',
           location: booking.newCustomer?.location.trim() ?? '',
           notes: booking.newCustomer?.notes.trim() ?? '',
         };
+        // The deposit is whatever the form finally held: prefilled from the service, then edited.
+        // Clamped to the booking price and dropped when absent, so a job either carries a usable
+        // deposit or none at all.
+        const depositAmount =
+          typeof booking.depositAmount === 'number' &&
+          Number.isFinite(booking.depositAmount) &&
+          booking.depositAmount > 0
+            ? Math.min(Math.round(booking.depositAmount * 100) / 100, booking.price)
+            : undefined;
         const createdBooking: Booking = {
           id: `bk-${createdAt}`,
+          createdAt: getLocalTodayKey(new Date(createdAt)),
           customerId: resolvedCustomer.id,
           title: safeTitle,
           date: booking.date,
@@ -1609,6 +1735,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           location: booking.location.trim(),
           packageName: booking.packageName,
           price: booking.price,
+          ...(depositAmount === undefined ? {} : { depositAmount }),
           status: booking.status,
           notes: booking.notes.trim() || 'Booking created from the app.',
         };
@@ -2101,6 +2228,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       },
     }),
     [
+      confirmWorkspaceSave,
       bookings,
       businessProfile,
       currency,

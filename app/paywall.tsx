@@ -8,6 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { getSoftTokens } from '@/components/settings/tokens';
 import { useSubscription } from '@/context/subscription-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { useResponsive } from '@/lib/responsive';
 import {
   describeMonthlyEquivalent,
   describePackage,
@@ -37,6 +38,7 @@ export default function PaywallScreen() {
   const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
+  const { readingStyle, isPhone } = useResponsive();
   const soft = getSoftTokens(isDarkMode);
 
   const {
@@ -142,7 +144,7 @@ export default function PaywallScreen() {
 
   return (
     <SafeAreaView edges={['top', 'left', 'right']} style={[styles.screen, { backgroundColor: palette.background }]}>
-      <View style={styles.header}>
+      <View style={[styles.header, readingStyle]}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Close"
@@ -159,7 +161,7 @@ export default function PaywallScreen() {
         </Pressable>
       </View>
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={[styles.content, readingStyle]} showsVerticalScrollIndicator={false}>
         {/* The app's existing logo asset — the same one the splash, sign-in and dashboard use. */}
         <Image
           source={require('@/assets/images/bookflow-logo.png')}
@@ -245,7 +247,11 @@ export default function PaywallScreen() {
         ) : null}
       </ScrollView>
 
-      <SafeAreaView edges={['bottom']} style={[styles.footer, { borderTopColor: soft.divider }]}>
+      <SafeAreaView
+        edges={['bottom']}
+        // The hairline keeps spanning the screen; the controls follow the centred column.
+        style={[styles.footer, !isPhone && styles.footerBleed, { borderTopColor: soft.divider }]}>
+        <View style={readingStyle}>
         <Pressable
           accessibilityRole="button"
           accessibilityState={{ disabled: !canSubmitPurchase, busy: isPurchasing }}
@@ -283,6 +289,7 @@ export default function PaywallScreen() {
           <Pressable accessibilityRole="link" hitSlop={6} onPress={() => router.push('/settings/privacy')}>
             <Text style={[styles.legalText, { color: palette.muter }]}>Privacy Policy</Text>
           </Pressable>
+        </View>
         </View>
       </SafeAreaView>
     </SafeAreaView>
@@ -540,6 +547,9 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 20,
     paddingTop: 14,
+  },
+  footerBleed: {
+    paddingHorizontal: 0,
   },
   primaryButton: {
     alignItems: 'center',

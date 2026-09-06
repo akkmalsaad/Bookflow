@@ -7,6 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAppData } from '@/context/app-data-context';
 import type { AppNotification } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { useResponsive } from '@/lib/responsive';
 
 const notificationIcons: Record<AppNotification['type'], ComponentProps<typeof Ionicons>['name']> = {
   booking: 'calendar-outline',
@@ -28,12 +29,14 @@ export default function NotificationsScreen() {
   const { isDarkMode } = useTheme();
   const { notifications, markNotificationOpened, markAllNotificationsOpened } = useAppData();
   const palette = getThemePalette(isDarkMode);
+  const { readingStyle } = useResponsive();
   const unreadCount = notifications.filter((notification) => !notification.isOpened).length;
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]}>
-      <View style={styles.header}>
+      <View style={[styles.header, readingStyle]}>
         <Pressable
+          hitSlop={8}
           onPress={() => router.back()}
           style={({ pressed }) => [
             styles.headerButton,
@@ -60,7 +63,7 @@ export default function NotificationsScreen() {
         </Pressable>
       </View>
 
-      <View style={styles.summaryRow}>
+      <View style={[styles.summaryRow, readingStyle]}>
         <Text style={[styles.summary, { color: palette.muter }]}>
           {unreadCount === 0 ? 'You’re all caught up' : `${unreadCount} unread ${unreadCount === 1 ? 'notification' : 'notifications'}`}
         </Text>
@@ -69,7 +72,7 @@ export default function NotificationsScreen() {
       <FlatList
         data={notifications}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.list}
+        contentContainerStyle={[styles.list, readingStyle]}
         ListEmptyComponent={
           <View style={[styles.emptyCard, { backgroundColor: palette.surface, borderColor: palette.border }]}>
             <Ionicons name="notifications-off-outline" size={30} color={palette.muter} />

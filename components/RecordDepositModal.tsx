@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Keyboard, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { DatePickerField } from '@/components/DatePickerField';
 import {
@@ -13,6 +13,7 @@ import {
 // same vocabulary wherever they are later reported.
 import { paymentMethods } from '@/components/UpdatePaymentModal';
 import { getCurrencyFormatter, useAppData } from '@/context/app-data-context';
+import { SuccessFeedback } from '@/components/feedback/SuccessFeedback';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 import { fromCents, getInvoicePayments, parseAmountInput, sumPaymentsInCents, toCents } from '@/lib/invoice-payments';
 
@@ -45,6 +46,8 @@ export function RecordDepositModal({ invoiceId, onClose }: Props) {
   const [date, setDate] = useState(todayKey);
   const [notes, setNotes] = useState('');
   const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const successActive = useRef(false);
   const softInset = isDarkMode ? '#111A2B' : '#EEF2F8';
   const softBorder = isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.9)';
   const accentSoft = isDarkMode ? '#29284B' : '#E9E8FF';
@@ -75,7 +78,7 @@ export function RecordDepositModal({ invoiceId, onClose }: Props) {
   const remaining = invoice ? fromCents(Math.max(0, toCents(invoice.amount) - otherCents - toCents(typedAmount))) : 0;
 
   const handleSave = () => {
-    if (!invoice) return;
+    if (!invoice || successActive.current) return;
 
     const parsed = parseAmountInput(amount);
     if (parsed === null) {
@@ -89,6 +92,9 @@ export function RecordDepositModal({ invoiceId, onClose }: Props) {
     }
 
     if (updateInvoiceDeposit(invoice.id, parsed, { method, date, notes })) {
+      successActive.current = true;
+      setSuccessMessage(`${currencyFormatter.format(parsed)} deposit saved`);
+      Keyboard.dismiss();
       onClose();
       return;
     }
@@ -98,7 +104,24 @@ export function RecordDepositModal({ invoiceId, onClose }: Props) {
 
   return (
     <PaymentModalShell
-      visible={invoice !== null}
+      visible={invoice !== null || successMessage !== null}
+      primaryDisabled={successMessage !== null}
+      closeDisabled={successMessage !== null}
+      formDisabled={successMessage !== null}
+      feedbackActive={successMessage !== null}
+      feedback={(
+        <SuccessFeedback
+          visible={successMessage !== null}
+          title={successMessage ?? ''}
+          // Preserve the deposit snackbar's previous reading interval and lack of haptics.
+          duration={3200}
+          hapticEnabled={false}
+          onComplete={() => {
+            successActive.current = false;
+            setSuccessMessage(null);
+          }}
+        />
+      )}
       eyebrow="Payment received"
       title="Record deposit"
       description={`Enter the deposit received for this invoice. The remaining customer balance updates automatically.`}

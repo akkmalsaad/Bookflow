@@ -10,6 +10,7 @@ import { BusinessInsightsPromoCard } from '@/components/business-insights/Busine
 import { getCurrencyFormatter, useAppData } from '@/context/app-data-context';
 import { useRequirePro } from '@/context/subscription-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { useResponsive } from '@/lib/responsive';
 import { getFinancialMetrics } from '@/lib/financial-metrics';
 
 
@@ -19,6 +20,7 @@ export default function FinanceScreen() {
   const { isDarkMode } = useTheme();
   const { financeEntries, invoices, payments, currency } = useAppData();
   const palette = getThemePalette(isDarkMode);
+  const { readingStyle, isPhone } = useResponsive();
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const [showComposer, setShowComposer] = useState(false);
   const softSurface = isDarkMode ? '#172033' : '#F7F9FD';
@@ -33,8 +35,8 @@ export default function FinanceScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]}>
-      <View style={styles.headerRow}>
+    <SafeAreaView style={[styles.screen, !isPhone && styles.screenBleed, { backgroundColor: palette.background }]}>
+      <View style={[styles.headerRow, readingStyle]}>
         <View style={styles.headerTitleGroup}>
           <View style={[styles.headerIcon, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
             <Ionicons name="wallet-outline" size={23} color={palette.accent} />
@@ -52,7 +54,7 @@ export default function FinanceScreen() {
         </Pressable>
       </View>
 
-      <View style={styles.statsRow}>
+      <View style={[styles.statsRow, readingStyle]}>
         <Pressable
           onPress={() => router.push('/income')}
           style={({ pressed }) => [
@@ -73,7 +75,7 @@ export default function FinanceScreen() {
             {currencyFormatter.format(financialMetrics.revenue)}
           </Text>
           <Text style={[styles.statDetail, { color: palette.success }]} numberOfLines={1}>
-            {financialMetrics.revenue > 0 ? 'Received' : 'Nothing received yet'}
+            {financialMetrics.revenue > 0 ? 'Total collected' : 'Nothing received yet'}
           </Text>
         </Pressable>
         <Pressable
@@ -98,7 +100,7 @@ export default function FinanceScreen() {
           <Text
             style={[styles.statDetail, { color: financialMetrics.expenses > 0 ? palette.danger : palette.muter }]}
             numberOfLines={1}>
-            {financialMetrics.expenses > 0 ? 'Recorded' : 'No expenses'}
+            {financialMetrics.expenses > 0 ? 'Total spent' : 'No expenses'}
           </Text>
         </Pressable>
       </View>
@@ -106,7 +108,7 @@ export default function FinanceScreen() {
       <FlatList
         data={financeEntries}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.list}
+        contentContainerStyle={[styles.list, readingStyle]}
         ListHeaderComponent={
           <>
             <BusinessInsightsPromoCard onPress={openBusinessInsights} />
@@ -155,6 +157,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 14,
   },
+  /** Hands the edge inset to the centred content column, so the two never stack. */
+  screenBleed: {
+    paddingHorizontal: 0,
+  },
+
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',

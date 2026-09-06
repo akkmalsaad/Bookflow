@@ -7,6 +7,7 @@ import { KeyboardDoneButton } from '@/components/KeyboardDoneButton';
 import { useModalTransition } from '@/components/modal-transition';
 import { getSoftTokens } from '@/components/settings/tokens';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { getSheetMaxHeight, useResponsive } from '@/lib/responsive';
 
 const OPEN_MS = 300;
 const CLOSE_MS = 240;
@@ -36,9 +37,11 @@ export function BottomSheetModal({ visible, onClose, children, heightRatio = 0.9
   const soft = getSoftTokens(isDarkMode);
   const insets = useSafeAreaInsets();
   const { height: screenHeight } = useWindowDimensions();
+  const { sheetStyle, sheetMaxHeight: sheetHeightCeiling } = useResponsive();
   // Derived from the live window, never a fixed pixel height, and additionally capped so the sheet
-  // can never reach under the status bar on a tall device.
-  const sheetMaxHeight = Math.min(screenHeight * heightRatio, screenHeight - insets.top - 12);
+  // can never reach under the status bar on a tall device. On tablets a third cap applies, or a
+  // 0.92 ratio of a 1024pt-tall window would produce a sheet too tall to read across.
+  const sheetMaxHeight = getSheetMaxHeight(screenHeight, insets.top, heightRatio, sheetHeightCeiling);
   const { mounted, overlayStyle, contentStyle, guard } = useModalTransition({
     visible,
     // Starting a full screen height down guarantees the sheet begins fully off-screen.
@@ -68,6 +71,9 @@ export function BottomSheetModal({ visible, onClose, children, heightRatio = 0.9
         <Animated.View
           style={[
             styles.sheet,
+            // Phones keep the edge-to-edge sheet; tablets centre a capped-width card instead. It
+            // sits before the computed height so `sheetMaxHeight` below stays the binding cap.
+            sheetStyle,
             { backgroundColor: soft.surface, borderColor: soft.border, shadowColor: soft.shadow, maxHeight: sheetMaxHeight },
             contentStyle,
           ]}>

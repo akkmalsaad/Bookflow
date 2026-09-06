@@ -106,6 +106,7 @@ export function InvoiceSettingSheet({ field, settings, onClose, onSave }: Props)
           accessibilityRole="button"
           accessibilityLabel="Close editor"
           onPress={onClose}
+          hitSlop={8}
           style={[styles.closeButton, { backgroundColor: soft.inset }]}>
           <Ionicons name="close" size={22} color={palette.text} />
         </Pressable>

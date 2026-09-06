@@ -17,6 +17,7 @@ import {
   type Booking,
 } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { useResponsive } from '@/lib/responsive';
 import {
   getBookingPaymentState,
   getBookingScheduleBadge,
@@ -63,6 +64,7 @@ export default function CustomerProfileScreen() {
     createInvoiceShareLink,
   } = useAppData();
   const palette = getThemePalette(isDarkMode);
+  const { readingStyle, sheetStyle } = useResponsive();
   const customer = customers.find((item) => item.id === params.customerId);
   const [showMenu, setShowMenu] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
@@ -414,7 +416,7 @@ export default function CustomerProfileScreen() {
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={[styles.content, readingStyle]} showsVerticalScrollIndicator={false}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Back to customers"
@@ -439,6 +441,7 @@ export default function CustomerProfileScreen() {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Customer actions"
+            hitSlop={8}
             onPress={() => setShowMenu(true)}
             style={({ pressed }) => [
               styles.menuButton,
@@ -599,7 +602,7 @@ export default function CustomerProfileScreen() {
       <Modal visible={showMenu} transparent animationType="fade" onRequestClose={() => setShowMenu(false)}>
         <Pressable style={styles.modalBackdrop} onPress={() => setShowMenu(false)}>
           <Pressable
-            style={[styles.menuSheet, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}
+            style={[styles.menuSheet, sheetStyle, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}
             onPress={(event) => event.stopPropagation()}>
             <View style={[styles.modalHandle, { backgroundColor: palette.border }]} />
             <Pressable
@@ -638,14 +641,11 @@ export default function CustomerProfileScreen() {
       <UpdatePaymentModal
         invoiceId={paymentInvoiceId}
         onClose={() => setPaymentInvoiceId(null)}
-        onSaved={(amount) =>
-          Alert.alert('Payment recorded', `${currencyFormatter.format(amount)} recorded for ${customer.name}.`)
-        }
       />
 
       <Modal visible={showEditor} transparent animationType="slide" onRequestClose={() => setShowEditor(false)}>
         <View style={styles.modalBackdrop}>
-          <View style={[styles.editorCard, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
+          <View style={[styles.editorCard, sheetStyle, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
             <View style={[styles.modalHandle, { backgroundColor: palette.border }]} />
             <View style={styles.editorHeader}>
               <View>
@@ -656,6 +656,7 @@ export default function CustomerProfileScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Close editor"
                 onPress={() => setShowEditor(false)}
+                hitSlop={8}
                 style={[styles.closeButton, { backgroundColor: softInset }]}>
                 <Ionicons name="close" size={24} color={palette.text} />
               </Pressable>

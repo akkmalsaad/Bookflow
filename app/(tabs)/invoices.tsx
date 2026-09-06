@@ -1,6 +1,8 @@
+import { SuccessFeedback } from '@/components/feedback/SuccessFeedback';
+
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { Animated, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Animated, FlatList, Keyboard, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -12,8 +14,8 @@ import { InvoiceActionSheet } from '@/components/invoice/InvoiceActionSheet';
 import { InvoiceListCard } from '@/components/invoices/InvoiceListCard';
 import { ManagePaymentSheet } from '@/components/invoices/ManagePaymentSheet';
 import { getCurrencyFormatter, useAppData } from '@/context/app-data-context';
-import { useSnackbar } from '@/context/snackbar-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { useResponsive } from '@/lib/responsive';
 import { isInvoiceClosed } from '@/lib/invoice-lifecycle';
 import { getInvoicePaymentSummary } from '@/lib/invoice-payments';
 import { shareInvoiceOnWhatsApp } from '@/lib/invoice-sharing';
@@ -22,11 +24,14 @@ export default function InvoicesScreen() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
   const { customers, invoices, trashedInvoices, packages, payments, addCustomer, addInvoice, createInvoiceShareLink, refreshInvoiceStatuses, invoiceDraft, setInvoiceDraft, updateInvoiceStatus, currency } = useAppData();
-  const { showSnackbar } = useSnackbar();
   const palette = getThemePalette(isDarkMode);
+  // Invoice rows are dense text, so they stay one column inside the narrower reading width.
+  const { readingStyle, sheetStyle, isPhone } = useResponsive();
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const customerMap = new Map(customers.map((customer) => [customer.id, customer]));
   const [showComposer, setShowComposer] = useState(Boolean(invoiceDraft));
+  const [showSuccess, setShowSuccess] = useState(false);
+  const successActive = useRef(false);
   const [customerMode, setCustomerMode] = useState<'existing' | 'manual'>(invoiceDraft ? 'existing' : 'existing');
   const [selectedCustomerId, setSelectedCustomerId] = useState(invoiceDraft?.customerId ?? customers[0]?.id ?? '');
   const [customerQuery, setCustomerQuery] = useState('');
@@ -78,7 +83,7 @@ export default function InvoicesScreen() {
       return true;
     }
     return customer.name.toLowerCase().includes(searchTerm) || customer.email.toLowerCase().includes(searchTerm);
-  }).slice(0, 8);
+  });
 
   useEffect(() => {
     Animated.timing(dropdownAnim, {
@@ -138,6 +143,7 @@ export default function InvoicesScreen() {
   };
 
   const handleCreateInvoice = () => {
+    if (successActive.current) return;
     const resolvedAmount = usePackagePrice && selectedPackage ? Number(selectedPackage.price) : Number(draftAmount);
     const amount = resolvedAmount;
     let resolvedCustomerId = selectedCustomerId;
@@ -178,13 +184,9 @@ export default function InvoicesScreen() {
       terms: selectedPackage?.info ?? invoiceDraft?.terms,
     });
 
-    const invoiceClient = customers.find((item) => item.id === resolvedCustomerId);
-    showSnackbar({
-      message: invoiceClient
-        ? `Invoice for ${invoiceClient.name} created`
-        : 'Invoice created',
-      tone: 'success',
-    });
+    successActive.current = true;
+    setShowSuccess(true);
+    Keyboard.dismiss();
 
     setDraftAmount(packages[0] ? String(packages[0].price) : '');
     setDraftDueDate(new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10));
@@ -200,8 +202,8 @@ export default function InvoicesScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]}>
-      <View style={styles.headerRow}>
+    <SafeAreaView style={[styles.screen, !isPhone && styles.screenBleed, { backgroundColor: palette.background }]}>
+      <View style={[styles.headerRow, readingStyle]}>
         <View style={styles.headerTitleGroup}>
           <View style={[styles.headerIcon, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
             <Ionicons name="receipt-outline" size={23} color={palette.accent} />
@@ -250,7 +252,7 @@ export default function InvoicesScreen() {
       <FlatList
         data={invoices}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.list}
+        contentContainerStyle={[styles.list, readingStyle]}
         renderItem={({ item }) => {
           const customer = customerMap.get(item.customerId);
           const summary = getInvoicePaymentSummary(item, payments);
@@ -341,16 +343,18 @@ export default function InvoicesScreen() {
         ]}
       />
 
-      <Modal visible={showComposer} transparent animationType="slide" onRequestClose={() => setShowComposer(false)}>
+      <Modal visible={showComposer || showSuccess} transparent animationType="slide" onRequestClose={() => { if (!successActive.current) setShowComposer(false); }}>
         <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
+          <View style={[styles.modalCard, sheetStyle, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }, showSuccess && { display: 'none' }]}>
             <View style={[styles.modalHandle, { backgroundColor: palette.border }]} />
-            <View style={styles.modalHeader}>
+            <View accessibilityElementsHidden={showSuccess} importantForAccessibility={showSuccess ? 'no-hide-descendants' : 'auto'} style={styles.modalHeader}>
               <View>
                 <Text style={[styles.modalEyebrow, { color: palette.accent }]}>Create</Text>
                 <Text style={[styles.modalTitle, { color: palette.text }]}>New invoice</Text>
               </View>
               <Pressable
+                disabled={showSuccess}
+                hitSlop={8}
                 style={[styles.closeButton, { backgroundColor: softInset }]}
                 onPress={() => {
                   setInvoiceDraft(null);
@@ -363,7 +367,7 @@ export default function InvoicesScreen() {
               </Pressable>
             </View>
 
-            <ScrollView {...modalScrollProps} contentContainerStyle={styles.modalScrollContent}>
+            <ScrollView accessibilityElementsHidden={showSuccess} importantForAccessibility={showSuccess ? 'no-hide-descendants' : 'auto'} pointerEvents={showSuccess ? 'none' : 'auto'} {...modalScrollProps} contentContainerStyle={styles.modalScrollContent}>
             <Text style={[styles.fieldLabel, { color: palette.muter }]}>Customer source</Text>
             <View style={styles.modeRow}>
               <Pressable
@@ -417,7 +421,14 @@ export default function InvoicesScreen() {
                     style={[styles.searchInput, { backgroundColor: softSurface, borderColor: softBorder, color: palette.text }]}
                   />
 
-                  <View style={styles.dropdownList}>
+                  {/* The list scrolls itself. Without this the rows were laid out in a plain View
+                      that the panel simply clipped, so every drag fell through to the form behind
+                      it and moved the whole modal instead. Mirrors the booking customer list. */}
+                  <ScrollView
+                    nestedScrollEnabled
+                    keyboardShouldPersistTaps="handled"
+                    style={styles.dropdownScroll}
+                    contentContainerStyle={styles.dropdownList}>
                     {filteredCustomers.length > 0 ? (
                       filteredCustomers.map((customer) => (
                         <Pressable
@@ -427,7 +438,7 @@ export default function InvoicesScreen() {
                             setCustomerQuery('');
                             setShowCustomerDropdown(false);
                           }}
-                          style={[styles.selectOption, { backgroundColor: softSurface, borderColor: softBorder }, selectedCustomerId === customer.id && { backgroundColor: accentSoft, borderColor: palette.accent }]}>
+                          style={[styles.selectOption, styles.customerOption, { backgroundColor: softSurface, borderColor: softBorder }, selectedCustomerId === customer.id && { backgroundColor: accentSoft, borderColor: palette.accent }]}>
                           <Text style={[styles.selectText, { color: palette.text }]}>{customer.name}</Text>
                           <Text style={[styles.selectSubtext, { color: palette.muter }]}>{customer.email}</Text>
                         </Pressable>
@@ -435,7 +446,7 @@ export default function InvoicesScreen() {
                     ) : (
                       <Text style={[styles.emptySearchText, { color: palette.muter }]}>No matching customer</Text>
                     )}
-                  </View>
+                  </ScrollView>
                 </Animated.View>
               </>
             ) : (
@@ -494,11 +505,20 @@ export default function InvoicesScreen() {
               placeholderTextColor={palette.muter}
             />
 
-            <Pressable style={[styles.submitButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]} onPress={handleCreateInvoice}>
+            <Pressable style={[styles.submitButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]} disabled={showSuccess} onPress={handleCreateInvoice}>
               <Text style={styles.submitButtonText}>Save invoice</Text>
             </Pressable>
             </ScrollView>
           </View>
+          <SuccessFeedback
+            visible={showSuccess}
+            title="Invoice created"
+            message="Your invoice has been created"
+            onComplete={() => {
+              successActive.current = false;
+              setShowSuccess(false);
+            }}
+          />
 
           <KeyboardDoneButton />
         </View>
@@ -514,6 +534,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 14,
   },
+  /** Hands the edge inset to the centred content column, so the two never stack. */
+  screenBleed: {
+    paddingHorizontal: 0,
+  },
+
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -716,6 +741,12 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     marginBottom: 12,
   },
+  dropdownScroll: {
+    // Bounded so the list has somewhere to scroll inside the panel's animated 220pt cap, rather
+    // than growing past it and being clipped.
+    flexGrow: 0,
+    flexShrink: 1,
+  },
   dropdownList: {
     paddingHorizontal: 8,
     paddingBottom: 8,
@@ -726,6 +757,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     margin: 8,
+  },
+  /** The booking customer list spaces its rows by 8; packages here keep their own `selectWrap` gap. */
+  customerOption: {
+    marginBottom: 8,
   },
   selectText: {
     fontWeight: '600',

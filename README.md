@@ -53,3 +53,33 @@ npx expo export --platform web
 ```
 
 For an isolation check, sign in as two different Clerk users. Each account should see a separate workspace even though both rows are visible to project administrators in the Supabase dashboard.
+
+## Temporary iPhone development with a free Apple Personal Team
+
+This checkout currently uses `com.akkmal.bookflow.dev` for iOS, matching the existing
+Xcode target. Automatic Signing and the selected Personal Team are unchanged.
+`ios.usesAppleSignIn` and Clerk's `appleSignIn` plugin option are disabled. The first
+`withPersonalTeamSigning` plugin removes only the push and native Apple Sign In
+entitlements, including when Expo regenerates native configuration. Keep it first: Expo entitlement mods execute in reverse registration order.
+The existing native entitlements file has also been updated directly.
+
+Face ID, Android configuration, notification implementation, and all packages are
+preserved. Remote APNs push and native Apple Sign In are unavailable in this free
+build. The existing Apple button uses Clerk browser OAuth, so it remains available;
+it does not invoke native Apple authentication.
+
+To install on the connected, trusted iPhone:
+
+```bash
+cd /Users/akkmal/Desktop/Bookflow
+npx expo run:ios --device
+```
+
+Before production with a paid Apple Developer account, remove
+`./plugins/withPersonalTeamSigning` from `app.json`, enable `ios.usesAppleSignIn`
+and Clerk's `appleSignIn` option, and select the production bundle ID and paid team
+in both Expo config and Xcode. The previous Expo iOS bundle ID was
+`com.akkmal.Bookflow`. Restore Push Notifications and Sign in with Apple in the
+native target/entitlements (or regenerate iOS without `--clean`), then regenerate
+provisioning profiles with the paid team. This local workaround must not be used
+for the production build.

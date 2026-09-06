@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import type { LayoutChangeEvent } from 'react-native';
 import type { ReactNode, RefObject } from 'react';
 import { useEffect, useRef } from 'react';
 import { Keyboard, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
@@ -8,10 +9,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardDoneButton } from '@/components/KeyboardDoneButton';
 import { modalScrollProps } from '@/components/modal-keyboard';
 import { useModalTransition } from '@/components/modal-transition';
+import { SUCCESS_SAFE_AREA_GAP, successCardLayout } from '@/components/feedback/success-card-layout';
 import type { AppPalette } from '@/context/theme-context';
 
 type ShellProps = {
   visible: boolean;
+  /** Noninteractive rendering of the canonical Expense form for native layout measurement. */
+  onMeasure?: (event: LayoutChangeEvent) => void;
   eyebrow: string;
   title: string;
   description: string;
@@ -22,6 +26,11 @@ type ShellProps = {
   isDarkMode: boolean;
   children: ReactNode;
   primaryDisabled?: boolean;
+  feedback?: ReactNode;
+  feedbackActive?: boolean;
+  saveError?: string;
+  formDisabled?: boolean;
+  closeDisabled?: boolean;
   secondaryLabel?: string;
   /** Lets a form scroll its own body, e.g. to reveal a field the keyboard would cover. */
   bodyRef?: RefObject<ScrollView | null>;
@@ -51,6 +60,7 @@ const SHEET_CLOSE_MS = 240;
  */
 export function PaymentModalShell({
   visible,
+  onMeasure,
   eyebrow,
   title,
   description,
@@ -61,6 +71,11 @@ export function PaymentModalShell({
   isDarkMode,
   children,
   primaryDisabled = false,
+  feedback,
+  feedbackActive = false,
+  saveError,
+  formDisabled = false,
+  closeDisabled = false,
   secondaryLabel = 'Cancel',
   bodyRef,
   entrance = 'lift',
@@ -81,6 +96,11 @@ export function PaymentModalShell({
   });
   // Callers null out their record as they close, so hold the last body to render during the exit.
   const lastBody = useRef(children);
+  const lastFeedback = useRef(feedback);
+  const lastFeedbackActive = useRef(feedbackActive);
+  if (visible) lastFeedbackActive.current = feedbackActive;
+  const showingFeedback = visible ? feedbackActive : lastFeedbackActive.current;
+  if (visible) lastFeedback.current = feedback;
   if (visible) lastBody.current = children;
 
   // The caller's ref when it wants to drive the scroll itself, otherwise our own.
@@ -105,14 +125,12 @@ export function PaymentModalShell({
   const softBorder = isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.9)';
   const softShadow = isDarkMode ? '#020617' : '#A7B4C8';
 
-  return (
-    <Modal visible={mounted} transparent animationType="none" onRequestClose={guard(onClose)}>
-      {/* No keyboard avoidance: the card holds its position and the body scroll area absorbs the
-          keyboard instead. */}
+  // No keyboard avoidance: the card holds its position while the body absorbs the keyboard.
+  const content = (
       <View
         pointerEvents={visible ? 'auto' : 'none'}
         // Insets keep the card clear of the status bar and home indicator; the body scrolls instead.
-        style={[styles.backdrop, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 12 }]}>
+        style={[styles.backdrop, { paddingTop: insets.top + SUCCESS_SAFE_AREA_GAP, paddingBottom: insets.bottom + SUCCESS_SAFE_AREA_GAP }]}>
         <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.overlay, overlayStyle]} />
         <Pressable
           accessible={false}
@@ -121,8 +139,9 @@ export function PaymentModalShell({
           importantForAccessibility="no"
         />
         <Animated.View
-          style={[styles.card, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }, contentStyle]}>
-          <View style={styles.header}>
+          onLayout={onMeasure}
+          style={[showingFeedback && !onMeasure && { display: 'none' }, styles.card, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }, contentStyle]}>
+          <View accessibilityElementsHidden={feedbackActive} importantForAccessibility={feedbackActive ? 'no-hide-descendants' : 'auto'} style={styles.header}>
             <View style={styles.headerCopy}>
               <Text style={[styles.eyebrow, { color: palette.accent }]}>{eyebrow}</Text>
               <Text style={[styles.title, { color: palette.text }]}>{title}</Text>
@@ -130,22 +149,26 @@ export function PaymentModalShell({
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={`Close ${title.toLowerCase()}`}
-              onPress={guard(onClose)}
+              disabled={closeDisabled}
+              onPress={guard(() => { if (!closeDisabled) onClose(); })}
+              hitSlop={8}
               style={[styles.closeButton, { backgroundColor: softInset }]}>
               <Ionicons name="close" size={22} color={palette.text} />
             </Pressable>
           </View>
 
-          <Text style={[styles.description, { color: palette.muter }]}>{description}</Text>
+          <Text accessibilityElementsHidden={feedbackActive} importantForAccessibility={feedbackActive ? 'no-hide-descendants' : 'auto'} style={[styles.description, { color: palette.muter }]}>{description}</Text>
 
-          <ScrollView ref={scrollRef} style={styles.body} {...modalScrollProps}>
+          <ScrollView pointerEvents={formDisabled ? 'none' : 'auto'} accessibilityElementsHidden={feedbackActive} importantForAccessibility={feedbackActive ? 'no-hide-descendants' : 'auto'} ref={scrollRef} style={styles.body} {...modalScrollProps}>
             {visible ? children : lastBody.current}
           </ScrollView>
 
-          <View style={styles.actions}>
+          {saveError ? <Text accessibilityRole="alert" style={[paymentModalStyles.error, { color: palette.danger }]}>{saveError}</Text> : null}
+          <View accessibilityElementsHidden={feedbackActive} importantForAccessibility={feedbackActive ? 'no-hide-descendants' : 'auto'} style={styles.actions}>
             <Pressable
               accessibilityRole="button"
-              onPress={guard(onClose)}
+              disabled={closeDisabled}
+              onPress={guard(() => { if (!closeDisabled) onClose(); })}
               style={({ pressed }) => [
                 styles.secondaryButton,
                 { backgroundColor: softInset, borderColor: softBorder },
@@ -168,9 +191,20 @@ export function PaymentModalShell({
             </Pressable>
           </View>
         </Animated.View>
+        {!onMeasure && (
+          <Animated.View pointerEvents={showingFeedback ? 'auto' : 'none'} style={[StyleSheet.absoluteFill, contentStyle]}>
+            {visible ? feedback : lastFeedback.current}
+          </Animated.View>
+        )}
 
-        <KeyboardDoneButton />
+        {!onMeasure && <KeyboardDoneButton />}
       </View>
+  );
+
+  if (onMeasure) return content;
+  return (
+    <Modal visible={mounted} transparent animationType="none" onRequestClose={guard(() => { if (!closeDisabled) onClose(); })}>
+      {content}
     </Modal>
   );
 }
@@ -286,12 +320,7 @@ export const paymentModalStyles = StyleSheet.create({
 });
 
 const styles = StyleSheet.create({
-  backdrop: {
-    alignItems: 'center',
-    flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 20,
-  },
+  backdrop: successCardLayout.backdrop,
   overlay: {
     backgroundColor: 'rgba(15, 23, 42, 0.62)',
   },
@@ -299,18 +328,7 @@ const styles = StyleSheet.create({
     flexGrow: 0,
     flexShrink: 1,
   },
-  card: {
-    borderRadius: 28,
-    borderWidth: 1,
-    elevation: 14,
-    maxHeight: '100%',
-    maxWidth: 520,
-    padding: 20,
-    shadowOffset: { height: 10, width: 0 },
-    shadowOpacity: 0.3,
-    shadowRadius: 24,
-    width: '100%',
-  },
+  card: successCardLayout.card,
   header: {
     alignItems: 'center',
     flexDirection: 'row',

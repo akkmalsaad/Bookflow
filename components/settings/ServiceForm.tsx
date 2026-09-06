@@ -6,6 +6,7 @@ import { modalScrollProps } from '@/components/modal-keyboard';
 import { getSoftTokens } from '@/components/settings/tokens';
 import type { PackageOption } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { MAX_DEPOSIT_PERCENT, type ServiceDepositType } from '@/lib/service-defaults';
 
 export type ServiceFormValues = Omit<PackageOption, 'id'>;
 
@@ -17,6 +18,12 @@ type Props = {
 };
 
 const EMPTY: ServiceFormValues = { name: '', details: '', duration: '', price: 0, info: '' };
+
+const DEPOSIT_OPTIONS: { key: ServiceDepositType | 'none'; label: string }[] = [
+  { key: 'none', label: 'No deposit' },
+  { key: 'percent', label: 'Percentage' },
+  { key: 'fixed', label: 'Fixed amount' },
+];
 
 /**
  * The one service/package form, used for both adding and editing. The fields scroll on their own
@@ -35,14 +42,36 @@ export function ServiceForm({ mode, initialValues, onSubmit, onCancel }: Props) 
   // Held as text so the numeric keyboard can edit it; only parsed on submit.
   const [price, setPrice] = useState(seed.price ? String(seed.price) : '');
   const [info, setInfo] = useState(seed.info);
+  const [depositMode, setDepositMode] = useState<ServiceDepositType | 'none'>(seed.defaultDepositType ?? 'none');
+  const [depositValue, setDepositValue] = useState(
+    seed.defaultDepositValue ? String(seed.defaultDepositValue) : '',
+  );
   const [error, setError] = useState('');
 
   const handleSubmit = () => {
     const parsedPrice = Number(price);
 
-    if (!name.trim() || !details.trim() || !duration.trim() || Number.isNaN(parsedPrice) || parsedPrice <= 0) {
-      setError('Add a service name, details, time, and a price greater than zero.');
+    // Name and price are what a booking cannot be created without. Details, time and deposit are
+    // prefill conveniences, so a service is allowed to leave any of them blank.
+    if (!name.trim() || Number.isNaN(parsedPrice) || parsedPrice <= 0) {
+      setError('Add a service name and a price greater than zero.');
       return;
+    }
+
+    const parsedDeposit = Number(depositValue);
+    if (depositMode !== 'none') {
+      if (!depositValue.trim() || Number.isNaN(parsedDeposit) || parsedDeposit <= 0) {
+        setError('Enter a deposit greater than zero, or choose No deposit.');
+        return;
+      }
+      if (depositMode === 'percent' && parsedDeposit > MAX_DEPOSIT_PERCENT) {
+        setError(`A percentage deposit cannot be more than ${MAX_DEPOSIT_PERCENT}%.`);
+        return;
+      }
+      if (depositMode === 'fixed' && parsedDeposit > parsedPrice) {
+        setError('A fixed deposit cannot be more than the service price.');
+        return;
+      }
     }
 
     onSubmit({
@@ -51,6 +80,9 @@ export function ServiceForm({ mode, initialValues, onSubmit, onCancel }: Props) 
       duration: duration.trim(),
       price: parsedPrice,
       info: info.trim(),
+      // Sent as a pair or not at all; the context normalises and can clear it from here.
+      defaultDepositType: depositMode === 'none' ? undefined : depositMode,
+      defaultDepositValue: depositMode === 'none' ? undefined : parsedDeposit,
     });
   };
 
@@ -89,19 +121,6 @@ export function ServiceForm({ mode, initialValues, onSubmit, onCancel }: Props) 
           textAlignVertical="top"
         />
 
-        <Text style={labelStyle}>Time</Text>
-        <TextInput
-          value={duration}
-          onChangeText={(value) => {
-            setDuration(value);
-            setError('');
-          }}
-          style={inputStyle}
-          placeholder="e.g. 4 hours"
-          placeholderTextColor={palette.muter}
-          accessibilityLabel="Time"
-        />
-
         <Text style={labelStyle}>Price</Text>
         <TextInput
           value={price}
@@ -115,6 +134,67 @@ export function ServiceForm({ mode, initialValues, onSubmit, onCancel }: Props) 
           accessibilityLabel="Price"
           keyboardType="numeric"
         />
+
+        <Text style={labelStyle}>Default duration</Text>
+        <TextInput
+          value={duration}
+          onChangeText={(value) => {
+            setDuration(value);
+            setError('');
+          }}
+          style={inputStyle}
+          placeholder="e.g. 4 hours"
+          placeholderTextColor={palette.muter}
+          accessibilityLabel="Default duration"
+        />
+
+        <Text style={labelStyle}>Default deposit</Text>
+        <View style={styles.depositModeRow}>
+          {DEPOSIT_OPTIONS.map((option) => {
+            const selected = depositMode === option.key;
+            return (
+              <Pressable
+                key={option.key}
+                accessibilityRole="radio"
+                accessibilityState={{ selected }}
+                accessibilityLabel={option.label}
+                onPress={() => {
+                  setDepositMode(option.key);
+                  if (option.key === 'none') setDepositValue('');
+                  setError('');
+                }}
+                style={[
+                  styles.depositModeButton,
+                  { backgroundColor: soft.inset, borderColor: soft.border },
+                  selected && { backgroundColor: soft.accentSoft, borderColor: palette.accent },
+                ]}>
+                <Text
+                  numberOfLines={1}
+                  style={[styles.depositModeText, { color: selected ? palette.accent : palette.text }]}>
+                  {option.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        {depositMode === 'none' ? null : (
+          <TextInput
+            value={depositValue}
+            onChangeText={(value) => {
+              setDepositValue(value);
+              setError('');
+            }}
+            style={[...inputStyle, styles.depositInput]}
+            placeholder={depositMode === 'percent' ? '30' : '500'}
+            placeholderTextColor={palette.muter}
+            accessibilityLabel={depositMode === 'percent' ? 'Deposit percentage' : 'Deposit amount'}
+            keyboardType="numeric"
+          />
+        )}
+        <Text style={[styles.helperText, { color: palette.muter }]}>
+          Duration and deposit only pre-fill a new booking. Bookings you have already created keep
+          the values they were saved with.
+        </Text>
 
         <Text style={labelStyle}>Info / invoice terms</Text>
         <TextInput
@@ -186,6 +266,26 @@ const styles = StyleSheet.create({
   },
   multilineInput: {
     minHeight: 84,
+  },
+  depositModeRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  depositModeButton: {
+    alignItems: 'center',
+    borderRadius: 14,
+    borderWidth: 1,
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 44,
+    paddingHorizontal: 8,
+  },
+  depositModeText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+  },
+  depositInput: {
+    marginTop: 10,
   },
   termsInput: {
     minHeight: 112,

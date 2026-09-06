@@ -67,12 +67,10 @@ export function StatCard({
 
 const styles = StyleSheet.create({
   card: {
-    flexGrow: 1,
-    flexBasis: '44%',
-    minWidth: 136,
+    // Width comes from the ResponsiveGrid cell this card sits in — two up on a phone, four on a
+    // tablet — so the card itself only ever describes its own surface.
     borderRadius: 24,
     borderWidth: 1,
-    marginHorizontal: 6,
     marginBottom: 12,
     padding: 16,
     shadowRadius: 16,

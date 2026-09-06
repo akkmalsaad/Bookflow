@@ -1,15 +1,19 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useRef, useState } from 'react';
+import type { LayoutChangeEvent } from 'react-native';
 import { Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { SuccessFeedback } from '@/components/feedback/SuccessFeedback';
+import { useConfirmedSave } from '@/components/feedback/useConfirmedSave';
 import { DatePickerField } from '@/components/DatePickerField';
 import { CurrencyAmountInput, PaymentModalShell, paymentModalStyles } from '@/components/PaymentModalShell';
-import { getCurrencyFormatter, useAppData } from '@/context/app-data-context';
-import { useSnackbar } from '@/context/snackbar-context';
+import { useAppData } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 
 type Props = {
   visible: boolean;
+  /** Reuses the exact Expense form layout without opening a modal or saving anything. */
+  onMeasure?: (event: LayoutChangeEvent) => void;
   onClose: () => void;
 };
 
@@ -19,18 +23,20 @@ function todayKey() {
 }
 
 /** Manual income / expense entry, sharing the payment modal shell so Finance reads as one family. */
-export function AddTransactionModal({ visible, onClose }: Props) {
+export function AddTransactionModal({ visible, onClose, onMeasure }: Props) {
   const { isDarkMode } = useTheme();
   const { addFinanceEntry, currency } = useAppData();
-  const { showSnackbar } = useSnackbar();
   const palette = getThemePalette(isDarkMode);
 
-  const [entryType, setEntryType] = useState<'income' | 'expense'>('income');
+  const [entryType, setEntryType] = useState<'income' | 'expense'>(onMeasure ? 'expense' : 'income');
   const [category, setCategory] = useState('');
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(todayKey);
   const [description, setDescription] = useState('');
   const [formError, setFormError] = useState('');
+  const [showIncomeSuccess, setShowIncomeSuccess] = useState(false);
+  const incomeSuccessActive = useRef(false);
+  const feedback = useConfirmedSave(visible);
   const bodyRef = useRef<ScrollView>(null);
 
   const softInset = isDarkMode ? '#111A2B' : '#EEF2F8';
@@ -59,7 +65,8 @@ export function AddTransactionModal({ visible, onClose }: Props) {
     }, 300);
   };
 
-  const handleAddEntry = () => {
+  const handleAddEntry = () => feedback.run(() => {
+    if (incomeSuccessActive.current) return false;
     const numericAmount = Number(amount);
     const trimmedCategory = category.trim();
     const trimmedDescription = description.trim();
@@ -67,7 +74,7 @@ export function AddTransactionModal({ visible, onClose }: Props) {
 
     if (!trimmedCategory || !trimmedDescription || Number.isNaN(numericAmount) || numericAmount <= 0 || !isValidDate) {
       setFormError('Enter a category, positive amount, valid date, and description.');
-      return;
+      return false;
     }
 
     addFinanceEntry({
@@ -78,22 +85,42 @@ export function AddTransactionModal({ visible, onClose }: Props) {
       type: entryType,
       sourceType: entryType === 'income' ? 'manual_income' : 'manual_expense',
     });
-    showSnackbar({
-      message: `${entryType === 'income' ? 'Income' : 'Expense'} of ${getCurrencyFormatter(currency).format(numericAmount)} saved`,
-      tone: 'success',
-    });
-    handleClose();
-  };
+    if (entryType === 'income') {
+      incomeSuccessActive.current = true;
+      setShowIncomeSuccess(true);
+      handleClose();
+      // Close the form now; retain its modal host only for the shared success overlay.
+      return false;
+    }
+    return true;
+  });
 
   const isIncome = entryType === 'income';
 
   return (
     <PaymentModalShell
-      visible={visible}
+      visible={visible || showIncomeSuccess}
+      onMeasure={onMeasure}
       eyebrow="Manual entry"
       title="Add transaction"
       description="Record income or expenses manually."
-      primaryLabel={`Save ${entryType}`}
+      primaryLabel={feedback.saving ? 'Saving…' : feedback.pending ? 'Retry save' : `Save ${entryType}`}
+      primaryDisabled={feedback.saving || feedback.success || showIncomeSuccess}
+      closeDisabled={feedback.saving || feedback.success || showIncomeSuccess}
+      formDisabled={feedback.pending || showIncomeSuccess}
+      saveError={feedback.error}
+      feedbackActive={feedback.success || showIncomeSuccess}
+      feedback={(
+        <SuccessFeedback
+          visible={showIncomeSuccess || (feedback.success && entryType === 'expense')}
+          title={showIncomeSuccess ? 'Income added' : 'Expense added'}
+          message={showIncomeSuccess ? 'Your income has been recorded' : 'Your expense has been recorded.'}
+          onComplete={showIncomeSuccess ? () => {
+            incomeSuccessActive.current = false;
+            setShowIncomeSuccess(false);
+          } : handleClose}
+        />
+      )}
       onPrimary={handleAddEntry}
       onClose={handleClose}
       palette={palette}
@@ -174,7 +201,7 @@ export function AddTransactionModal({ visible, onClose }: Props) {
         ]}
       />
 
-      {formError ? <Text style={[paymentModalStyles.error, { color: palette.danger }]}>{formError}</Text> : null}
+      {formError ? <Text accessibilityRole="alert" style={[paymentModalStyles.error, { color: palette.danger }]}>{formError}</Text> : null}
     </PaymentModalShell>
   );
 }

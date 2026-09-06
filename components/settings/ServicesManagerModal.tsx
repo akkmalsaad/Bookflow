@@ -1,14 +1,16 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { SuccessFeedback } from '@/components/feedback/SuccessFeedback';
 import type { ServiceFormValues } from '@/components/settings/ServiceForm';
 import { ServiceFormModal } from '@/components/settings/ServiceFormModal';
 import { modalScrollProps } from '@/components/modal-keyboard';
 import { getSoftTokens } from '@/components/settings/tokens';
 import { getCurrencyFormatter, type PackageOption, useAppData } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { formatServiceDeposit } from '@/lib/service-defaults';
 
 type Props = {
   visible: boolean;
@@ -27,34 +29,27 @@ export function ServicesManagerModal({ visible, onClose }: Props) {
   const [showServiceForm, setShowServiceForm] = useState(false);
   // Null while the sheet is open in create mode; set to the package being edited otherwise.
   const [editingService, setEditingService] = useState<PackageOption | null>(null);
-  const [toast, setToast] = useState('');
-  const toastOpacity = useRef(new Animated.Value(0)).current;
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(
-    () => () => {
-      if (toastTimer.current) clearTimeout(toastTimer.current);
-    },
-    [],
-  );
-
-  /** Subtle confirmation pill above the list; fades itself out. */
-  const showToast = (message: string) => {
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    setToast(message);
-    toastOpacity.setValue(0);
-    Animated.timing(toastOpacity, { toValue: 1, duration: 180, useNativeDriver: true }).start();
-    toastTimer.current = setTimeout(() => {
-      Animated.timing(toastOpacity, { toValue: 0, duration: 220, useNativeDriver: true }).start(({ finished }) => {
-        if (finished) setToast('');
-      });
-    }, 2200);
-  };
+  // Null when no confirmation is playing; otherwise the title the success animation is showing.
+  const [successTitle, setSuccessTitle] = useState<string | null>(null);
+  // The service the delete confirmation is asking about; null while no deletion is pending.
+  const [pendingDelete, setPendingDelete] = useState<PackageOption | null>(null);
 
   const handleClose = () => {
     setShowServiceForm(false);
     setEditingService(null);
+    // Closing mid-confirmation unmounts the animation, so clear it rather than letting it
+    // reappear the next time the manager opens.
+    setSuccessTitle(null);
+    setPendingDelete(null);
     onClose();
+  };
+
+  /** Nothing is removed until this runs, so the trash button alone can no longer destroy a service. */
+  const handleConfirmDelete = () => {
+    if (!pendingDelete) return;
+
+    removePackage(pendingDelete.id);
+    setPendingDelete(null);
   };
 
   const openCreateForm = () => {
@@ -72,11 +67,11 @@ export function ServicesManagerModal({ visible, onClose }: Props) {
   const handleSubmitService = (values: ServiceFormValues, service: PackageOption | null) => {
     if (service) {
       updatePackage(service.id, values);
-      showToast('Package updated successfully');
     } else {
       addPackage(values);
     }
     setShowServiceForm(false);
+    setSuccessTitle(service ? 'Service updated' : 'Service added');
   };
 
   return (
@@ -85,7 +80,7 @@ export function ServicesManagerModal({ visible, onClose }: Props) {
           content down but leave its rounded top edge sitting under the notch. */}
       <View style={[styles.modalBackdrop, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 12 }]}>
         {/* No keyboard avoidance: the card holds still and the scroll area below absorbs it. */}
-        <View style={styles.cardWrap}>
+        <View style={[styles.cardWrap, successTitle !== null && styles.hiddenWhileConfirming]}>
           <View
             style={[styles.modalCard, { backgroundColor: soft.surface, borderColor: soft.border, shadowColor: soft.shadow }]}>
             <View style={styles.modalHeader}>
@@ -93,19 +88,10 @@ export function ServicesManagerModal({ visible, onClose }: Props) {
                 <Text style={[styles.modalEyebrow, { color: palette.accent }]}>Services</Text>
                 <Text style={[styles.modalTitle, { color: palette.text }]}>Event packages</Text>
               </View>
-              <Pressable onPress={handleClose} accessibilityRole="button" style={[styles.closeButton, { backgroundColor: soft.inset }]} accessibilityLabel="Close services editor">
+              <Pressable onPress={handleClose} hitSlop={8} accessibilityRole="button" style={[styles.closeButton, { backgroundColor: soft.inset }]} accessibilityLabel="Close services editor">
                 <Ionicons name="close" size={22} color={palette.text} />
               </Pressable>
             </View>
-
-            {toast ? (
-              <Animated.View
-                accessibilityLiveRegion="polite"
-                style={[styles.toast, { backgroundColor: soft.accentSoft, opacity: toastOpacity }]}>
-                <Ionicons name="checkmark-circle" size={16} color={palette.accent} />
-                <Text style={[styles.toastText, { color: palette.accent }]}>{toast}</Text>
-              </Animated.View>
-            ) : null}
 
             <ScrollView {...modalScrollProps} contentContainerStyle={styles.modalContent}>
               <Pressable
@@ -119,7 +105,13 @@ export function ServicesManagerModal({ visible, onClose }: Props) {
 
               <View style={styles.packageList}>
                     {packages.length > 0 ? (
-                      packages.map((item) => (
+                      packages.map((item) => {
+                        // Only the defaults the service actually carries are shown, so a service
+                        // saved before these fields existed simply prints its name and price.
+                        const depositLabel = formatServiceDeposit(item, currencyFormatter);
+                        const durationLabel = item.duration.trim();
+
+                        return (
                         <View key={item.id} style={[styles.packageItem, { backgroundColor: soft.inset, borderColor: soft.border }]}>
                           <View style={styles.serviceItemHeader}>
                             <View style={styles.packageInfo}>
@@ -129,6 +121,7 @@ export function ServicesManagerModal({ visible, onClose }: Props) {
                             <View style={styles.packageActions}>
                               <Pressable
                                 accessibilityRole="button"
+                                hitSlop={6}
                                 onPress={() => openEditForm(item)}
                                 style={({ pressed }) => [
                                   styles.actionButton,
@@ -140,7 +133,8 @@ export function ServicesManagerModal({ visible, onClose }: Props) {
                               </Pressable>
                               <Pressable
                                 accessibilityRole="button"
-                                onPress={() => removePackage(item.id)}
+                                hitSlop={6}
+                                onPress={() => setPendingDelete(item)}
                                 style={({ pressed }) => [
                                   styles.actionButton,
                                   { backgroundColor: soft.surface },
@@ -151,11 +145,27 @@ export function ServicesManagerModal({ visible, onClose }: Props) {
                               </Pressable>
                             </View>
                           </View>
-                          <Text style={[styles.serviceDetails, { color: palette.muter }]}>{item.details}</Text>
-                          <View style={styles.serviceMetaRow}>
-                            <Ionicons name="time-outline" size={14} color={palette.muter} />
-                            <Text style={[styles.serviceMetaText, { color: palette.muter }]}>{item.duration}</Text>
-                          </View>
+                          {item.details.trim() ? (
+                            <Text style={[styles.serviceDetails, { color: palette.muter }]}>{item.details}</Text>
+                          ) : null}
+                          {/* Defaults for new bookings. Each is omitted when the service does not
+                              set it, so services saved before these fields existed show neither. */}
+                          {durationLabel || depositLabel ? (
+                            <View style={styles.serviceMetaRow}>
+                              {durationLabel ? (
+                                <View style={styles.serviceMetaItem}>
+                                  <Ionicons name="time-outline" size={14} color={palette.muter} />
+                                  <Text style={[styles.serviceMetaText, { color: palette.muter }]}>{durationLabel}</Text>
+                                </View>
+                              ) : null}
+                              {depositLabel ? (
+                                <View style={styles.serviceMetaItem}>
+                                  <Ionicons name="wallet-outline" size={14} color={palette.muter} />
+                                  <Text style={[styles.serviceMetaText, { color: palette.muter }]}>{depositLabel}</Text>
+                                </View>
+                              ) : null}
+                            </View>
+                          ) : null}
                           {item.info ? (
                             <View style={[styles.termsPreview, { backgroundColor: soft.surface, borderColor: soft.border }]}>
                               <Text style={[styles.termsLabel, { color: palette.muter }]}>Invoice info</Text>
@@ -163,7 +173,8 @@ export function ServicesManagerModal({ visible, onClose }: Props) {
                             </View>
                           ) : null}
                         </View>
-                      ))
+                        );
+                      })
                     ) : (
                       <View style={[styles.emptyServices, { backgroundColor: soft.inset, borderColor: soft.border }]}>
                         <Ionicons name="cube-outline" size={24} color={palette.muter} />
@@ -174,6 +185,52 @@ export function ServicesManagerModal({ visible, onClose }: Props) {
             </ScrollView>
           </View>
         </View>
+
+        {pendingDelete ? (
+          <View style={styles.confirmOverlay}>
+            <View style={[styles.confirmDialog, { backgroundColor: soft.surface, borderColor: soft.border, shadowColor: soft.shadow }]}>
+              <View style={[styles.confirmIcon, { backgroundColor: soft.dangerSoft }]}>
+                <Ionicons name="trash-outline" size={25} color={palette.danger} />
+              </View>
+              <Text style={[styles.confirmTitle, { color: palette.text }]}>Delete this service?</Text>
+              <Text style={[styles.confirmCopy, { color: palette.muter }]}>
+                “{pendingDelete.name}” will be removed from your services. Bookings already made with it
+                keep their own name and price, so they are not affected.
+              </Text>
+              <View style={styles.confirmActions}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Keep ${pendingDelete.name}`}
+                  onPress={() => setPendingDelete(null)}
+                  style={({ pressed }) => [
+                    styles.confirmCancelButton,
+                    { backgroundColor: soft.inset, borderColor: soft.border },
+                    pressed && styles.pressed,
+                  ]}>
+                  <Text style={[styles.confirmCancelText, { color: palette.text }]}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Delete ${pendingDelete.name}`}
+                  onPress={handleConfirmDelete}
+                  style={({ pressed }) => [
+                    styles.confirmDeleteButton,
+                    { backgroundColor: palette.danger, shadowColor: palette.danger },
+                    pressed && styles.pressed,
+                  ]}>
+                  <Text style={styles.confirmDeleteText}>Delete</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        ) : null}
+
+        <SuccessFeedback
+          visible={successTitle !== null}
+          title={successTitle ?? ''}
+          message={successTitle === 'Service updated' ? 'Your service has been updated' : 'Your service has been added'}
+          onComplete={() => setSuccessTitle(null)}
+        />
       </View>
 
       <ServiceFormModal
@@ -290,8 +347,14 @@ const styles = StyleSheet.create({
   serviceMetaRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 5,
+    flexWrap: 'wrap',
+    gap: 14,
     marginTop: 8,
+  },
+  serviceMetaItem: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 5,
   },
   serviceMetaText: {
     fontSize: 12,
@@ -327,19 +390,81 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     width: 36,
   },
-  toast: {
-    alignItems: 'center',
-    borderRadius: 14,
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
+  /** The sheet steps aside for the confirmation, leaving the card on the backdrop's own dim. */
+  hiddenWhileConfirming: {
+    display: 'none',
   },
-  toastText: {
-    flex: 1,
+  confirmOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    backgroundColor: 'rgba(15, 23, 42, 0.58)',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  confirmDialog: {
+    alignItems: 'center',
+    borderRadius: 28,
+    borderWidth: 1,
+    elevation: 14,
+    maxWidth: 440,
+    padding: 22,
+    shadowOffset: { height: 8, width: 0 },
+    shadowOpacity: 0.3,
+    shadowRadius: 24,
+    width: '100%',
+  },
+  confirmIcon: {
+    alignItems: 'center',
+    borderRadius: 18,
+    height: 56,
+    justifyContent: 'center',
+    marginBottom: 15,
+    width: 56,
+  },
+  confirmTitle: {
+    fontSize: 21,
+    fontWeight: '900',
+    letterSpacing: -0.4,
+    textAlign: 'center',
+  },
+  confirmCopy: {
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '500',
+    lineHeight: 20,
+    marginTop: 7,
+    textAlign: 'center',
+  },
+  confirmActions: {
+    alignSelf: 'stretch',
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 18,
+  },
+  confirmCancelButton: {
+    alignItems: 'center',
+    borderRadius: 16,
+    borderWidth: 1,
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 48,
+  },
+  confirmCancelText: {
+    fontWeight: '800',
+  },
+  confirmDeleteButton: {
+    alignItems: 'center',
+    borderRadius: 16,
+    elevation: 4,
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 48,
+    shadowOffset: { height: 6, width: 4 },
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+  },
+  confirmDeleteText: {
+    color: '#fff',
+    fontWeight: '800',
   },
   pressed: {
     opacity: 0.75,

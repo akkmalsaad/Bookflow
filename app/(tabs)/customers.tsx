@@ -1,7 +1,9 @@
+import { SuccessFeedback } from '@/components/feedback/SuccessFeedback';
+
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { useMemo, useState } from 'react';
+import { FlatList, Keyboard, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useMemo, useRef, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { InitialsAvatar } from '@/components/InitialsAvatar';
@@ -10,6 +12,7 @@ import { modalScrollProps } from '@/components/modal-keyboard';
 import { getCompactCurrencyFormatter, useAppData } from '@/context/app-data-context';
 import { useSnackbar } from '@/context/snackbar-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { useResponsive } from '@/lib/responsive';
 import {
   customerSortOptions,
   getCustomerMetrics,
@@ -24,7 +27,12 @@ export default function CustomersScreen() {
   const { customers, bookings, invoices, payments, addCustomer, currency } = useAppData();
   const { showSnackbar } = useSnackbar();
   const palette = getThemePalette(isDarkMode);
+  // Customer cards are compact, so they pair up from tablet width. The screen's own 20pt inset
+  // steps aside there and the centred column owns the edge spacing instead.
+  const { contentStyle, gridCellStyle, gridRowStyle, isPhone, listColumnCount, sheetStyle } = useResponsive();
   const [showComposer, setShowComposer] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
+  const successActive = useRef(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortKey, setSortKey] = useState<CustomerSortKey>('recent');
   const [showSortSheet, setShowSortSheet] = useState(false);
@@ -56,6 +64,7 @@ export default function CustomersScreen() {
   const activeSortLabel = customerSortOptions.find((option) => option.key === sortKey)?.label ?? 'Recently added';
 
   const handleAddCustomer = () => {
+    if (successActive.current) return;
     const savedCustomer = addCustomer({
       name,
       email,
@@ -71,7 +80,9 @@ export default function CustomersScreen() {
       return;
     }
 
-    showSnackbar({ message: `${savedCustomer.name} added to customers`, tone: 'success' });
+    successActive.current = true;
+    setShowSuccess(true);
+    Keyboard.dismiss();
 
     setName('');
     setEmail('');
@@ -82,8 +93,8 @@ export default function CustomersScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]}>
-      <View style={styles.headerRow}>
+    <SafeAreaView style={[styles.screen, !isPhone && styles.screenBleed, { backgroundColor: palette.background }]}>
+      <View style={[styles.headerRow, contentStyle]}>
         <View style={styles.headerTitleGroup}>
           <View style={[styles.headerIcon, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
             <Ionicons name="people-outline" size={23} color={palette.accent} />
@@ -101,7 +112,7 @@ export default function CustomersScreen() {
         </Pressable>
       </View>
 
-      <View style={styles.searchRow}>
+      <View style={[styles.searchRow, contentStyle]}>
         <View style={[styles.searchField, { backgroundColor: softInset, borderColor: softBorder }]}>
           <Ionicons name="search" size={17} color={palette.muter} />
           <TextInput
@@ -143,7 +154,7 @@ export default function CustomersScreen() {
           onPress={() => setShowSortSheet(true)}
           accessibilityRole="button"
           accessibilityLabel={`Sorted by ${activeSortLabel}. Change sorting`}
-          style={styles.sortHintRow}>
+          style={[styles.sortHintRow, contentStyle]}>
           <Text style={[styles.sortHint, { color: palette.muter }]}>Sorted by {activeSortLabel}</Text>
         </Pressable>
       )}
@@ -151,7 +162,11 @@ export default function CustomersScreen() {
       <FlatList
         data={visibleCustomers}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.list}
+        contentContainerStyle={[styles.list, contentStyle]}
+        // FlatList rebuilds its cell layout only on a new key, so the column count carries one.
+        key={`customers-${listColumnCount}`}
+        numColumns={listColumnCount}
+        columnWrapperStyle={listColumnCount > 1 ? gridRowStyle : undefined}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={(
@@ -176,6 +191,7 @@ export default function CustomersScreen() {
               onPress={() => router.push(`/customer/${item.id}`)}
               style={({ pressed }) => [
                 styles.card,
+                gridCellStyle,
                 { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow },
                 pressed && styles.cardPressed,
               ]}>
@@ -201,7 +217,7 @@ export default function CustomersScreen() {
       <Modal visible={showSortSheet} transparent animationType="fade" onRequestClose={() => setShowSortSheet(false)}>
         <Pressable style={styles.modalBackdrop} onPress={() => setShowSortSheet(false)}>
           <Pressable
-            style={[styles.sortSheet, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}
+            style={[styles.sortSheet, sheetStyle, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}
             onPress={(event) => event.stopPropagation()}>
             <View style={[styles.modalHandle, { backgroundColor: palette.border }]} />
             <Text style={[styles.sortSheetTitle, { color: palette.muter }]}>Sort by</Text>
@@ -231,21 +247,21 @@ export default function CustomersScreen() {
         </Pressable>
       </Modal>
 
-      <Modal visible={showComposer} transparent animationType="slide" onRequestClose={() => setShowComposer(false)}>
+      <Modal visible={showComposer || showSuccess} transparent animationType="slide" onRequestClose={() => { if (!successActive.current) setShowComposer(false); }}>
         <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
+          <View style={[styles.modalCard, sheetStyle, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }, showSuccess && { display: 'none' }]}>
             <View style={[styles.modalHandle, { backgroundColor: palette.border }]} />
-            <View style={styles.modalHeader}>
+            <View accessibilityElementsHidden={showSuccess} importantForAccessibility={showSuccess ? 'no-hide-descendants' : 'auto'} style={styles.modalHeader}>
               <View>
                 <Text style={[styles.modalEyebrow, { color: palette.accent }]}>Create</Text>
                 <Text style={[styles.modalTitle, { color: palette.text }]}>Add customer</Text>
               </View>
-              <Pressable onPress={() => setShowComposer(false)} style={[styles.closeButton, { backgroundColor: softInset }]}>
+              <Pressable disabled={showSuccess} hitSlop={8} onPress={() => setShowComposer(false)} style={[styles.closeButton, { backgroundColor: softInset }]}>
                 <Ionicons name="close" size={24} color={palette.text} />
               </Pressable>
             </View>
 
-            <ScrollView {...modalScrollProps} contentContainerStyle={styles.modalScrollContent}>
+            <ScrollView accessibilityElementsHidden={showSuccess} importantForAccessibility={showSuccess ? 'no-hide-descendants' : 'auto'} pointerEvents={showSuccess ? 'none' : 'auto'} {...modalScrollProps} contentContainerStyle={styles.modalScrollContent}>
             <Text style={[styles.fieldLabel, { color: palette.muter }]}>Name</Text>
             <TextInput value={name} onChangeText={setName} style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]} placeholder="Nur Aisyah Rahman" placeholderTextColor={palette.muter} />
 
@@ -261,11 +277,20 @@ export default function CustomersScreen() {
             <Text style={[styles.fieldLabel, { color: palette.muter }]}>Notes</Text>
             <TextInput value={notes} onChangeText={setNotes} style={[styles.input, styles.notesInput, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]} placeholder="Wedding client, prefers WhatsApp updates" placeholderTextColor={palette.muter} multiline />
 
-            <Pressable style={[styles.submitButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]} onPress={handleAddCustomer}>
+            <Pressable style={[styles.submitButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]} disabled={showSuccess} onPress={handleAddCustomer}>
               <Text style={styles.submitButtonText}>Save customer</Text>
             </Pressable>
             </ScrollView>
           </View>
+          <SuccessFeedback
+            visible={showSuccess}
+            title="Customer added"
+            message="Your customer has been added"
+            onComplete={() => {
+              successActive.current = false;
+              setShowSuccess(false);
+            }}
+          />
 
           <KeyboardDoneButton />
         </View>
@@ -280,6 +305,10 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     paddingHorizontal: 20,
     paddingTop: 14,
+  },
+  /** Hands the edge inset to the centred content column, so the two never stack. */
+  screenBleed: {
+    paddingHorizontal: 0,
   },
   headerRow: {
     flexDirection: 'row',

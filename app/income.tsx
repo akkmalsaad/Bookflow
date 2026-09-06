@@ -9,6 +9,7 @@ import { MonthlyTrendChart } from '@/components/MonthlyTrendChart';
 import { TrendRange, TrendRangeTabs } from '@/components/TrendRangeTabs';
 import { FinanceEntry, getCurrencyFormatter, useAppData } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { useResponsive } from '@/lib/responsive';
 import { getFinancialMetrics, getFinancialPeriodBounds } from '@/lib/financial-metrics';
 
 const CATEGORY_COLORS = ['#4F46E5', '#0EA5E9', '#10B981', '#F59E0B', '#EC4899', '#8B5CF6', '#14B8A6', '#EF4444'];
@@ -114,6 +115,7 @@ export default function IncomeScreen() {
   const { isDarkMode } = useTheme();
   const { financeEntries, invoices, payments, currency } = useAppData();
   const palette = getThemePalette(isDarkMode);
+  const { readingStyle } = useResponsive();
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const tone = softTone(isDarkMode);
   const [trendRange, setTrendRange] = useState<TrendRange>('6months');
@@ -263,7 +265,7 @@ export default function IncomeScreen() {
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]}>
-      <View style={styles.header}>
+      <View style={[styles.header, readingStyle]}>
         <Pressable
           onPress={() => router.back()}
           style={({ pressed }) => [
@@ -281,7 +283,7 @@ export default function IncomeScreen() {
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={[styles.content, readingStyle]} showsVerticalScrollIndicator={false}>
         <SoftCard isDarkMode={isDarkMode} style={styles.heroOuter}>
           <View style={styles.heroTopRow}>
             <Text style={[styles.heroLabel, { color: palette.muter }]}>Total income</Text>

@@ -17,6 +17,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { type AppPalette, getThemePalette, useTheme } from '@/context/theme-context';
+import { useResponsive } from '@/lib/responsive';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
 
@@ -218,16 +219,21 @@ export function AuthModal({
 }) {
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
+  // Bottom sheet on a phone, centred dialog from tablet width up.
+  const { dialogStyle, dialogBackdropStyle, isPhone } = useResponsive();
 
   return (
     <Modal animationType="fade" onRequestClose={onClose} transparent visible={visible}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.modalBackdrop}>
+        style={[styles.modalBackdrop, dialogBackdropStyle]}>
         <SafeAreaView
-          edges={['left', 'right', 'bottom']}
+          // The bottom inset belongs to a sheet sitting on the screen edge. A centred card is
+          // already clear of the home indicator, and the inset would only pad its underside.
+          edges={isPhone ? ['left', 'right', 'bottom'] : []}
           style={[
             styles.modalCard,
+            dialogStyle,
             { backgroundColor: palette.surface, borderColor: palette.border, shadowColor: '#020617' },
           ]}>
           <View style={styles.modalTopRow}>
