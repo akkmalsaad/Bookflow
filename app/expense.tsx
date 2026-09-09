@@ -10,6 +10,7 @@ import { TrendRange, TrendRangeTabs } from '@/components/TrendRangeTabs';
 import { FinanceEntry, getCurrencyFormatter, useAppData } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 import { useResponsive } from '@/lib/responsive';
+import { useTranslation } from '@/lib/use-translation';
 import { getFinancialMetrics, getFinancialPeriodBounds } from '@/lib/financial-metrics';
 
 const CATEGORY_COLORS = ['#E11D48', '#F59E0B', '#8B5CF6', '#0EA5E9', '#EC4899', '#10B981', '#F97316', '#4F46E5'];
@@ -118,6 +119,7 @@ export default function ExpenseScreen() {
   const { financeEntries, invoices, payments, currency } = useAppData();
   const palette = getThemePalette(isDarkMode);
   const { readingStyle } = useResponsive();
+  const { t } = useTranslation();
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const tone = softTone(isDarkMode);
   const [trendRange, setTrendRange] = useState<TrendRange>('6months');
@@ -278,20 +280,20 @@ export default function ExpenseScreen() {
             { backgroundColor: tone.surfaceRaised, shadowColor: tone.shadowDark, opacity: pressed ? 0.7 : 1 },
           ]}
           accessibilityRole="button"
-          accessibilityLabel="Back to Finance">
+          accessibilityLabel={t('breakdown.back')}>
           <Ionicons name="arrow-back" size={22} color={palette.text} />
         </Pressable>
 
         <View style={styles.headerCopy}>
-          <Text style={[styles.eyebrow, { color: palette.accent }]}>Finance</Text>
-          <Text style={[styles.title, { color: palette.text }]}>Expense breakdown</Text>
+          <Text style={[styles.eyebrow, { color: palette.accent }]}>{t('breakdown.eyebrow')}</Text>
+          <Text style={[styles.title, { color: palette.text }]}>{t('breakdown.expense.title')}</Text>
         </View>
       </View>
 
       <ScrollView contentContainerStyle={[styles.content, readingStyle]} showsVerticalScrollIndicator={false}>
         <SoftCard isDarkMode={isDarkMode} style={styles.heroOuter}>
           <View style={styles.heroTopRow}>
-            <Text style={[styles.heroLabel, { color: palette.muter }]}>Total expense</Text>
+            <Text style={[styles.heroLabel, { color: palette.muter }]}>{t('breakdown.expense.total')}</Text>
             {monthlyDelta ? (
               <View
                 style={[
@@ -321,15 +323,15 @@ export default function ExpenseScreen() {
           <Text style={[styles.heroValue, { color: palette.text }]}>{currencyFormatter.format(totalExpense)}</Text>
           <View style={styles.heroStatsRow}>
             <View style={styles.heroStat}>
-              <Text style={[styles.heroStatLabel, { color: palette.muter }]}>Transactions</Text>
+              <Text style={[styles.heroStatLabel, { color: palette.muter }]}>{t('breakdown.transactions')}</Text>
               <Text style={[styles.heroStatValue, { color: palette.text }]}>{expenseEntries.length}</Text>
             </View>
             <View style={styles.heroStat}>
-              <Text style={[styles.heroStatLabel, { color: palette.muter }]}>Average</Text>
+              <Text style={[styles.heroStatLabel, { color: palette.muter }]}>{t('breakdown.average')}</Text>
               <Text style={[styles.heroStatValue, { color: palette.text }]}>{currencyFormatter.format(averageExpense)}</Text>
             </View>
             <View style={styles.heroStat}>
-              <Text style={[styles.heroStatLabel, { color: palette.muter }]}>Highest</Text>
+              <Text style={[styles.heroStatLabel, { color: palette.muter }]}>{t('breakdown.highest')}</Text>
               <Text style={[styles.heroStatValue, { color: palette.text }]} numberOfLines={1}>
                 {highestEntry ? currencyFormatter.format(highestEntry.amount) : '—'}
               </Text>
@@ -340,15 +342,15 @@ export default function ExpenseScreen() {
         {expenseEntries.length === 0 ? (
           <SoftCard isDarkMode={isDarkMode} contentStyle={styles.emptyContent}>
             <Ionicons name="trending-down-outline" size={30} color={palette.muter} />
-            <Text style={[styles.emptyTitle, { color: palette.text }]}>No expenses recorded yet</Text>
+            <Text style={[styles.emptyTitle, { color: palette.text }]}>{t('breakdown.expense.emptyTitle')}</Text>
             <Text style={[styles.emptyMessage, { color: palette.muter }]}>
-              Expense transactions you add will appear here with a full breakdown.
+              {t('breakdown.expense.emptyBody')}
             </Text>
           </SoftCard>
         ) : (
           <>
             <View style={styles.sectionHeader}>
-              <SectionHeader icon="stats-chart-outline" title="Monthly trend" />
+              <SectionHeader icon="stats-chart-outline" title={t('breakdown.monthlyTrend')} />
             </View>
             <TrendRangeTabs value={trendRange} onChange={setTrendRange} color={palette.danger} isDarkMode={isDarkMode} />
             <SoftCard isDarkMode={isDarkMode} style={styles.chartOuter}>
@@ -361,7 +363,7 @@ export default function ExpenseScreen() {
             </SoftCard>
 
             <View style={styles.sectionHeader}>
-              <SectionHeader icon="pricetags-outline" title="By category" />
+              <SectionHeader icon="pricetags-outline" title={t('breakdown.byCategory')} />
             </View>
             <SoftCard isDarkMode={isDarkMode} style={styles.chartOuter}>
               <View style={[styles.stackedBarTrack, { backgroundColor: isDarkMode ? '#0E1729' : '#E4EAF5' }]}>
@@ -384,7 +386,7 @@ export default function ExpenseScreen() {
                       </Text>
                       {index === 0 ? (
                         <View style={[styles.topBadge, { backgroundColor: 'rgba(225, 29, 72, 0.14)' }]}>
-                          <Text style={[styles.topBadgeText, { color: ICON_RED }]}>Top</Text>
+                          <Text style={[styles.topBadgeText, { color: ICON_RED }]}>{t('breakdown.top')}</Text>
                         </View>
                       ) : null}
                     </View>
@@ -398,7 +400,7 @@ export default function ExpenseScreen() {
             </SoftCard>
 
             <View style={styles.sectionHeader}>
-              <SectionHeader icon="swap-vertical-outline" title="Transactions" />
+              <SectionHeader icon="swap-vertical-outline" title={t('breakdown.transactions')} />
             </View>
             <View style={styles.list}>
               {expenseEntries.map((item) => (

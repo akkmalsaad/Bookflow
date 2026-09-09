@@ -5,6 +5,7 @@ import { InvoiceStatusBadge } from '@/components/invoices/InvoiceStatusBadge';
 import { getSoftTokens } from '@/components/settings/tokens';
 import type { Invoice } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { useTranslation } from '@/lib/use-translation';
 import type { InvoicePaymentSummary } from '@/lib/invoice-payments';
 import { getInvoiceNumber } from '@/lib/invoice-numbering';
 
@@ -50,6 +51,7 @@ export function InvoiceListCard({
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
   const soft = getSoftTokens(isDarkMode);
+  const { t } = useTranslation();
   const invoiceNumber = getInvoiceNumber(invoice);
   const hasPayments = summary.amountPaid > 0;
 
@@ -80,7 +82,7 @@ export function InvoiceListCard({
 
         <View style={styles.metaRow}>
           <View style={styles.metaCell}>
-            <Text style={[styles.metaLabel, { color: palette.muter }]}>Due date</Text>
+            <Text style={[styles.metaLabel, { color: palette.muter }]}>{t('invoiceCard.dueDate')}</Text>
             <View style={styles.metaValueRow}>
               <Ionicons name="calendar-outline" size={16} color={palette.muter} />
               <Text style={[styles.metaValue, { color: palette.text }]} numberOfLines={1}>
@@ -101,7 +103,7 @@ export function InvoiceListCard({
 
         <View style={[styles.divider, { backgroundColor: soft.divider }]} />
 
-        <Text style={[styles.totalLabel, { color: palette.muter }]}>Invoice total</Text>
+        <Text style={[styles.totalLabel, { color: palette.muter }]}>{t('invoiceCard.invoiceTotal')}</Text>
         <Text style={[styles.total, { color: palette.text }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
           {currencyFormatter.format(invoice.amount)}
         </Text>
@@ -109,14 +111,14 @@ export function InvoiceListCard({
         {hasPayments ? (
           <View style={styles.paymentRow}>
             <Text style={[styles.paymentText, { color: palette.muter }]} numberOfLines={1}>
-              Paid <Text style={{ color: palette.success, fontWeight: '800' }}>{currencyFormatter.format(summary.amountPaid)}</Text>
+              {t('invoiceCard.paid')} <Text style={{ color: palette.success, fontWeight: '800' }}>{currencyFormatter.format(summary.amountPaid)}</Text>
             </Text>
             <Text style={[styles.paymentText, { color: palette.muter }]} numberOfLines={1}>
-              Balance <Text style={{ color: palette.text, fontWeight: '800' }}>{currencyFormatter.format(summary.outstanding)}</Text>
+              {t('invoiceCard.balance')} <Text style={{ color: palette.text, fontWeight: '800' }}>{currencyFormatter.format(summary.outstanding)}</Text>
             </Text>
           </View>
         ) : (
-          <Text style={[styles.paymentText, styles.noPayment, { color: palette.muter }]}>No deposit recorded</Text>
+          <Text style={[styles.paymentText, styles.noPayment, { color: palette.muter }]}>{t('invoiceCard.noDeposit')}</Text>
         )}
       </Pressable>
 

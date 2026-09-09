@@ -11,6 +11,7 @@ import { getSoftTokens } from '@/components/settings/tokens';
 import { getCurrencyFormatter, type PackageOption, useAppData } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 import { formatServiceDeposit } from '@/lib/service-defaults';
+import { useTranslation } from '@/lib/use-translation';
 
 type Props = {
   visible: boolean;
@@ -22,6 +23,7 @@ export function ServicesManagerModal({ visible, onClose }: Props) {
   const { isDarkMode } = useTheme();
   const { packages, addPackage, updatePackage, removePackage, currency } = useAppData();
   const palette = getThemePalette(isDarkMode);
+  const { t } = useTranslation();
   const soft = getSoftTokens(isDarkMode);
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const insets = useSafeAreaInsets();
@@ -71,7 +73,7 @@ export function ServicesManagerModal({ visible, onClose }: Props) {
       addPackage(values);
     }
     setShowServiceForm(false);
-    setSuccessTitle(service ? 'Service updated' : 'Service added');
+    setSuccessTitle(service ? t('services.updated') : t('services.added'));
   };
 
   return (
@@ -85,10 +87,10 @@ export function ServicesManagerModal({ visible, onClose }: Props) {
             style={[styles.modalCard, { backgroundColor: soft.surface, borderColor: soft.border, shadowColor: soft.shadow }]}>
             <View style={styles.modalHeader}>
               <View>
-                <Text style={[styles.modalEyebrow, { color: palette.accent }]}>Services</Text>
-                <Text style={[styles.modalTitle, { color: palette.text }]}>Event packages</Text>
+                <Text style={[styles.modalEyebrow, { color: palette.accent }]}>{t('services.eyebrow')}</Text>
+                <Text style={[styles.modalTitle, { color: palette.text }]}>{t('services.title')}</Text>
               </View>
-              <Pressable onPress={handleClose} hitSlop={8} accessibilityRole="button" style={[styles.closeButton, { backgroundColor: soft.inset }]} accessibilityLabel="Close services editor">
+              <Pressable onPress={handleClose} hitSlop={8} accessibilityRole="button" style={[styles.closeButton, { backgroundColor: soft.inset }]} accessibilityLabel={t('a11y.closeServices')}>
                 <Ionicons name="close" size={22} color={palette.text} />
               </Pressable>
             </View>
@@ -96,11 +98,11 @@ export function ServicesManagerModal({ visible, onClose }: Props) {
             <ScrollView {...modalScrollProps} contentContainerStyle={styles.modalContent}>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Add new service"
+                accessibilityLabel={t('services.add')}
                 style={[styles.addServiceButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]}
                 onPress={openCreateForm}>
                 <Ionicons name="add" size={18} color="#fff" />
-                <Text style={styles.addButtonText}>Add new service</Text>
+                <Text style={styles.addButtonText}>{t('services.add')}</Text>
               </Pressable>
 
               <View style={styles.packageList}>
@@ -168,7 +170,7 @@ export function ServicesManagerModal({ visible, onClose }: Props) {
                           ) : null}
                           {item.info ? (
                             <View style={[styles.termsPreview, { backgroundColor: soft.surface, borderColor: soft.border }]}>
-                              <Text style={[styles.termsLabel, { color: palette.muter }]}>Invoice info</Text>
+                              <Text style={[styles.termsLabel, { color: palette.muter }]}>{t('services.invoiceInfo')}</Text>
                               <Text style={[styles.termsText, { color: palette.text }]}>{item.info}</Text>
                             </View>
                           ) : null}
@@ -178,7 +180,7 @@ export function ServicesManagerModal({ visible, onClose }: Props) {
                     ) : (
                       <View style={[styles.emptyServices, { backgroundColor: soft.inset, borderColor: soft.border }]}>
                         <Ionicons name="cube-outline" size={24} color={palette.muter} />
-                        <Text style={[styles.emptyServicesText, { color: palette.muter }]}>No services yet</Text>
+                        <Text style={[styles.emptyServicesText, { color: palette.muter }]}>{t('services.empty')}</Text>
                       </View>
                     )}
               </View>
@@ -192,7 +194,7 @@ export function ServicesManagerModal({ visible, onClose }: Props) {
               <View style={[styles.confirmIcon, { backgroundColor: soft.dangerSoft }]}>
                 <Ionicons name="trash-outline" size={25} color={palette.danger} />
               </View>
-              <Text style={[styles.confirmTitle, { color: palette.text }]}>Delete this service?</Text>
+              <Text style={[styles.confirmTitle, { color: palette.text }]}>{t('services.deleteTitle')}</Text>
               <Text style={[styles.confirmCopy, { color: palette.muter }]}>
                 “{pendingDelete.name}” will be removed from your services. Bookings already made with it
                 keep their own name and price, so they are not affected.
@@ -207,7 +209,7 @@ export function ServicesManagerModal({ visible, onClose }: Props) {
                     { backgroundColor: soft.inset, borderColor: soft.border },
                     pressed && styles.pressed,
                   ]}>
-                  <Text style={[styles.confirmCancelText, { color: palette.text }]}>Cancel</Text>
+                  <Text style={[styles.confirmCancelText, { color: palette.text }]}>{t('services.deleteCancel')}</Text>
                 </Pressable>
                 <Pressable
                   accessibilityRole="button"
@@ -218,7 +220,7 @@ export function ServicesManagerModal({ visible, onClose }: Props) {
                     { backgroundColor: palette.danger, shadowColor: palette.danger },
                     pressed && styles.pressed,
                   ]}>
-                  <Text style={styles.confirmDeleteText}>Delete</Text>
+                  <Text style={styles.confirmDeleteText}>{t('services.deleteConfirm')}</Text>
                 </Pressable>
               </View>
             </View>
@@ -228,7 +230,7 @@ export function ServicesManagerModal({ visible, onClose }: Props) {
         <SuccessFeedback
           visible={successTitle !== null}
           title={successTitle ?? ''}
-          message={successTitle === 'Service updated' ? 'Your service has been updated' : 'Your service has been added'}
+          message={successTitle === t('services.updated') ? t('services.updated.body') : t('services.added.body')}
           onComplete={() => setSuccessTitle(null)}
         />
       </View>

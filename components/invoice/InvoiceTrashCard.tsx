@@ -7,6 +7,7 @@ import type { Invoice } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 import { getDaysUntilPermanentDelete, isInvoiceVoided } from '@/lib/invoice-lifecycle';
 import { getInvoiceNumber } from '@/lib/invoice-numbering';
+import { useTranslation } from '@/lib/use-translation';
 
 type Props = {
   invoice: Invoice;
@@ -34,6 +35,7 @@ export function InvoiceTrashCard({
   onRestore,
   onOpenMenu,
 }: Props) {
+  const { t } = useTranslation();
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
   const soft = getSoftTokens(isDarkMode);
@@ -75,7 +77,7 @@ export function InvoiceTrashCard({
           <Text style={[styles.amount, { color: palette.text }]} numberOfLines={1}>
             {amount}
           </Text>
-          {voided ? <StatusPill label="Void" tone="red" /> : null}
+          {voided ? <StatusPill label={t('trashCard.void')} tone="red" /> : null}
         </View>
       </View>
 

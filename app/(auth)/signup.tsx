@@ -17,6 +17,7 @@ import {
 import { MIN_PASSWORD_LENGTH } from '@/constants/auth';
 import { type SocialProvider, useAuth } from '@/context/auth-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { useTranslation } from '@/lib/use-translation';
 
 type LegalDocument = 'privacy' | 'terms';
 
@@ -25,6 +26,7 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export default function SignupScreen() {
   const { signInWithSocial, signUp, verifyEmail } = useAuth();
   const posthog = usePostHog();
+  const { t } = useTranslation();
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
 
@@ -69,11 +71,11 @@ export default function SignupScreen() {
     const safeEmail = email.trim().toLowerCase();
 
     if (name.trim().length < 2) {
-      setFormError('Enter your full name.');
+      setFormError(t('auth.error.name'));
       return;
     }
     if (!EMAIL_PATTERN.test(safeEmail)) {
-      setFormError('Enter a valid email address.');
+      setFormError(t('auth.error.email'));
       return;
     }
     if (password.length < MIN_PASSWORD_LENGTH) {
@@ -81,11 +83,11 @@ export default function SignupScreen() {
       return;
     }
     if (password !== confirmPassword) {
-      setFormError('The passwords do not match.');
+      setFormError(t('auth.error.mismatch'));
       return;
     }
     if (!acceptedTerms) {
-      setFormError('Accept the Terms of Service and Privacy Notice to continue.');
+      setFormError(t('auth.error.accept'));
       return;
     }
 
@@ -95,7 +97,7 @@ export default function SignupScreen() {
       await signUp({ email: safeEmail, name: name.trim(), password });
       setShowVerification(true);
     } catch (error) {
-      setFormError(error instanceof Error ? error.message : 'We could not create your account. Please try again.');
+      setFormError(error instanceof Error ? error.message : t('auth.error.create'));
     } finally {
       setIsSubmitting(false);
     }
@@ -103,7 +105,7 @@ export default function SignupScreen() {
 
   const verifyAndCreateAccount = async () => {
     if (!/^\d{6}$/.test(verificationCode)) {
-      setVerificationError('Enter the complete 6-digit verification code.');
+      setVerificationError(t('auth.error.verifyCode'));
       return;
     }
 
@@ -114,7 +116,7 @@ export default function SignupScreen() {
       posthog.capture('account_created', { method: 'password' });
       setShowVerification(false);
     } catch (error) {
-      setVerificationError(error instanceof Error ? error.message : 'We could not verify your email. Please try again.');
+      setVerificationError(error instanceof Error ? error.message : t('auth.error.verify'));
     } finally {
       setIsSubmitting(false);
     }
@@ -127,22 +129,22 @@ export default function SignupScreen() {
     try {
       await signInWithSocial(provider);
     } catch (error) {
-      setFormError(error instanceof Error ? error.message : `We could not continue with ${provider === 'apple' ? 'Apple' : 'Google'}.`);
+      setFormError(error instanceof Error ? error.message : t('auth.error.provider', { provider: provider === 'apple' ? 'Apple' : 'Google' }));
     }
   };
 
   return (
     <AuthScreen
-      eyebrow="Start free"
-      subtitle="Create a workspace for your bookings, customers, invoices, and business finances."
-      title="Build a calmer way to run your business.">
+      eyebrow={t('auth.signup.eyebrow')}
+      subtitle={t('auth.signup.subtitle')}
+      title={t('auth.signup.title')}>
       <AuthField
         autoCapitalize="words"
         autoComplete="name"
         icon="person-outline"
-        label="Full name"
+        label={t('auth.fullName')}
         onChangeText={setName}
-        placeholder="Your full name"
+        placeholder={t('auth.fullName.placeholder')}
         textContentType="name"
         value={name}
       />
@@ -151,9 +153,9 @@ export default function SignupScreen() {
         autoComplete="email"
         icon="mail-outline"
         keyboardType="email-address"
-        label="Email address"
+        label={t('auth.email')}
         onChangeText={setEmail}
-        placeholder="you@business.com"
+        placeholder={t('auth.email.placeholder')}
         textContentType="emailAddress"
         value={email}
       />
@@ -161,7 +163,7 @@ export default function SignupScreen() {
         autoCapitalize="none"
         autoComplete="new-password"
         icon="lock-closed-outline"
-        label="Password"
+        label={t('auth.password')}
         onChangeText={setPassword}
         placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`}
         secureTextEntry
@@ -172,10 +174,10 @@ export default function SignupScreen() {
         autoCapitalize="none"
         autoComplete="new-password"
         icon="shield-checkmark-outline"
-        label="Confirm password"
+        label={t('auth.confirmPassword')}
         onChangeText={setConfirmPassword}
         onSubmitEditing={handleCreateAccount}
-        placeholder="Repeat your password"
+        placeholder={t('auth.confirmPassword.placeholder')}
         returnKeyType="done"
         secureTextEntry
         textContentType="newPassword"
@@ -184,7 +186,7 @@ export default function SignupScreen() {
 
       <View style={styles.termsRow}>
         <Pressable
-          accessibilityLabel="Accept terms and privacy notice"
+          accessibilityLabel={t('a11y.acceptTerms')}
           accessibilityRole="checkbox"
           accessibilityState={{ checked: acceptedTerms }}
           hitSlop={6}
@@ -198,19 +200,19 @@ export default function SignupScreen() {
           ]}>
           {acceptedTerms ? <Ionicons name="checkmark" size={15} color="#FFFFFF" /> : null}
         </Pressable>
-        <Text style={[styles.termsCopy, { color: palette.muter }]}>I agree to the </Text>
+        <Text style={[styles.termsCopy, { color: palette.muter }]}>{t('auth.agree')}</Text>
         <Pressable onPress={() => setLegalDocument('terms')}>
-          <Text style={[styles.legalLink, { color: palette.accent }]}>Terms</Text>
+          <Text style={[styles.legalLink, { color: palette.accent }]}>{t('auth.terms')}</Text>
         </Pressable>
         <Text style={[styles.termsCopy, { color: palette.muter }]}> and </Text>
         <Pressable onPress={() => setLegalDocument('privacy')}>
-          <Text style={[styles.legalLink, { color: palette.accent }]}>Privacy Notice</Text>
+          <Text style={[styles.legalLink, { color: palette.accent }]}>{t('auth.privacy')}</Text>
         </Pressable>
       </View>
 
       {formError ? <InlineMessage>{formError}</InlineMessage> : null}
       <PrimaryAuthButton
-        label="Create account"
+        label={t('auth.createAccountButton')}
         loadingLabel="Creating account…"
         onPress={handleCreateAccount}
         pending={isSubmitting}
@@ -221,10 +223,10 @@ export default function SignupScreen() {
       <SocialButtons onPress={setSocialProvider} />
 
       <View style={styles.footerRow}>
-        <Text style={[styles.footerText, { color: palette.muter }]}>Already have an account?</Text>
+        <Text style={[styles.footerText, { color: palette.muter }]}>{t('auth.haveAccount')}</Text>
         <Link href="/login" replace asChild>
           <Pressable hitSlop={8}>
-            <Text style={[styles.footerLink, { color: palette.accent }]}>Sign in</Text>
+            <Text style={[styles.footerLink, { color: palette.accent }]}>{t('auth.signIn')}</Text>
           </Pressable>
         </Link>
       </View>
@@ -236,13 +238,13 @@ export default function SignupScreen() {
           setVerificationError('');
         }}
         subtitle={`Enter the 6-digit code sent to ${email.trim().toLowerCase()}.`}
-        title="Verify your email"
+        title={t('auth.verifyEmail')}
         visible={showVerification}>
         <AuthField
           autoComplete="one-time-code"
           icon="keypad-outline"
           keyboardType="number-pad"
-          label="Verification code"
+          label={t('auth.verificationCode')}
           maxLength={6}
           onChangeText={(value) => setVerificationCode(value.replace(/\D/g, ''))}
           placeholder="000000"

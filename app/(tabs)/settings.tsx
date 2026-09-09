@@ -11,21 +11,23 @@ import { ServicesManagerModal } from '@/components/settings/ServicesManagerModal
 import { DangerActionRow, SettingsRow, SettingsSection } from '@/components/settings/SettingsList';
 import { getSoftTokens } from '@/components/settings/tokens';
 import { CURRENCY_OPTIONS, useAppData } from '@/context/app-data-context';
+import { LOCALES } from '@/lib/i18n';
 import { useAuth } from '@/context/auth-context';
 import { useSubscription } from '@/context/subscription-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 import { useResponsive } from '@/lib/responsive';
-
-const APPEARANCE_LABELS = { system: 'System', light: 'Light', dark: 'Dark' } as const;
+import type { TranslationKey } from '@/lib/i18n';
+import { useTranslation } from '@/lib/use-translation';
 
 export default function SettingsScreen() {
   const router = useRouter();
   const { isDarkMode, themePreference } = useTheme();
   const { signOut, user, verifyPassword, deleteAccount } = useAuth();
-  const { businessProfile, currency, deleteAllData, deleteWorkspace } = useAppData();
+  const { businessProfile, currency, deleteAllData, deleteWorkspace, language } = useAppData();
   const { isPro, isLoadingSubscription } = useSubscription();
   const palette = getThemePalette(isDarkMode);
   const { readingStyle } = useResponsive();
+  const { t } = useTranslation();
   const soft = getSoftTokens(isDarkMode);
 
   const [showProfileEditor, setShowProfileEditor] = useState(false);
@@ -74,8 +76,8 @@ export default function SettingsScreen() {
 
   const handleRate = () => {
     Alert.alert(
-      'Rate BookFlow',
-      'BookFlow is not published to the App Store or Google Play yet. Once it is, this will open its store listing.',
+      t('settings.rate'),
+      t('settings.rate.body'),
     );
   };
 
@@ -86,13 +88,13 @@ export default function SettingsScreen() {
           <View style={[styles.headerIcon, { backgroundColor: soft.surface, borderColor: soft.border, shadowColor: soft.shadow }]}>
             <Ionicons name="settings-outline" size={21} color={palette.accent} />
           </View>
-          <Text style={[styles.headerTitle, { color: palette.text }]}>Settings</Text>
+          <Text style={[styles.headerTitle, { color: palette.text }]}>{t('settings.title')}</Text>
         </View>
 
-        <SettingsSection title="Business">
+        <SettingsSection title={t('settings.section.business')}>
           <SettingsRow
             icon="business-outline"
-            title="Business profile"
+            title={t('settings.businessProfile')}
             subtitle={[businessProfile.name, businessProfile.nature]
               .map((value) => value.trim())
               .filter(Boolean)
@@ -101,86 +103,86 @@ export default function SettingsScreen() {
           />
           <SettingsRow
             icon="cube-outline"
-            title="Services & packages"
-            subtitle="Services, pricing, duration & deposit"
+            title={t('settings.services')}
+            subtitle={t('settings.services.subtitle')}
             onPress={() => setShowServicesManager(true)}
           />
           <SettingsRow
             icon="receipt-outline"
-            title="Invoice settings"
-            subtitle="Numbers, payment terms & payment methods"
+            title={t('settings.invoiceSettings')}
+            subtitle={t('settings.invoiceSettings.subtitle')}
             onPress={() => router.push('/settings/invoice-settings')}
           />
         </SettingsSection>
 
-        <SettingsSection title="Preferences">
+        <SettingsSection title={t('settings.section.preferences')}>
           <SettingsRow
             icon={isDarkMode ? 'moon-outline' : 'sunny-outline'}
-            title="Appearance"
-            value={APPEARANCE_LABELS[themePreference]}
+            title={t('settings.appearance')}
+            value={t(`settings.appearance.${themePreference}` as TranslationKey)}
             onPress={() => router.push('/settings/appearance')}
           />
           <SettingsRow
             icon="notifications-outline"
-            title="Notifications & reminders"
-            subtitle="Bookings, payments & invoices"
+            title={t('settings.notifications')}
+            subtitle={t('settings.notifications.subtitle')}
             onPress={() => router.push('/settings/notifications')}
           />
-          <SettingsRow icon="globe-outline" title="Language" value="English" onPress={() => router.push('/settings/language')} />
+          <SettingsRow icon="globe-outline" title={t('settings.language')} value={LOCALES.find((option) => option.id === language)?.label ?? 'English'} onPress={() => router.push('/settings/language')} />
           <SettingsRow
             icon="cash-outline"
-            title="Currency & region"
+            title={t('settings.currency')}
             value={`${currencyLabel} · Malaysia`}
             onPress={() => router.push('/settings/currency-region')}
           />
         </SettingsSection>
 
-        <SettingsSection title="Data">
+        <SettingsSection title={t('settings.section.data')}>
           <SettingsRow
             icon="download-outline"
-            title="Export data & reports"
-            subtitle="PDF, CSV & business reports"
+            title={t('settings.export')}
+            subtitle={t('settings.export.subtitle')}
             onPress={() => router.push('/settings/export')}
           />
           <SettingsRow
             icon="server-outline"
-            title="Data management"
-            subtitle="Manage your BookFlow records"
+            title={t('settings.dataManagement')}
+            subtitle={t('settings.dataManagement.subtitle')}
             onPress={() => router.push('/settings/data-management')}
           />
         </SettingsSection>
 
-        <SettingsSection title="Account">
+        <SettingsSection title={t('settings.section.account')}>
           <SettingsRow
             icon="person-outline"
-            title="Personal information"
-            subtitle={user?.email ?? user?.name ?? 'Signed in'}
+            title={t('settings.personalInfo')}
+            subtitle={user?.email ?? user?.name ?? t('settings.signedIn')}
             onPress={() => router.push('/settings/personal-information')}
           />
           <SettingsRow
             icon="star-outline"
-            title="BookFlow plan"
-            value={isLoadingSubscription ? '—' : isPro ? 'Pro' : 'Free plan'}
+            title={t('settings.plan')}
+            value={isLoadingSubscription ? '—' : isPro ? t('settings.plan.pro') : t('settings.plan.free')}
             onPress={() => router.push('/settings/plan')}
           />
-          <SettingsRow icon="shield-outline" title="Security & privacy" onPress={() => router.push('/settings/security')} />
+          <SettingsRow icon="shield-outline" title={t('settings.security')} onPress={() => router.push('/settings/security')} />
         </SettingsSection>
 
-        <SettingsSection title="Support">
-          <SettingsRow icon="help-circle-outline" title="Help & support" onPress={() => router.push('/settings/help')} />
-          <SettingsRow icon="chatbubble-ellipses-outline" title="Send feedback" onPress={() => router.push('/settings/feedback')} />
-          <SettingsRow icon="star-half-outline" title="Rate BookFlow" onPress={handleRate} />
+        <SettingsSection title={t('settings.section.support')}>
+          <SettingsRow icon="help-circle-outline" title={t('settings.help')} onPress={() => router.push('/settings/help')} />
+          <SettingsRow icon="chatbubble-ellipses-outline" title={t('settings.feedback')} onPress={() => router.push('/settings/feedback')} />
+          <SettingsRow icon="star-half-outline" title={t('settings.rate')} onPress={handleRate} />
         </SettingsSection>
 
-        <SettingsSection title="About">
-          <SettingsRow icon="lock-closed-outline" title="Privacy Policy" onPress={() => router.push('/settings/privacy')} />
-          <SettingsRow icon="document-text-outline" title="Terms of Service" onPress={() => router.push('/settings/terms')} />
-          <SettingsRow icon="information-circle-outline" title="About BookFlow" onPress={() => router.push('/settings/about')} />
+        <SettingsSection title={t('settings.section.about')}>
+          <SettingsRow icon="lock-closed-outline" title={t('settings.privacy')} onPress={() => router.push('/settings/privacy')} />
+          <SettingsRow icon="document-text-outline" title={t('settings.terms')} onPress={() => router.push('/settings/terms')} />
+          <SettingsRow icon="information-circle-outline" title={t('settings.about')} onPress={() => router.push('/settings/about')} />
         </SettingsSection>
 
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Sign out"
+          accessibilityLabel={t('settings.signOut')}
           onPress={() => setShowSignOut(true)}
           style={({ pressed }) => [
             styles.signOutButton,
@@ -188,14 +190,14 @@ export default function SettingsScreen() {
             pressed && styles.pressed,
           ]}>
           <Ionicons name="log-out-outline" size={18} color={palette.danger} />
-          <Text style={[styles.signOutText, { color: palette.danger }]}>Sign out</Text>
+          <Text style={[styles.signOutText, { color: palette.danger }]}>{t('settings.signOut')}</Text>
         </Pressable>
 
-        <SettingsSection title="Danger zone">
+        <SettingsSection title={t('settings.section.danger')}>
           <DangerActionRow
             icon="trash-outline"
-            title="Delete account"
-            subtitle="Permanently removes your account and workspace"
+            title={t('settings.deleteAccount')}
+            subtitle={t('settings.deleteAccount.subtitle')}
             onPress={() => setShowDeleteAccount(true)}
           />
         </SettingsSection>
@@ -203,7 +205,7 @@ export default function SettingsScreen() {
         <View style={styles.versionFooter}>
           <Text style={[styles.versionBrand, { color: palette.text }]}>BookFlow</Text>
           <Text style={[styles.versionText, { color: palette.muter }]}>
-            Version {appVersion}
+            {t('settings.version', { version: appVersion })}
             {buildNumber ? ` (${buildNumber})` : ''}
           </Text>
         </View>

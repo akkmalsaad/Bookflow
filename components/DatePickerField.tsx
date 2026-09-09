@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppPalette } from '@/context/theme-context';
+import { useTranslation } from '@/lib/use-translation';
 
 type Props = {
   value: string;
@@ -31,6 +32,7 @@ function formatDisplayDate(key: string) {
 }
 
 export function DatePickerField({ value, onChange, isDarkMode, palette }: Props) {
+  const { t } = useTranslation();
   const [visible, setVisible] = useState(false);
   const selectedDate = useMemo(() => parseDateKey(value), [value]);
   const [viewYear, setViewYear] = useState(selectedDate.getFullYear());
@@ -85,7 +87,7 @@ export function DatePickerField({ value, onChange, isDarkMode, palette }: Props)
         onPress={open}
         style={[styles.trigger, { backgroundColor: softInset, borderColor: softBorder }]}
         accessibilityRole="button"
-        accessibilityLabel="Select date">
+        accessibilityLabel={t('datePicker.select')}>
         <Ionicons name="calendar-outline" size={17} color={palette.muter} />
         <Text style={[styles.triggerText, { color: palette.text }]}>{formatDisplayDate(value)}</Text>
       </Pressable>
@@ -100,7 +102,7 @@ export function DatePickerField({ value, onChange, isDarkMode, palette }: Props)
                 onPress={() => goToMonth(-1)}
                 hitSlop={10}
                 accessibilityRole="button"
-                accessibilityLabel="Previous month"
+                accessibilityLabel={t('datePicker.prev')}
                 style={[styles.navButton, { backgroundColor: softInset }]}>
                 <Ionicons name="chevron-back" size={18} color={palette.text} />
               </Pressable>
@@ -111,7 +113,7 @@ export function DatePickerField({ value, onChange, isDarkMode, palette }: Props)
                 onPress={() => goToMonth(1)}
                 hitSlop={10}
                 accessibilityRole="button"
-                accessibilityLabel="Next month"
+                accessibilityLabel={t('datePicker.next')}
                 style={[styles.navButton, { backgroundColor: softInset }]}>
                 <Ionicons name="chevron-forward" size={18} color={palette.text} />
               </Pressable>
@@ -160,7 +162,7 @@ export function DatePickerField({ value, onChange, isDarkMode, palette }: Props)
             ))}
 
             <Pressable onPress={() => selectDay(todayKey)} style={[styles.todayButton, { backgroundColor: softInset }]}>
-              <Text style={[styles.todayButtonText, { color: palette.accent }]}>Today</Text>
+              <Text style={[styles.todayButtonText, { color: palette.accent }]}>{t('datePicker.today')}</Text>
             </Pressable>
           </Pressable>
         </Pressable>

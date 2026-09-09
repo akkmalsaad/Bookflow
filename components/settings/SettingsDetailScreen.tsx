@@ -7,6 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { getSoftTokens } from '@/components/settings/tokens';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 import { useResponsive } from '@/lib/responsive';
+import { useTranslation } from '@/lib/use-translation';
 
 type Props = {
   /** Omit for a screen whose title already says everything the eyebrow would. */
@@ -23,6 +24,7 @@ type Props = {
  * the settings hub, and a scroll area that respects the safe areas on both platforms.
  */
 export function SettingsDetailScreen({ eyebrow, title, description, children, footer }: Props) {
+  const { t } = useTranslation();
   const router = useRouter();
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
@@ -36,7 +38,7 @@ export function SettingsDetailScreen({ eyebrow, title, description, children, fo
       <View style={[styles.header, readingStyle]}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Go back"
+          accessibilityLabel={t('a11y.goBack')}
           hitSlop={8}
           onPress={() => router.back()}
           style={({ pressed }) => [

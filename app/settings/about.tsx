@@ -1,18 +1,21 @@
 import Constants from 'expo-constants';
 
 import { SettingsDetailScreen, SettingsInfoRow } from '@/components/settings/SettingsDetailScreen';
+import { useTranslation } from '@/lib/use-translation';
 
 export default function AboutScreen() {
-  const appVersion = Constants.expoConfig?.version ?? 'Unknown';
+  const { t } = useTranslation();
+
+  const appVersion = Constants.expoConfig?.version ?? t('sub.unknown');
   const buildNumber = Constants.expoConfig?.ios?.buildNumber ?? Constants.expoConfig?.android?.versionCode;
 
   return (
     <SettingsDetailScreen
-      eyebrow="About"
-      title="About BookFlow"
-      description="BookFlow is a booking and finance app for small service businesses — customers, bookings, invoices, payments and cash flow in one place.">
-      <SettingsInfoRow label="Version" value={buildNumber ? `${appVersion} (${buildNumber})` : String(appVersion)} />
-      <SettingsInfoRow label="Runtime" value={`Expo SDK ${Constants.expoConfig?.sdkVersion ?? 'Unknown'}`} />
+      eyebrow={t('sub.about')}
+      title={t('sub.about.title')}
+      description={t('sub.about.description')}>
+      <SettingsInfoRow label={t('sub.about.version')} value={buildNumber ? `${appVersion} (${buildNumber})` : String(appVersion)} />
+      <SettingsInfoRow label={t('sub.about.runtime')} value={`Expo SDK ${Constants.expoConfig?.sdkVersion ?? t('sub.unknown')}`} />
     </SettingsDetailScreen>
   );
 }

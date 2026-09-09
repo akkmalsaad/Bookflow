@@ -16,6 +16,8 @@ import { paymentMethods } from '@/components/UpdatePaymentModal';
 import { getCurrencyFormatter, useAppData } from '@/context/app-data-context';
 import { SuccessFeedback } from '@/components/feedback/SuccessFeedback';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import type { TranslationKey } from '@/lib/i18n';
+import { useTranslation } from '@/lib/use-translation';
 import { fromCents, getInvoicePayments, parseAmountInput, sumPaymentsInCents, toCents } from '@/lib/invoice-payments';
 
 type Props = {
@@ -40,6 +42,7 @@ export function RecordDepositModal({ invoiceId, onClose }: Props) {
   const { isDarkMode } = useTheme();
   const { invoices, payments, currency, updateInvoiceDeposit } = useAppData();
   const posthog = usePostHog();
+  const { t } = useTranslation();
   const palette = getThemePalette(isDarkMode);
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const invoice = invoices.find((item) => item.id === invoiceId) ?? null;
@@ -84,25 +87,25 @@ export function RecordDepositModal({ invoiceId, onClose }: Props) {
 
     const parsed = parseAmountInput(amount);
     if (parsed === null) {
-      setError('Enter a deposit amount greater than zero.');
+      setError(t('deposit.error.amount'));
       return;
     }
 
     if (toCents(parsed) > toCents(maxDeposit)) {
-      setError(`Deposit cannot exceed ${currencyFormatter.format(maxDeposit)}.`);
+      setError(t('deposit.error.exceeds', { amount: currencyFormatter.format(maxDeposit) }));
       return;
     }
 
     if (updateInvoiceDeposit(invoice.id, parsed, { method, date, notes })) {
       posthog.capture('deposit_recorded', { method });
       successActive.current = true;
-      setSuccessMessage(`${currencyFormatter.format(parsed)} deposit saved`);
+      setSuccessMessage(t('deposit.saved', { amount: currencyFormatter.format(parsed) }));
       Keyboard.dismiss();
       onClose();
       return;
     }
 
-    setError('The deposit could not be saved for this invoice.');
+    setError(t('deposit.error.failed'));
   };
 
   return (
@@ -116,19 +119,16 @@ export function RecordDepositModal({ invoiceId, onClose }: Props) {
         <SuccessFeedback
           visible={successMessage !== null}
           title={successMessage ?? ''}
-          // Preserve the deposit snackbar's previous reading interval and lack of haptics.
-          duration={3200}
-          hapticEnabled={false}
           onComplete={() => {
             successActive.current = false;
             setSuccessMessage(null);
           }}
         />
       )}
-      eyebrow="Payment received"
-      title="Record deposit"
-      description={`Enter the deposit received for this invoice. The remaining customer balance updates automatically.`}
-      primaryLabel="Save deposit"
+      eyebrow={t('payment.eyebrow')}
+      title={t('deposit.title')}
+      description={t('deposit.description')}
+      primaryLabel={t('deposit.save')}
       onPrimary={handleSave}
       onClose={onClose}
       palette={palette}
@@ -137,13 +137,13 @@ export function RecordDepositModal({ invoiceId, onClose }: Props) {
       // the hand-off then reads as one continuous movement.
       entrance="sheet">
       <PaymentSummaryRow
-        label="Invoice total"
+        label={t('payment.invoiceTotal')}
         value={currencyFormatter.format(invoice?.amount ?? 0)}
         palette={palette}
         isDarkMode={isDarkMode}
       />
 
-      <Text style={[paymentModalStyles.fieldLabel, { color: palette.muter }]}>Deposit amount</Text>
+      <Text style={[paymentModalStyles.fieldLabel, { color: palette.muter }]}>{t('deposit.amount')}</Text>
       <CurrencyAmountInput
         hideReturnKey
         currency={currency}
@@ -159,12 +159,12 @@ export function RecordDepositModal({ invoiceId, onClose }: Props) {
       {error ? <Text style={[paymentModalStyles.error, { color: palette.danger }]}>{error}</Text> : null}
 
       <PaymentBalanceRow
-        label="Remaining after deposit"
+        label={t('deposit.remainingAfter')}
         value={currencyFormatter.format(remaining)}
         palette={palette}
       />
 
-      <Text style={[paymentModalStyles.fieldLabel, { color: palette.muter }]}>Payment method</Text>
+      <Text style={[paymentModalStyles.fieldLabel, { color: palette.muter }]}>{t('payment.method')}</Text>
       <View style={styles.methodRow}>
         {paymentMethods.map((option) => {
           const isActive = option === method;
@@ -181,20 +181,20 @@ export function RecordDepositModal({ invoiceId, onClose }: Props) {
                 isActive && { backgroundColor: accentSoft, borderColor: palette.accent },
                 pressed && styles.pressed,
               ]}>
-              <Text style={[styles.methodChipText, { color: isActive ? palette.accent : palette.text }]}>{option}</Text>
+              <Text style={[styles.methodChipText, { color: isActive ? palette.accent : palette.text }]}>{t(`payment.method.${option}` as TranslationKey)}</Text>
             </Pressable>
           );
         })}
       </View>
 
-      <Text style={[paymentModalStyles.fieldLabel, { color: palette.muter }]}>Deposit date</Text>
+      <Text style={[paymentModalStyles.fieldLabel, { color: palette.muter }]}>{t('deposit.date')}</Text>
       <DatePickerField value={date} onChange={setDate} isDarkMode={isDarkMode} palette={palette} />
 
-      <Text style={[paymentModalStyles.fieldLabel, { color: palette.muter }]}>Notes (optional)</Text>
+      <Text style={[paymentModalStyles.fieldLabel, { color: palette.muter }]}>{t('deposit.notes')}</Text>
       <TextInput
         multiline
         onChangeText={setNotes}
-        placeholder="Bank reference, remarks"
+        placeholder={t('deposit.notes.placeholder')}
         placeholderTextColor={palette.muter}
         style={[styles.notesInput, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
         value={notes}

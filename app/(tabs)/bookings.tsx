@@ -11,6 +11,16 @@ import { Booking, getCurrencyFormatter, useAppData } from '@/context/app-data-co
 import { SectionHeader } from '@/components/SectionHeader';
 import { JobStatusPill } from '@/components/booking/JobStatusPill';
 import { JobStatusSheet } from '@/components/booking/JobStatusSheet';
+import {
+  formatTime,
+  getSuggestedEndTime,
+  getTimeParts,
+  to24HourTime,
+  TimePickerMenu,
+  TimeSelectButton,
+  type TimePart,
+  type TimePeriod,
+} from '@/components/booking/EventTimePicker';
 import { useSnackbar } from '@/context/snackbar-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 import { KeyboardDoneButton } from '@/components/KeyboardDoneButton';
@@ -24,138 +34,10 @@ import {
 } from '@/lib/booking-conflicts';
 import { getServiceDepositDefault, resolveServiceDepositAmount } from '@/lib/service-defaults';
 import { useResponsive } from '@/lib/responsive';
+import { useTranslation } from '@/lib/use-translation';
 
 const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const hourOptions = Array.from({ length: 12 }, (_, index) => index + 1);
-const minuteOptions = Array.from({ length: 60 }, (_, index) => String(index).padStart(2, '0'));
-const periodOptions = ['AM', 'PM'] as const;
-type TimePeriod = typeof periodOptions[number];
 type ActiveTimePicker = 'start' | 'finish' | null;
-
-const WHEEL_ITEM_HEIGHT = 36;
-const WHEEL_VISIBLE_COUNT = 4;
-const WHEEL_HEIGHT = WHEEL_ITEM_HEIGHT * WHEEL_VISIBLE_COUNT;
-const WHEEL_PADDING = (WHEEL_HEIGHT - WHEEL_ITEM_HEIGHT) / 2;
-
-function WheelColumn({
-  items,
-  selectedIndex,
-  onSelect,
-  textColor,
-  align = 'center',
-  itemPaddingLeft = 0,
-}: {
-  items: string[];
-  selectedIndex: number;
-  onSelect: (index: number) => void;
-  textColor: string;
-  align?: 'center' | 'flex-start';
-  /** Keeps the AM/PM inset inside the scrollable area instead of as dead padding beside it. */
-  itemPaddingLeft?: number;
-}) {
-  const scrollRef = useRef<ScrollView>(null);
-  const scrollY = useRef(new Animated.Value(selectedIndex * WHEEL_ITEM_HEIGHT)).current;
-  // The index the parent already knows about, so momentum does not re-commit the same value.
-  const committedIndex = useRef(selectedIndex);
-  const hasPositioned = useRef(false);
-
-  const commitOffset = (offsetY: number) => {
-    const index = Math.max(0, Math.min(items.length - 1, Math.round(offsetY / WHEEL_ITEM_HEIGHT)));
-    if (index === committedIndex.current) return;
-    committedIndex.current = index;
-    onSelect(index);
-  };
-
-  const selectIndex = (index: number) => {
-    const clamped = Math.max(0, Math.min(items.length - 1, index));
-    scrollRef.current?.scrollTo({ y: clamped * WHEEL_ITEM_HEIGHT, animated: true });
-    if (clamped === committedIndex.current) return;
-    committedIndex.current = clamped;
-    onSelect(clamped);
-  };
-
-  return (
-    <View style={styles.wheelViewport}>
-      <Animated.ScrollView
-        ref={scrollRef}
-        showsVerticalScrollIndicator={false}
-        snapToInterval={WHEEL_ITEM_HEIGHT}
-        decelerationRate="fast"
-        nestedScrollEnabled
-        contentContainerStyle={styles.wheelContent}
-        // Positioned once the content is measured, so reopening the picker lands on the saved value.
-        onContentSizeChange={() => {
-          if (hasPositioned.current) return;
-          hasPositioned.current = true;
-          scrollRef.current?.scrollTo({ y: selectedIndex * WHEEL_ITEM_HEIGHT, animated: false });
-        }}
-        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
-          useNativeDriver: true,
-        })}
-        scrollEventThrottle={16}
-        // Values are only read once the wheel settles — never mid-drag, and never by pushing the
-        // scroll position around while the finger is still down.
-        onMomentumScrollEnd={(event) => commitOffset(event.nativeEvent.contentOffset.y)}
-        onScrollEndDrag={(event) => {
-          const { velocity, contentOffset } = event.nativeEvent;
-          // A flick hands over to momentum, which commits when it stops.
-          if (velocity && Math.abs(velocity.y) > 0.05) return;
-          commitOffset(contentOffset.y);
-        }}>
-        {items.map((label, index) => {
-          const inputRange = [
-            (index - 2) * WHEEL_ITEM_HEIGHT,
-            (index - 1) * WHEEL_ITEM_HEIGHT,
-            index * WHEEL_ITEM_HEIGHT,
-            (index + 1) * WHEEL_ITEM_HEIGHT,
-            (index + 2) * WHEEL_ITEM_HEIGHT,
-          ];
-          const opacity = scrollY.interpolate({ inputRange, outputRange: [0.22, 0.48, 1, 0.48, 0.22], extrapolate: 'clamp' });
-          const scale = scrollY.interpolate({ inputRange, outputRange: [0.8, 0.9, 1, 0.9, 0.8], extrapolate: 'clamp' });
-          return (
-            <Pressable
-              key={label}
-              accessibilityRole="button"
-              accessibilityLabel={label}
-              onPress={() => selectIndex(index)}
-              style={[styles.wheelItem, { alignItems: align, paddingLeft: itemPaddingLeft }]}>
-              <Animated.Text style={[styles.wheelItemText, { color: textColor, opacity, transform: [{ scale }] }]}>{label}</Animated.Text>
-            </Pressable>
-          );
-        })}
-      </Animated.ScrollView>
-    </View>
-  );
-}
-
-function getTimeParts(value: string) {
-  const [hourValue, minute = '00'] = value.split(':');
-  const hour24 = Number(hourValue);
-
-  return {
-    hour: hour24 % 12 || 12,
-    minute,
-    period: (hour24 >= 12 ? 'PM' : 'AM') as TimePeriod,
-  };
-}
-
-function to24HourTime(hour: number, minute: string, period: TimePeriod) {
-  const hour24 = period === 'AM' ? hour % 12 : (hour % 12) + 12;
-  return `${String(hour24).padStart(2, '0')}:${minute}`;
-}
-
-function formatTime(value: string) {
-  const { hour, minute, period } = getTimeParts(value);
-  return `${hour}:${minute} ${period}`;
-}
-
-function getSuggestedEndTime(startTime: string) {
-  const [hourValue, minuteValue] = startTime.split(':');
-  const totalMinutes = Math.min((Number(hourValue) * 60) + Number(minuteValue) + 60, (23 * 60) + 30);
-  const hour = Math.floor(totalMinutes / 60);
-  const minute = totalMinutes % 60;
-  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
-}
 
 function toIsoDate(date: Date) {
   const year = date.getFullYear();
@@ -185,8 +67,9 @@ export default function BookingsScreen() {
   const params = useLocalSearchParams<{ composeForCustomerId?: string }>();
   const handledDeepLinkRef = useRef('');
   const { isDarkMode } = useTheme();
-  const { packages, bookings, customers, createBooking, updateBookingStatus, currency } = useAppData();
+  const { packages, bookings, customers, checkPlanLimit, createBooking, updateBookingStatus, currency } = useAppData();
   const posthog = usePostHog();
+  const { t } = useTranslation();
   const { showSnackbar } = useSnackbar();
   const palette = getThemePalette(isDarkMode);
   // The schedule is a single column of text-heavy cards, so it uses the narrower reading column;
@@ -345,12 +228,12 @@ export default function BookingsScreen() {
   // Says where the prefilled figure came from, and stays honest once it has been overridden.
   const serviceDeposit = getServiceDepositDefault(selectedPackage);
   const depositHint = isDepositManual
-    ? 'Saved with this booking only.'
+    ? t('bookings.deposit.manual')
     : serviceDeposit
       ? serviceDeposit.type === 'percent'
-        ? `${serviceDeposit.value}% default from ${selectedPackage?.name ?? 'this service'}. Editable.`
-        : `Default from ${selectedPackage?.name ?? 'this service'}. Editable.`
-      : 'This service has no default deposit. Leave blank or enter one.';
+        ? t('bookings.deposit.percent', { value: serviceDeposit.value, service: selectedPackage?.name ?? t('bookings.deposit.thisService') })
+        : t('bookings.deposit.fixed', { service: selectedPackage?.name ?? t('bookings.deposit.thisService') })
+      : t('bookings.deposit.none');
 
   const statusBooking = bookings.find((item) => item.id === statusBookingId) ?? null;
 
@@ -361,7 +244,7 @@ export default function BookingsScreen() {
     setStatusBookingId(null);
 
     if (!result.ok) {
-      showSnackbar({ message: result.error ?? 'The job status could not be updated.', tone: 'danger' });
+      showSnackbar({ message: result.error ?? t('bookings.error.status'), tone: 'danger' });
       return;
     }
 
@@ -375,7 +258,7 @@ export default function BookingsScreen() {
     setFormError('');
   };
 
-  const updateTimePart = (part: 'hour' | 'minute' | 'period', value: number | string) => {
+  const updateTimePart = (part: TimePart, value: number | string) => {
     if (!activeTimePicker) return;
 
     const currentTime = activeTimePicker === 'start' ? draftStartTime : draftEndTime;
@@ -414,6 +297,14 @@ export default function BookingsScreen() {
 
   const handleAddBooking = () => feedback.run(() => {
     const numericPrice = Number(draftPrice);
+    // The same gate the mutation enforces; checked here only to route into the upgrade flow.
+    if (!checkPlanLimit('bookings').allowed) {
+      setShowComposer(false);
+      router.push({ pathname: '/paywall', params: { reason: 'bookings', returnTo: '/bookings' } });
+      // `false` leaves useConfirmedSave untouched: nothing was mutated, so nothing awaits a save.
+      return false;
+    }
+
     const isNewCustomerValid = Boolean(newCustomerName.trim());
     const hasValidCustomer = customerMode === 'existing' ? Boolean(selectedCustomerId) : isNewCustomerValid;
     const startTime = normalizeBookingTime(draftStartTime);
@@ -421,7 +312,7 @@ export default function BookingsScreen() {
     const hasValidTimeRange = Boolean(startTime && endTime && endTime > startTime);
 
     if (!selectedPackage || !hasValidCustomer || Number.isNaN(numericPrice) || numericPrice <= 0 || !startTime || !endTime || !hasValidTimeRange) {
-      setFormError('Choose a package and add valid customer, price, start time, and later finish time.');
+      setFormError(t('bookings.error.fields'));
       return false;
     }
 
@@ -431,9 +322,13 @@ export default function BookingsScreen() {
       const conflictEnd = normalizeBookingTime(conflictingBooking.endTime);
       const conflictTime = conflictStart
         ? `${formatTime(conflictStart)}${conflictEnd ? ` – ${formatTime(conflictEnd)}` : ''}`
-        : 'the selected time';
+        : t('bookings.error.selectedTime');
       setFormError(
-        `Time unavailable. ${conflictingBooking.title} is already booked on ${formatDisplayDate(selectedDate)} from ${conflictTime}. Choose a non-overlapping time.`,
+        t('bookings.error.conflict', {
+          title: conflictingBooking.title,
+          date: formatDisplayDate(selectedDate),
+          time: conflictTime,
+        }),
       );
       return false;
     }
@@ -442,11 +337,11 @@ export default function BookingsScreen() {
     const trimmedDeposit = draftDeposit.trim();
     const numericDeposit = trimmedDeposit ? Number(trimmedDeposit) : 0;
     if (trimmedDeposit && (Number.isNaN(numericDeposit) || numericDeposit < 0)) {
-      setFormError('Enter a deposit amount of zero or more, or leave it blank.');
+      setFormError(t('bookings.error.deposit'));
       return false;
     }
     if (numericDeposit > numericPrice) {
-      setFormError('The deposit cannot be more than the booking price.');
+      setFormError(t('bookings.error.depositTooHigh'));
       return false;
     }
 
@@ -475,7 +370,7 @@ export default function BookingsScreen() {
     });
 
     if (!result) {
-      setFormError('The booking could not be saved. Check the customer and booking details.');
+      setFormError(t('bookings.error.save'));
       return false;
     }
 
@@ -508,6 +403,7 @@ export default function BookingsScreen() {
   const softBorder = isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.9)';
   const softShadow = isDarkMode ? '#020617' : '#A7B4C8';
   const accentSoft = isDarkMode ? '#29284B' : '#E9E8FF';
+  const timePickerColors = { palette, softInset, softBorder, accentSoft };
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]}>
@@ -523,13 +419,13 @@ export default function BookingsScreen() {
                   <Ionicons name="calendar-outline" size={23} color={palette.accent} />
                 </View>
                 <View>
-                  <Text style={[styles.eyebrow, { color: palette.accent }]}>Bookings</Text>
-                  <Text style={[styles.title, { color: palette.text }]}>Calendar</Text>
+                  <Text style={[styles.eyebrow, { color: palette.accent }]}>{t('bookings.eyebrow')}</Text>
+                  <Text style={[styles.title, { color: palette.text }]}>{t('bookings.title')}</Text>
                 </View>
               </View>
               <Pressable style={[styles.primaryButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]} onPress={openComposer}>
                 <Ionicons name="add" size={18} color="#fff" />
-                <Text style={styles.primaryButtonText}>Add</Text>
+                <Text style={styles.primaryButtonText}>{t('bookings.add')}</Text>
               </Pressable>
             </View>
 
@@ -537,7 +433,7 @@ export default function BookingsScreen() {
               <View style={styles.monthHeader}>
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel="Previous month"
+                  accessibilityLabel={t('bookings.prevMonth')}
                   hitSlop={8}
                   onPress={goToPreviousMonth}
                   style={[styles.arrowButton, { backgroundColor: softInset, borderColor: softBorder }]}>
@@ -546,7 +442,7 @@ export default function BookingsScreen() {
                 <Text style={[styles.monthLabel, { color: palette.text }]}>{monthLabel}</Text>
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel="Next month"
+                  accessibilityLabel={t('bookings.nextMonth')}
                   hitSlop={8}
                   onPress={goToNextMonth}
                   style={[styles.arrowButton, { backgroundColor: softInset, borderColor: softBorder }]}>
@@ -592,7 +488,7 @@ export default function BookingsScreen() {
             <View style={styles.eventsHeader}>
               <SectionHeader
                 icon="calendar-outline"
-                eyebrow="Schedule"
+                eyebrow={t('bookings.scheduleEyebrow')}
                 title={formatDisplayDate(selectedDate)}
                 rightElement={
                   <View style={[styles.eventCountPill, { backgroundColor: softInset }]}>
@@ -610,7 +506,7 @@ export default function BookingsScreen() {
                 <View style={[styles.emptyIcon, { backgroundColor: softInset }]}>
                   <Ionicons name="calendar-outline" size={24} color={palette.accent} />
                 </View>
-                <Text style={[styles.emptyText, { color: palette.muter }]}>No bookings scheduled for this date.</Text>
+                <Text style={[styles.emptyText, { color: palette.muter }]}>{t('bookings.emptyDate')}</Text>
               </View>
             );
           }
@@ -635,7 +531,7 @@ export default function BookingsScreen() {
               <View style={styles.scheduleMetaRow}>
                 <Ionicons name="time-outline" size={16} color={palette.muter} />
                 <Text style={[styles.scheduleMetaValue, { color: palette.text }]}>
-                  {item.startTime ?? item.time ?? 'Not specified'} – {item.endTime ?? 'Not specified'}
+                  {item.startTime ?? item.time ?? t('bookings.notSpecified')} – {item.endTime ?? t('bookings.notSpecified')}
                 </Text>
               </View>
               <View style={styles.scheduleMetaRow}>
@@ -675,8 +571,8 @@ export default function BookingsScreen() {
             <View style={[styles.modalHandle, { backgroundColor: palette.border }]} />
             <View accessibilityElementsHidden={feedback.success} importantForAccessibility={feedback.success ? 'no-hide-descendants' : 'auto'} style={styles.modalHeader}>
               <View>
-                <Text style={[styles.modalEyebrow, { color: palette.accent }]}>Create</Text>
-                <Text style={[styles.modalTitle, { color: palette.text }]}>New booking</Text>
+                <Text style={[styles.modalEyebrow, { color: palette.accent }]}>{t('bookings.create.eyebrow')}</Text>
+                <Text style={[styles.modalTitle, { color: palette.text }]}>{t('bookings.create.title')}</Text>
               </View>
               <Pressable disabled={feedback.saving || feedback.success} hitSlop={8} onPress={() => setShowComposer(false)} style={[styles.closeButton, { backgroundColor: softInset }]}>
                 <Ionicons name="close" size={24} color={palette.text} />
@@ -693,10 +589,10 @@ export default function BookingsScreen() {
               contentContainerStyle={styles.modalScrollContent}>
 
             <View pointerEvents={feedback.pending ? 'none' : 'auto'}>
-            <Text style={[styles.fieldLabel, { color: palette.muter }]}>Package</Text>
+            <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('bookings.package')}</Text>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Choose a package"
+              accessibilityLabel={t('bookings.choosePackage')}
               onPress={() => {
                 setShowPackageDropdown((current) => !current);
                 setShowCustomerDropdown(false);
@@ -742,7 +638,7 @@ export default function BookingsScreen() {
               </View>
             )}
 
-            <Text style={[styles.fieldLabel, { color: palette.muter }]}>Customer source</Text>
+            <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('bookings.customerSource')}</Text>
             <View style={styles.modeRow}>
               <Pressable
                 onPress={() => {
@@ -754,7 +650,7 @@ export default function BookingsScreen() {
                   { backgroundColor: softInset, borderColor: softBorder },
                   customerMode === 'existing' && { backgroundColor: accentSoft, borderColor: palette.accent },
                 ]}>
-                <Text style={[styles.modeButtonText, { color: customerMode === 'existing' ? palette.accent : palette.text }]}>Existing customer</Text>
+                <Text style={[styles.modeButtonText, { color: customerMode === 'existing' ? palette.accent : palette.text }]}>{t('bookings.existingCustomer')}</Text>
               </Pressable>
               <Pressable
                 onPress={() => {
@@ -767,13 +663,13 @@ export default function BookingsScreen() {
                   { backgroundColor: softInset, borderColor: softBorder },
                   customerMode === 'new' && { backgroundColor: accentSoft, borderColor: palette.accent },
                 ]}>
-                <Text style={[styles.modeButtonText, { color: customerMode === 'new' ? palette.accent : palette.text }]}>Add new customer</Text>
+                <Text style={[styles.modeButtonText, { color: customerMode === 'new' ? palette.accent : palette.text }]}>{t('bookings.newCustomer')}</Text>
               </Pressable>
             </View>
 
             {customerMode === 'existing' ? (
               <>
-                <Text style={[styles.fieldLabel, { color: palette.muter }]}>Customer</Text>
+                <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('bookings.customer')}</Text>
                 <Pressable
                   onPress={() => {
                     setShowCustomerDropdown((current) => !current);
@@ -800,7 +696,7 @@ export default function BookingsScreen() {
                   <TextInput
                     value={customerQuery}
                     onChangeText={setCustomerQuery}
-                    placeholder="Search customer"
+                    placeholder={t('bookings.searchCustomer')}
                     placeholderTextColor={palette.muter}
                     style={[styles.searchInput, { backgroundColor: softSurface, borderColor: softBorder, color: palette.text }]}
                   />
@@ -828,14 +724,14 @@ export default function BookingsScreen() {
                         </Pressable>
                       ))
                     ) : (
-                      <Text style={[styles.emptySearchText, { color: palette.muter }]}>No matching customer</Text>
+                      <Text style={[styles.emptySearchText, { color: palette.muter }]}>{t('bookings.noMatchingCustomer')}</Text>
                     )}
                   </ScrollView>
                 </Animated.View>
               </>
             ) : (
               <>
-                <Text style={[styles.fieldLabel, { color: palette.muter }]}>Customer name</Text>
+                <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('bookings.field.customerName')}</Text>
                 <TextInput
                   value={newCustomerName}
                   onChangeText={setNewCustomerName}
@@ -844,7 +740,7 @@ export default function BookingsScreen() {
                   style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
                 />
 
-                <Text style={[styles.fieldLabel, { color: palette.muter }]}>Customer email</Text>
+                <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('bookings.field.customerEmail')}</Text>
                 <TextInput
                   value={newCustomerEmail}
                   onChangeText={setNewCustomerEmail}
@@ -855,7 +751,7 @@ export default function BookingsScreen() {
                   style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
                 />
 
-                <Text style={[styles.fieldLabel, { color: palette.muter }]}>Customer phone</Text>
+                <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('bookings.field.customerPhone')}</Text>
                 <TextInput
                   value={newCustomerPhone}
                   onChangeText={setNewCustomerPhone}
@@ -865,7 +761,7 @@ export default function BookingsScreen() {
                   style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
                 />
 
-                <Text style={[styles.fieldLabel, { color: palette.muter }]}>Customer location</Text>
+                <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('bookings.field.customerLocation')}</Text>
                 <TextInput
                   value={newCustomerLocation}
                   onChangeText={setNewCustomerLocation}
@@ -876,7 +772,7 @@ export default function BookingsScreen() {
               </>
             )}
 
-            <Text style={[styles.fieldLabel, { color: palette.muter }]}>Price</Text>
+            <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('bookings.price')}</Text>
             <TextInput
               value={draftPrice}
               onChangeText={(value) => {
@@ -893,7 +789,7 @@ export default function BookingsScreen() {
               style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
             />
 
-            <Text style={[styles.fieldLabel, { color: palette.muter }]}>Deposit</Text>
+            <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('bookings.deposit')}</Text>
             <TextInput
               value={draftDeposit}
               onChangeText={(value) => {
@@ -902,16 +798,16 @@ export default function BookingsScreen() {
                 setFormError('');
               }}
               keyboardType="numeric"
-              placeholder="Optional"
+              placeholder={t('bookings.deposit.optional')}
               placeholderTextColor={palette.muter}
-              accessibilityLabel="Deposit amount"
+              accessibilityLabel={t('bookings.deposit.label')}
               style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
             />
             <Text style={[styles.depositHint, { color: palette.muter }]}>
               {depositHint}
             </Text>
 
-            <Text style={[styles.fieldLabel, { color: palette.muter }]}>Event date</Text>
+            <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('bookings.eventDate')}</Text>
             <TextInput
               value={selectedDate}
               editable={false}
@@ -920,35 +816,29 @@ export default function BookingsScreen() {
 
             <View style={styles.timeRow}>
               <View style={styles.timeField}>
-                <Text style={[styles.fieldLabel, { color: palette.muter }]}>Start time</Text>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={`Choose start time, currently ${formatTime(draftStartTime)}`}
+                <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('bookings.startTime')}</Text>
+                <TimeSelectButton
+                  value={draftStartTime}
+                  accessibilityLabel={`${t('bookings.chooseStartTime')}, ${formatTime(draftStartTime)}`}
+                  active={activeTimePicker === 'start'}
                   onPress={() => toggleTimeMenu('start')}
-                  style={[
-                    styles.timeSelectButton,
-                    { backgroundColor: softInset, borderColor: softBorder },
-                    activeTimePicker === 'start' && { backgroundColor: accentSoft, borderColor: palette.accent },
-                  ]}>
-                  <Ionicons name="time-outline" size={18} color={palette.accent} />
-                  <Text style={[styles.timeSelectText, { color: palette.text }]}>{formatTime(draftStartTime)}</Text>
-                  <Ionicons name={activeTimePicker === 'start' ? 'chevron-up' : 'chevron-down'} size={16} color={palette.muter} />
-                </Pressable>
+                  colors={timePickerColors}
+                />
               </View>
               <View style={styles.timeField}>
                 <View style={[styles.timeFieldLabelRow, styles.timeLabelSpacing]}>
-                  <Text style={[styles.fieldLabel, styles.timeFieldLabel, { color: palette.muter }]}>Finish time</Text>
+                  <Text style={[styles.fieldLabel, styles.timeFieldLabel, { color: palette.muter }]}>{t('bookings.finishTime')}</Text>
                   {isEndTimeManual ? (
                     <Pressable
                       accessibilityRole="button"
-                      accessibilityLabel="Use the package duration for the finish time"
+                      accessibilityLabel={t('bookings.auto.label')}
                       accessibilityHint={
                         selectedPackage ? `Sets it from ${selectedPackage.duration}` : undefined
                       }
                       hitSlop={8}
                       onPress={resetEndTimeToPackage}
                       style={({ pressed }) => pressed && styles.autoTagPressed}>
-                      <Text style={[styles.autoTag, { color: palette.accent }]}>Auto</Text>
+                      <Text style={[styles.autoTag, { color: palette.accent }]}>{t('bookings.auto')}</Text>
                     </Pressable>
                   ) : packageDurationMinutes ? (
                     <Text style={[styles.autoTag, styles.autoTagIdle, { color: palette.muter }]}>
@@ -956,107 +846,42 @@ export default function BookingsScreen() {
                     </Text>
                   ) : null}
                 </View>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={`Choose finish time, currently ${formatTime(draftEndTime)}`}
+                <TimeSelectButton
+                  value={draftEndTime}
+                  accessibilityLabel={`${t('bookings.chooseFinishTime')}, ${formatTime(draftEndTime)}`}
+                  active={activeTimePicker === 'finish'}
                   onPress={() => toggleTimeMenu('finish')}
-                  style={[
-                    styles.timeSelectButton,
-                    { backgroundColor: softInset, borderColor: softBorder },
-                    activeTimePicker === 'finish' && { backgroundColor: accentSoft, borderColor: palette.accent },
-                  ]}>
-                  <Ionicons name="time-outline" size={18} color={palette.accent} />
-                  <Text style={[styles.timeSelectText, { color: palette.text }]}>{formatTime(draftEndTime)}</Text>
-                  <Ionicons name={activeTimePicker === 'finish' ? 'chevron-up' : 'chevron-down'} size={16} color={palette.muter} />
-                </Pressable>
+                  colors={timePickerColors}
+                />
               </View>
             </View>
 
             {activeTimePicker ? (
-              // No responder handlers on this panel: claiming the gesture here takes it away from
-              // the wheels' scroll views, which stops them scrolling. The parent ScrollView is
-              // already disabled while a picker is open, so nothing behind it can move anyway.
-              <View style={[styles.timeMenu, { backgroundColor: softInset, borderColor: softBorder }]}>
-                <View style={styles.timeMenuHeader}>
-                  <Text style={[styles.timeMenuTitle, { color: palette.text }]}>Choose {activeTimePicker === 'start' ? 'start' : 'finish'} time</Text>
-                  <Text style={[styles.timeMenuValue, { color: palette.accent }]}>
-                    {formatTime(activeTimePicker === 'start' ? draftStartTime : draftEndTime)}
-                  </Text>
-                </View>
-
-                {(() => {
-                  const currentParts = getTimeParts(activeTimePicker === 'start' ? draftStartTime : draftEndTime);
-                  const hourIndex = hourOptions.indexOf(currentParts.hour);
-                  const minuteIndex = minuteOptions.indexOf(currentParts.minute);
-                  const periodIndex = periodOptions.indexOf(currentParts.period);
-                  return (
-                    <View style={styles.wheelRow}>
-                      <View style={[styles.wheelHighlight, { top: WHEEL_PADDING, backgroundColor: accentSoft }]} pointerEvents="none" />
-                      <View style={styles.wheelColumnHour}>
-                        <WheelColumn
-                          key={`hour-${activeTimePicker}`}
-                          items={hourOptions.map(String)}
-                          selectedIndex={hourIndex}
-                          onSelect={(index) => updateTimePart('hour', hourOptions[index])}
-                          textColor={palette.text}
-                        />
-                      </View>
-                      <View style={styles.wheelColumnMinute}>
-                        <WheelColumn
-                          key={`minute-${activeTimePicker}`}
-                          items={minuteOptions}
-                          selectedIndex={minuteIndex}
-                          onSelect={(index) => updateTimePart('minute', minuteOptions[index])}
-                          textColor={palette.text}
-                        />
-                      </View>
-                      <View style={styles.wheelColumnPeriod}>
-                        <WheelColumn
-                          key={`period-${activeTimePicker}`}
-                          items={periodOptions as unknown as string[]}
-                          selectedIndex={periodIndex}
-                          onSelect={(index) => updateTimePart('period', periodOptions[index])}
-                          textColor={palette.text}
-                          align="flex-start"
-                          itemPaddingLeft={16}
-                        />
-                      </View>
-                    </View>
-                  );
-                })()}
-
-                {draftEndTime <= draftStartTime ? (
-                  <Text style={styles.timeRangeError}>Finish time must be later than start time.</Text>
-                ) : null}
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityState={{ disabled: draftEndTime <= draftStartTime }}
-                  disabled={draftEndTime <= draftStartTime}
-                  onPress={() => setActiveTimePicker(null)}
-                  style={[
-                    styles.timeDoneButton,
-                    { backgroundColor: palette.accent },
-                    draftEndTime <= draftStartTime && styles.timeDoneButtonDisabled,
-                  ]}>
-                  <Text style={styles.timeDoneButtonText}>Done</Text>
-                </Pressable>
-              </View>
+              <TimePickerMenu
+                title={activeTimePicker === 'start' ? t('bookings.chooseStartTime') : t('bookings.chooseFinishTime')}
+                value={activeTimePicker === 'start' ? draftStartTime : draftEndTime}
+                onChangePart={updateTimePart}
+                error={draftEndTime <= draftStartTime ? t('bookings.timeRangeError') : undefined}
+                doneDisabled={draftEndTime <= draftStartTime}
+                onDone={() => setActiveTimePicker(null)}
+                colors={timePickerColors}
+              />
             ) : null}
 
-            <Text style={[styles.fieldLabel, { color: palette.muter }]}>Event location</Text>
+            <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('bookings.eventLocation')}</Text>
             <TextInput
               value={draftLocation}
               onChangeText={setDraftLocation}
-              placeholder="Venue or client location"
+              placeholder={t('bookings.location.placeholder')}
               placeholderTextColor={palette.muter}
               style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
             />
 
-            <Text style={[styles.fieldLabel, { color: palette.muter }]}>Notes</Text>
+            <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('bookings.notes')}</Text>
             <TextInput
               value={draftNotes}
               onChangeText={setDraftNotes}
-              placeholder="Wedding details or client notes"
+              placeholder={t('bookings.notes.placeholder')}
               placeholderTextColor={palette.muter}
               multiline
               style={[styles.input, styles.notesInput, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
@@ -1064,18 +889,18 @@ export default function BookingsScreen() {
 
             <View style={[styles.invoiceNotice, { backgroundColor: accentSoft, borderColor: palette.accent }]}>
               <Ionicons name="document-text-outline" size={18} color={palette.accent} />
-              <Text style={[styles.invoiceNoticeText, { color: palette.text }]}>A draft invoice will be created automatically from this booking.</Text>
+              <Text style={[styles.invoiceNoticeText, { color: palette.text }]}>{t('bookings.invoiceNotice')}</Text>
             </View>
 
             </View>
             {formError || feedback.error ? <Text accessibilityRole="alert" style={styles.formError}>{feedback.error || formError}</Text> : null}
 
             <Pressable style={[styles.submitButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]} disabled={feedback.saving || feedback.success} onPress={handleAddBooking}>
-              <Text style={styles.submitButtonText}>{feedback.saving ? 'Saving…' : feedback.pending ? 'Retry save' : 'Save booking & create invoice'}</Text>
+              <Text style={styles.submitButtonText}>{feedback.saving ? t('bookings.saving') : feedback.pending ? t('bookings.retry') : t('bookings.save')}</Text>
             </Pressable>
             </ScrollView>
           </View>
-          <SuccessFeedback visible={feedback.success} title="Booking created" message="The booking has been added to your schedule." onComplete={completeBooking} />
+          <SuccessFeedback visible={feedback.success} title={t('bookings.created.title')} message={t('bookings.created.body')} onComplete={completeBooking} />
 
           <KeyboardDoneButton />
         </View>
@@ -1452,102 +1277,6 @@ const styles = StyleSheet.create({
   },
   autoTagPressed: {
     opacity: 0.6,
-  },
-  timeSelectButton: {
-    minHeight: 48,
-    borderWidth: 1,
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  timeSelectText: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  timeMenu: {
-    borderWidth: 1,
-    borderRadius: 16,
-    marginTop: 8,
-    padding: 8,
-  },
-  timeMenuHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 3,
-    paddingBottom: 6,
-  },
-  timeMenuTitle: {
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  timeMenuValue: {
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  wheelRow: {
-    flexDirection: 'row',
-    position: 'relative',
-    paddingHorizontal: 3,
-    marginTop: 3,
-  },
-  wheelHighlight: {
-    position: 'absolute',
-    left: 3,
-    right: 3,
-    height: WHEEL_ITEM_HEIGHT,
-    borderRadius: 11,
-  },
-  wheelColumnHour: {
-    width: 52,
-  },
-  wheelColumnMinute: {
-    width: 52,
-  },
-  wheelColumnPeriod: {
-    flex: 1,
-  },
-  wheelViewport: {
-    height: WHEEL_HEIGHT,
-    overflow: 'hidden',
-    width: '100%',
-  },
-  wheelContent: {
-    paddingVertical: WHEEL_PADDING,
-  },
-  wheelItem: {
-    height: WHEEL_ITEM_HEIGHT,
-    justifyContent: 'center',
-    width: '100%',
-  },
-  wheelItemText: {
-    fontSize: 17,
-    fontWeight: '600',
-  },
-  timeDoneButton: {
-    minHeight: 34,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 9,
-  },
-  timeDoneButtonDisabled: {
-    opacity: 0.42,
-  },
-  timeDoneButtonText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  timeRangeError: {
-    color: '#DC2626',
-    fontSize: 10,
-    fontWeight: '700',
-    marginTop: 8,
-    textAlign: 'center',
   },
   modeRow: {
     flexDirection: 'row',

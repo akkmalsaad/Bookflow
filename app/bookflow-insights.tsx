@@ -11,6 +11,7 @@ import { getCompactCurrencyFormatter, useAppData } from '@/context/app-data-cont
 import { useSubscription } from '@/context/subscription-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 import { useResponsive } from '@/lib/responsive';
+import { useTranslation } from '@/lib/use-translation';
 import {
   calculateBusinessInsights,
   INSIGHTS_PERIODS,
@@ -29,6 +30,7 @@ export default function BookflowInsightsScreen() {
   const palette = getThemePalette(isDarkMode);
   const { contentStyle } = useResponsive();
   const soft = getSoftTokens(isDarkMode);
+  const { t } = useTranslation();
   const { isLoadingSubscription, isPro } = useSubscription();
   const { financeEntries, bookings, customers, invoices, payments, currency } = useAppData();
   const [period, setPeriod] = useState<InsightsPeriod>(isInsightsPeriod(params.period) ? params.period : 'this-month');
@@ -63,35 +65,15 @@ export default function BookflowInsightsScreen() {
   const doingWell = metrics.insights.filter((insight) =>
     insight.tone === 'positive' || insight.tone === 'service' || insight.tone === 'client',
   );
-  const opportunities: BusinessInsight[] = [];
-  if (metrics.topService) {
-    opportunities.push({
-      id: 'feature-top-service',
-      tone: 'service',
-      message: `Feature ${metrics.topService.name} in your next promotion—it leads your booking-linked revenue.`,
-    });
-  }
-  if (metrics.bookings > 0 && (metrics.repeatClientRate ?? 0) < 30) {
-    opportunities.push({
-      id: 'client-follow-up',
-      tone: 'client',
-      message: 'Follow up after completed bookings to encourage more repeat clients.',
-    });
-  }
-  if (metrics.outstanding > 0 && metrics.overdue === 0) {
-    opportunities.push({
-      id: 'upcoming-invoices',
-      tone: 'positive',
-      message: `${formatter.format(metrics.outstanding)} is still outstanding, with no overdue balance in this period.`,
-    });
-  }
+  // Built from the same period-filtered records as every other number on this screen.
+  const opportunities = metrics.opportunities;
 
   return (
     <SafeAreaView edges={['top', 'left', 'right']} style={[styles.screen, { backgroundColor: palette.background }]}>
       <View style={[styles.header, contentStyle]}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Back to Business Insights"
+          accessibilityLabel={t('insights.card.title')}
           onPress={() => (router.canGoBack() ? router.back() : router.replace('/business-insights'))}
           style={({ pressed }) => [
             styles.backButton,
@@ -102,44 +84,44 @@ export default function BookflowInsightsScreen() {
         </Pressable>
         <View style={styles.headerCopy}>
           <View style={styles.titleRow}>
-            <Text style={[styles.title, { color: palette.text }]}>All Insights</Text>
+            <Text style={[styles.title, { color: palette.text }]}>{t('insights.all.title')}</Text>
             <ProBadge />
           </View>
-          <Text style={[styles.subtitle, { color: palette.muter }]}>Insights based on your business data</Text>
+          <Text style={[styles.subtitle, { color: palette.muter }]}>{t('insights.all.subtitle')}</Text>
         </View>
       </View>
 
       <View style={[styles.periodRow, contentStyle]}>
-        <Text style={[styles.periodHint, { color: palette.muter }]}>Showing the same period across every insight</Text>
+        <Text style={[styles.periodHint, { color: palette.muter }]}>{t('insights.all.periodHint')}</Text>
         <InsightsPeriodSelector value={period} onChange={setPeriod} />
       </View>
 
       <ScrollView contentContainerStyle={[styles.content, contentStyle]} showsVerticalScrollIndicator={false}>
         <InsightGroup
-          title="Needs Attention"
-          subtitle="Time-sensitive changes and payment issues"
+          title={t('insights.attention')}
+          subtitle={t('insights.attention.subtitle')}
           icon="warning-outline"
           color="#F97316"
           insights={attention}
-          empty="Nothing needs your attention for this period."
+          empty={t('insights.attention.empty')}
           isDarkMode={isDarkMode}
         />
         <InsightGroup
-          title="Doing Well"
-          subtitle="Positive movement worth building on"
+          title={t('insights.doingWell')}
+          subtitle={t('insights.doingWell.subtitle')}
           icon="trending-up"
           color="#20A950"
           insights={doingWell}
-          empty="Positive trends will appear once there is enough comparison data."
+          empty={t('insights.doingWell.empty')}
           isDarkMode={isDarkMode}
         />
         <InsightGroup
-          title="Business Opportunities"
-          subtitle="Practical next steps from your records"
+          title={t('insights.opportunities')}
+          subtitle={t('insights.opportunities.subtitle')}
           icon="bulb-outline"
           color="#6D28D9"
           insights={opportunities}
-          empty="Keep recording bookings and payments to reveal opportunities."
+          empty={t('insights.opportunities.empty')}
           isDarkMode={isDarkMode}
         />
       </ScrollView>

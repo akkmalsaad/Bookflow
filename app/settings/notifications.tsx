@@ -9,8 +9,10 @@ import {
 } from '@/components/settings/SettingsDetailScreen';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 import { getNotificationPermissionStatus } from '@/lib/notifications';
+import { useTranslation } from '@/lib/use-translation';
 
 export default function NotificationSettingsScreen() {
+  const { t } = useTranslation();
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
   const [permission, setPermission] = useState<string | null>(null);
@@ -32,41 +34,41 @@ export default function NotificationSettingsScreen() {
 
   return (
     <SettingsDetailScreen
-      eyebrow="Preferences"
-      title="Notifications & reminders"
-      description="BookFlow sends reminders from this device. Turning notifications on or off is handled by your system settings.">
-      <SettingsInfoRow label="Permission" value={permissionLabel} />
+      eyebrow={t('sub.preferences')}
+      title={t('notifset.title')}
+      description={t('notifset.description')}>
+      <SettingsInfoRow label={t('notifset.permission')} value={permissionLabel} />
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Open system notification settings"
+        accessibilityLabel={t('notifset.openSettings.label')}
         onPress={() => Linking.openSettings()}
         style={({ pressed }) => [
           settingsDetailStyles.primaryButton,
           { backgroundColor: palette.accent, shadowColor: palette.accent, marginTop: 6 },
           pressed && { opacity: 0.8 },
         ]}>
-        <Text style={settingsDetailStyles.primaryButtonText}>Open system settings</Text>
+        <Text style={settingsDetailStyles.primaryButtonText}>{t('notifset.openSettings')}</Text>
       </Pressable>
 
-      <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter }]}>Booking notifications</Text>
-      <SettingsInfoRow label="Upcoming booking reminder" value="On · 5 hours before each booking" />
+      <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter }]}>{t('notifset.booking')}</Text>
+      <SettingsInfoRow label={t('notifset.bookingReminder')} value="On · 5 hours before each booking" />
       <SettingsNotice
-        title="Booking changes are not sent yet"
-        body="BookFlow only schedules the reminder for today's bookings. Alerts when a booking is moved or cancelled have not been built."
+        title={t('notifset.booking.notice')}
+        body={t('notifset.booking.body')}
       />
 
-      <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter }]}>Payment notifications</Text>
+      <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter }]}>{t('notifset.payment')}</Text>
       <SettingsNotice
-        title="Not available yet"
-        body="Nothing is sent for payments today. These are planned:"
-        items={['Outstanding payment reminder', 'Deposit reminder']}
+        title={t('notifset.notAvailable')}
+        body={t('notifset.payment.body')}
+        items={[t('notifset.payment.item1'), t('notifset.payment.item2')]}
       />
 
-      <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter }]}>Invoice notifications</Text>
+      <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter }]}>{t('notifset.invoice')}</Text>
       <SettingsNotice
-        title="Not available yet"
-        body="Invoice activity is shown in the app's notifications list, but nothing is pushed to your device. These are planned:"
-        items={['Invoice accepted', 'Invoice viewed', 'Invoice overdue']}
+        title={t('notifset.notAvailable')}
+        body={t('notifset.invoice.body')}
+        items={[t('notifset.invoice.item1'), t('notifset.invoice.item2'), t('notifset.invoice.item3')]}
       />
     </SettingsDetailScreen>
   );

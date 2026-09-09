@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getSoftTokens } from '@/components/settings/tokens';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 import { useResponsive } from '@/lib/responsive';
+import { useTranslation } from '@/lib/use-translation';
 
 export type SnackbarTone = 'default' | 'success' | 'danger';
 
@@ -36,6 +37,7 @@ const TONE_ICONS: Record<SnackbarTone, React.ComponentProps<typeof Ionicons>['na
  * by red alone.
  */
 export function Snackbar({ message, tone = 'default', action, onDismiss }: Props) {
+  const { t } = useTranslation();
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
   const soft = getSoftTokens(isDarkMode);
@@ -87,7 +89,7 @@ export function Snackbar({ message, tone = 'default', action, onDismiss }: Props
         ) : (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Dismiss notification"
+            accessibilityLabel={t('snackbar.dismiss')}
             hitSlop={10}
             onPress={onDismiss}
             style={({ pressed }) => [styles.action, pressed && styles.pressed]}>

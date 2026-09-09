@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 
 import { useAuth, type AuthUser } from '@/context/auth-context';
 import { useSubscription } from '@/context/subscription-context';
@@ -10,6 +10,19 @@ import {
   type Json,
 } from '@/lib/supabase';
 import { findBookingTimeConflict, normalizeBookingTime } from '@/lib/booking-conflicts';
+import { syncBookingStatuses } from '@/lib/booking-status';
+import { materialiseDueBookingNotifications } from '@/lib/booking-reminders';
+import {
+  canCreateBooking,
+  canCreateCustomer,
+  canCreateInvoice,
+  getPlanUsage,
+  type LimitCheck,
+  type LimitKind,
+  type PlanUsage,
+} from '@/lib/plan-limits';
+import { onNotificationReceived } from '@/lib/notifications';
+import { DEFAULT_LOCALE, getInvoiceDocumentLabels, isLocale, type Locale } from '@/lib/i18n';
 import { fromCents, resolveInvoiceStatus, sumPaymentsInCents, toCents } from '@/lib/invoice-payments';
 import { DEFAULT_INVOICE_NUMBER_FORMAT, getInvoiceNumber, nextAvailableInvoiceNumber } from '@/lib/invoice-numbering';
 import { getExpiredDustbinInvoiceIds } from '@/lib/invoice-lifecycle';
@@ -110,7 +123,7 @@ export type Booking = {
    * The job's own lifecycle, deliberately separate from Invoice['status'] (invoice state) and from
    * the InvoicePayment records (payment state). Nothing about billing belongs in here.
    */
-  status: 'Inquiry' | 'Confirmed' | 'In Progress' | 'Completed' | 'Cancelled';
+  status: 'Inquiry' | 'Confirmed' | 'Deposit Paid' | 'In Progress' | 'Completed' | 'Cancelled';
   notes: string;
 };
 
@@ -202,6 +215,21 @@ export type InvoicePayment = {
   kind: 'deposit' | 'payment';
   recordedAt: string;
 };
+
+/**
+ * The event an invoice is being raised for. Supplying it makes the invoice reserve a real slot:
+ * one linked booking is created, and the schedule is validated against every other booking first.
+ */
+export type InvoiceEventSchedule = {
+  date: string;
+  startTime: string;
+  endTime: string;
+};
+
+export type AddInvoiceResult =
+  | { ok: true; invoiceId: string; bookingId: string }
+  /** `limit` is set when the Free plan's monthly allowance is what stopped it. */
+  | { ok: false; error: string; limit?: LimitCheck };
 
 export type RecordInvoicePaymentInput = {
   invoiceId: string;
@@ -350,18 +378,33 @@ type AppDataContextValue = {
   removeBusinessLogo: () => Promise<void>;
   currency: CurrencyCode;
   updateCurrency: (code: CurrencyCode) => void;
+  /** Interface language, persisted with the workspace exactly as the currency is. */
+  language: Locale;
+  updateLanguage: (locale: Locale) => void;
   invoiceSettings: InvoiceSettings;
   updateInvoiceSettings: (updates: Partial<InvoiceSettings>) => void;
   addPackage: (service: Omit<PackageOption, 'id'>) => void;
   updatePackage: (id: string, updates: Partial<PackageOption>) => void;
   removePackage: (id: string) => void;
+  /** Free-plan usage for this workspace. Pro reads the same numbers against no limit. */
+  planUsage: PlanUsage;
+  /**
+   * The one Free-plan gate. Screens call it to decide whether to open the paywall; the create
+   * mutations call it again immediately before writing, so a stale screen or a double tap cannot
+   * get past it.
+   */
+  checkPlanLimit: (kind: LimitKind) => LimitCheck;
   addCustomer: (customer: Omit<Customer, 'id'>) => Customer | null;
   updateCustomer: (id: string, updates: Partial<Omit<Customer, 'id'>>) => boolean;
   deleteCustomer: (id: string) => void;
   createBooking: (booking: CreateBookingInput) => CreateBookingResult | null;
   /** Updates only the job status. Every other field on the booking is left untouched. */
   updateBookingStatus: (bookingId: string, status: Booking['status']) => BookingMutationResult;
-  addInvoice: (invoice: Omit<Invoice, 'id'>) => void;
+  /**
+   * Creates an invoice and, when an event schedule is given and the invoice is not already linked
+   * to a booking, the one booking that reserves that slot. Both land together or not at all.
+   */
+  addInvoice: (invoice: Omit<Invoice, 'id'>, schedule?: InvoiceEventSchedule) => AddInvoiceResult;
   createInvoiceShareLink: (invoiceId: string) => Promise<string>;
   refreshInvoiceStatuses: () => Promise<void>;
   setInvoiceDraft: (draft: InvoiceDraftPrefill | null) => void;
@@ -431,6 +474,8 @@ type PersistedAppData = {
   notifications: AppNotification[];
   businessProfile: BusinessProfile;
   currency: CurrencyCode;
+  /** Interface language. Absent on workspaces saved before it existed, which read as English. */
+  language?: Locale;
   invoiceSettings: InvoiceSettings;
 };
 
@@ -706,6 +751,7 @@ function createFreshWorkspace(user: AuthUser): PersistedAppData {
       address: '',
     },
     currency: 'MYR',
+    language: DEFAULT_LOCALE,
     invoiceSettings: { ...DEFAULT_INVOICE_SETTINGS },
   };
 }
@@ -755,6 +801,7 @@ function parseWorkspace(value: Json, user: AuthUser): PersistedAppData {
       : fallback.notifications,
     businessProfile: normalizeBusinessProfile(profile, fallback.businessProfile),
     currency: currency === 'MYR' || currency === 'IDR' || currency === 'USD' ? currency : fallback.currency,
+    language: isLocale(data.language) ? data.language : fallback.language,
     invoiceSettings: normalizeInvoiceSettings(savedSettings, parsedInvoices),
   };
 }
@@ -883,6 +930,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     logoPath: undefined,
   });
   const [currency, setCurrency] = useState<CurrencyCode>('MYR');
+  const [language, setLanguage] = useState<Locale>(DEFAULT_LOCALE);
   const [invoiceSettings, setInvoiceSettings] = useState<InvoiceSettings>({ ...DEFAULT_INVOICE_SETTINGS });
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -910,8 +958,76 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   // back over the local one while a trash, restore or void is still landing.
   const linkSyncingRef = useRef<Set<string>>(new Set());
 
+  const customersRef = useRef<Customer[]>([]);
+  const invoicesRef = useRef<Invoice[]>([]);
+
   useEffect(() => {
     bookingsRef.current = bookings;
+  }, [bookings]);
+
+  useEffect(() => {
+    customersRef.current = customers;
+  }, [customers]);
+
+  // The complete record, Dustbin included: a trashed invoice still counts against the month it was
+  // created in, so trashing one cannot buy another.
+  useEffect(() => {
+    invoicesRef.current = allInvoices;
+  }, [allInvoices]);
+
+  /**
+   * The one Free-plan gate, reading the live records rather than a render's snapshot. Pro is taken
+   * from the RevenueCat entitlement through the subscription context, never from screen state.
+   */
+  const checkPlanLimit = useCallback(
+    (kind: LimitKind): LimitCheck => {
+      if (kind === 'customers') return canCreateCustomer(isPro, customersRef.current);
+      if (kind === 'bookings') return canCreateBooking(isPro, bookingsRef.current);
+      return canCreateInvoice(isPro, invoicesRef.current);
+    },
+    [isPro],
+  );
+
+  /**
+   * The one place invoice acceptance and recorded deposits reach a booking's own status.
+   *
+   * Both screens already render `bookings` straight from here, so reconciling the workspace itself
+   * — rather than deriving a status per screen — is what keeps the dashboard, the schedule and the
+   * Job Status sheet from ever disagreeing. The write lands in the same `bookings` state the normal
+   * save queue persists, so it reaches Supabase through the existing upsert with no new call.
+   *
+   * `syncBookingStatuses` returns the array it was given when nothing moved, so a workspace that is
+   * already consistent re-renders nothing and queues no save. It is forward-only, which is why
+   * running it on every load can normalise historic records without ever undoing a manual status.
+   */
+  useEffect(() => {
+    setBookings((current) => syncBookingStatuses(current, allInvoices, allPayments));
+  }, [allInvoices, allPayments, bookings]);
+
+  /**
+   * Turns booking reminders that have come due into the in-app records the bell and the
+   * notification centre read. The OS notification is scheduled from the same rules under the same
+   * identifier, so both describe one event, and an id that already exists is never written again.
+   *
+   * Re-run whenever the bookings change, whenever BookFlow returns to the foreground, and the
+   * moment a notification is delivered while it is open — none of which is the source of truth:
+   * they only decide when to look at the clock. What is stored persists through the normal save.
+   */
+  useEffect(() => {
+    const materialise = () => {
+      setNotifications((current) => materialiseDueBookingNotifications(bookingsRef.current, current, Date.now()));
+    };
+
+    materialise();
+    const appState = AppState.addEventListener('change', (status) => {
+      if (status === 'active') materialise();
+    });
+    const received = onNotificationReceived(materialise);
+
+    return () => {
+      appState.remove();
+      received.remove();
+    };
   }, [bookings]);
 
   useEffect(() => {
@@ -981,6 +1097,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       setNotifications(workspace.notifications);
       setBusinessProfile(workspace.businessProfile);
       setCurrency(workspace.currency);
+      setLanguage(workspace.language ?? DEFAULT_LOCALE);
       setInvoiceSettings(workspace.invoiceSettings);
       setInvoiceDraft(null);
       // Let the normal save queue persist source metadata, legacy payment reconciliation and any
@@ -1042,6 +1159,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       notifications,
       businessProfile,
       currency,
+      language,
     };
     const serialized = JSON.stringify(workspace);
 
@@ -1074,7 +1192,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           waiters.forEach(({ reject }) => reject(failure));
         }
       });
-  }, [allFinanceEntries, allInvoices, allPayments, bookings, businessProfile, confirmationRevision, currency, customers, invoiceSettings, notifications, packages, reminders, supabase, syncRetryKey, user]);
+  }, [allFinanceEntries, allInvoices, allPayments, bookings, businessProfile, confirmationRevision, currency, customers, invoiceSettings, language, notifications, packages, reminders, supabase, syncRetryKey, user]);
 
   /**
    * The single place Dustbin is filtered out. Every screen, selector and finance calculation reads
@@ -1558,6 +1676,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       syncError,
       reload: () => setReloadKey((current) => current + 1),
       confirmWorkspaceSave,
+      planUsage: getPlanUsage({ customers, bookings, invoices: allInvoices }),
+      checkPlanLimit,
       retrySync: () => {
         lastQueuedSnapshotRef.current = '';
         setSyncRetryKey((current) => current + 1);
@@ -1583,6 +1703,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       currency,
       updateCurrency: (code: CurrencyCode) => {
         setCurrency(code);
+      },
+      language,
+      updateLanguage: (next: Locale) => {
+        setLanguage(next);
       },
       invoiceSettings,
       updateInvoiceSettings: (updates: Partial<InvoiceSettings>) => {
@@ -1640,6 +1764,11 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         if (!safeName || !safeEmail) {
           return null;
         }
+        // Checked here, not only where the button lives, so every path in — and a second tap
+        // before this one has rendered — meets the same gate.
+        if (!checkPlanLimit('customers').allowed) {
+          return null;
+        }
 
         const createdCustomer: Customer = {
           ...customer,
@@ -1649,6 +1778,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           email: safeEmail,
         };
 
+        customersRef.current = [...customersRef.current, createdCustomer];
         setCustomers((current) => [...current, createdCustomer]);
         return createdCustomer;
       },
@@ -1702,6 +1832,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         ) {
           return null;
         }
+        // The booking's own allowance, plus the client allowance when this booking would also
+        // create a new client. Nothing is written unless both pass.
+        if (!checkPlanLimit('bookings').allowed) return null;
+        if (!existingCustomer && !checkPlanLimit('customers').allowed) return null;
 
         const createdAt = Date.now();
         const resolvedCustomer: Customer = existingCustomer ?? {
@@ -1763,11 +1897,13 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         };
 
         if (!existingCustomer) {
+          customersRef.current = [...customersRef.current, resolvedCustomer];
           setCustomers((current) => [...current, resolvedCustomer]);
         }
         const nextBookings = [createdBooking, ...bookingsRef.current];
         bookingsRef.current = nextBookings;
         setBookings(nextBookings);
+        invoicesRef.current = [createdInvoice, ...invoicesRef.current];
         setInvoices((current) => [createdInvoice, ...current]);
         setReminders((current) => [
           {
@@ -1801,25 +1937,90 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         setBookings(nextBookings);
         return { ok: true };
       },
-      addInvoice: (invoice: Omit<Invoice, 'id'>) => {
+      addInvoice: (invoice: Omit<Invoice, 'id'>, schedule?: InvoiceEventSchedule): AddInvoiceResult => {
         if (!invoice.customerId || Number.isNaN(invoice.amount) || invoice.amount <= 0) {
-          return;
+          return { ok: false, error: 'This invoice needs a customer and an amount greater than zero.' };
+        }
+        const invoiceAllowance = checkPlanLimit('invoices');
+        if (!invoiceAllowance.allowed) {
+          return { ok: false, error: 'limit', limit: invoiceAllowance };
         }
 
+        const createdAt = Date.now();
+        const invoiceId = `inv-${createdAt}`;
+        // An invoice raised from a booking already has its slot; only a standalone one reserves a
+        // new booking, so a job is never represented twice.
+        const linkedBooking = bookingsRef.current.find((item) => item.id === invoice.bookingId) ?? null;
+        let createdBooking: Booking | null = null;
+        let bookingId = invoice.bookingId;
+
+        if (schedule && !linkedBooking) {
+          const startTime = normalizeBookingTime(schedule.startTime);
+          const endTime = normalizeBookingTime(schedule.endTime);
+
+          if (!schedule.date || !startTime || !endTime || endTime <= startTime) {
+            return { ok: false, error: 'Choose an event date with a finish time later than the start time.' };
+          }
+
+          // The same half-open interval rule the booking composer uses, over the same records.
+          if (findBookingTimeConflict(bookingsRef.current, schedule.date, startTime, endTime)) {
+            return { ok: false, error: 'This time overlaps with an existing booking. Choose another time.' };
+          }
+
+          bookingId = `bk-${createdAt}`;
+          createdBooking = {
+            id: bookingId,
+            createdAt: getLocalTodayKey(new Date(createdAt)),
+            customerId: invoice.customerId,
+            title: invoice.serviceName?.trim() || 'Booked event',
+            date: schedule.date,
+            time: startTime,
+            startTime,
+            endTime,
+            location: invoice.eventLocation?.trim() ?? '',
+            packageName: invoice.serviceName?.trim() ?? '',
+            price: invoice.amount,
+            status: 'Inquiry',
+            notes: 'Booking created from an invoice.',
+          };
+        }
+
+        // Both writes are decided before either is applied, so a rejected schedule leaves nothing
+        // behind and a saved invoice always has the booking it claims.
+        if (createdBooking) {
+          const nextBookings = [createdBooking, ...bookingsRef.current];
+          bookingsRef.current = nextBookings;
+          setBookings(nextBookings);
+        }
+
+        const stampedInvoice = { id: invoiceId, sentAt: invoice.sentAt } as Invoice;
+        invoicesRef.current = [stampedInvoice, ...invoicesRef.current];
         setInvoices((current) => {
           const stamp = stampNewInvoice(current);
           return [
             {
               ...invoice,
-              id: `inv-${Date.now()}`,
+              id: invoiceId,
+              bookingId,
               invoiceNumber: stamp.invoiceNumber,
               snapshot: stamp.snapshot,
               status: invoice.status ?? 'Draft',
+              // The booking owns the schedule; these carry it for the invoice's own display and
+              // for the customer-facing copy, exactly as a booking-raised invoice already does.
+              ...(createdBooking
+                ? {
+                    eventDate: createdBooking.date,
+                    eventTime: createdBooking.time,
+                    eventStartTime: createdBooking.startTime,
+                    eventEndTime: createdBooking.endTime,
+                  }
+                : {}),
             },
             ...current,
           ];
         });
         setInvoiceDraft(null);
+        return { ok: true, invoiceId, bookingId };
       },
       createInvoiceShareLink: async (invoiceId: string) => {
         if (!supabase || !user) {
@@ -1877,6 +2078,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           },
         );
         const render = buildInvoiceRenderData({
+          // Resolved at share time: the document keeps the wording it was sent with, even if the
+          // owner later switches the app to another language.
+          labels: getInvoiceDocumentLabels(language),
           invoice: { ...invoice, status: publicStatus },
           customer,
           payments: allPayments,
@@ -1896,6 +2100,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
         const payload = {
           render,
+          // Travels with the link so the customer's page reads in the language it was sent in.
+          locale: language,
           invoice: {
             id: invoice.id,
             invoiceNumber: getInvoiceNumber(invoice),
@@ -2234,9 +2440,11 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       currency,
       customers,
       invoiceSettings,
+      language,
       stampNewInvoice,
       activeFinanceEntries,
       allFinanceEntries,
+      checkPlanLimit,
       invoiceDraft,
       activeInvoices,
       allInvoices,

@@ -10,6 +10,7 @@ import { getSoftTokens } from '@/components/settings/tokens';
 import { CURRENCY_OPTIONS, useAppData } from '@/context/app-data-context';
 import { useRequirePro, useSubscription } from '@/context/subscription-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { useTranslation } from '@/lib/use-translation';
 
 type Props = {
   visible: boolean;
@@ -30,6 +31,7 @@ export function BusinessProfileModal({ visible, onClose }: Props) {
   const { isPro, isLoadingSubscription } = useSubscription();
   const requirePro = useRequirePro();
   const palette = getThemePalette(isDarkMode);
+  const { t } = useTranslation();
   const soft = getSoftTokens(isDarkMode);
   const insets = useSafeAreaInsets();
 
@@ -87,8 +89,8 @@ export function BusinessProfileModal({ visible, onClose }: Props) {
       const message = error instanceof Error ? error.message : String(error);
       setSaveError(
         message.includes('ExponentImagePicker')
-          ? 'Photo selection needs one native app rebuild. Rebuild and reinstall Bookflow, then try again.'
-          : message || 'The photo library could not be opened.',
+          ? t('profile.error.rebuild')
+          : message || t('profile.error.library'),
       );
     }
   };
@@ -128,7 +130,7 @@ export function BusinessProfileModal({ visible, onClose }: Props) {
       updateCurrency(profileCurrency);
       onClose();
     } catch (error) {
-      setSaveError(error instanceof Error ? error.message : 'The business profile could not be saved.');
+      setSaveError(error instanceof Error ? error.message : t('profile.error.save'));
     } finally {
       setIsSaving(false);
     }
@@ -148,10 +150,10 @@ export function BusinessProfileModal({ visible, onClose }: Props) {
             <ScrollView {...modalScrollProps} contentContainerStyle={styles.modalContent}>
               <View style={styles.modalHeader}>
                 <View>
-                  <Text style={[styles.modalEyebrow, { color: palette.accent }]}>Business</Text>
-                  <Text style={[styles.modalTitle, { color: palette.text }]}>Edit business profile</Text>
+                  <Text style={[styles.modalEyebrow, { color: palette.accent }]}>{t('profile.eyebrow')}</Text>
+                  <Text style={[styles.modalTitle, { color: palette.text }]}>{t('profile.title')}</Text>
                 </View>
-                <Pressable disabled={isSaving} hitSlop={8} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close business profile" style={[styles.closeButton, { backgroundColor: soft.inset }]}>
+                <Pressable disabled={isSaving} hitSlop={8} onPress={onClose} accessibilityRole="button" accessibilityLabel={t('a11y.closeProfile')} style={[styles.closeButton, { backgroundColor: soft.inset }]}>
                   <Ionicons name="close" size={22} color={palette.text} />
                 </Pressable>
               </View>
@@ -162,12 +164,12 @@ export function BusinessProfileModal({ visible, onClose }: Props) {
                     source={logoPreviewUri ? { uri: logoPreviewUri } : require('@/assets/images/bookflow-logo.png')}
                     style={[styles.logoImage, !isPro && logoPreviewUri ? styles.inactiveLogo : null]}
                     resizeMode="contain"
-                    accessibilityLabel={logoPreviewUri ? 'Business logo preview' : 'Bookflow default logo'}
+                    accessibilityLabel={logoPreviewUri ? t('profile.logo.preview') : t('profile.logo.default')}
                   />
                 </View>
                 <View style={styles.logoCopy}>
                   <View style={styles.logoTitleRow}>
-                    <Text style={[styles.logoTitle, { color: palette.text }]}>Business logo</Text>
+                    <Text style={[styles.logoTitle, { color: palette.text }]}>{t('profile.logo')}</Text>
                     <View style={[styles.proBadge, { backgroundColor: isPro ? (isDarkMode ? '#15392F' : '#E8F7EF') : soft.accentSoft }]}>
                       <Ionicons name="star" size={10} color={isPro ? palette.success : palette.accent} />
                       <Text style={[styles.proBadgeText, { color: isPro ? palette.success : palette.accent }]}>PRO</Text>
@@ -175,8 +177,8 @@ export function BusinessProfileModal({ visible, onClose }: Props) {
                   </View>
                   <Text style={[styles.logoDescription, { color: palette.muter }]}>
                     {isPro
-                      ? 'Shown on your dashboard and new invoices. JPG, PNG or WebP, up to 5 MB.'
-                      : 'Upgrade to Pro to replace Bookflow branding on your dashboard and invoices.'}
+                      ? t('profile.logo.pro')
+                      : t('profile.logo.free')}
                   </Text>
                   <View style={styles.logoActions}>
                     <Pressable
@@ -190,7 +192,7 @@ export function BusinessProfileModal({ visible, onClose }: Props) {
                       ]}>
                       <Ionicons name={isPro ? 'image-outline' : 'lock-closed-outline'} size={15} color="#fff" />
                       <Text style={styles.logoActionText}>
-                        {isLoadingSubscription ? 'Checking…' : isPro ? (logoPreviewUri ? 'Change' : 'Choose logo') : 'Unlock with Pro'}
+                        {isLoadingSubscription ? t('profile.logo.checking') : isPro ? (logoPreviewUri ? t('profile.logo.change') : t('profile.logo.choose')) : t('profile.logo.unlock')}
                       </Text>
                     </Pressable>
                     {logoPreviewUri ? (
@@ -202,14 +204,14 @@ export function BusinessProfileModal({ visible, onClose }: Props) {
                           setIsLogoRemoved(true);
                         }}
                         style={({ pressed }) => [styles.removeLogoButton, pressed && styles.pressed]}>
-                        <Text style={[styles.removeLogoText, { color: palette.danger }]}>Remove</Text>
+                        <Text style={[styles.removeLogoText, { color: palette.danger }]}>{t('profile.logo.remove')}</Text>
                       </Pressable>
                     ) : null}
                   </View>
                 </View>
               </View>
 
-              <Text style={[styles.fieldLabel, { color: palette.muter }]}>Business name</Text>
+              <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('profile.name')}</Text>
               <TextInput
                 value={profileName}
                 onChangeText={setProfileName}
@@ -220,7 +222,7 @@ export function BusinessProfileModal({ visible, onClose }: Props) {
                 submitBehavior="submit"
               />
 
-              <Text style={[styles.fieldLabel, { color: palette.muter }]}>SSM Registration No.</Text>
+              <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('profile.ssm')}</Text>
               <TextInput
                 value={profileSsmRegistrationNo}
                 onChangeText={setProfileSsmRegistrationNo}
@@ -233,7 +235,7 @@ export function BusinessProfileModal({ visible, onClose }: Props) {
                 submitBehavior="submit"
               />
 
-              <Text style={[styles.fieldLabel, { color: palette.muter }]}>Nature of business</Text>
+              <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('profile.nature')}</Text>
               <TextInput
                 value={profileNature}
                 onChangeText={setProfileNature}
@@ -244,7 +246,7 @@ export function BusinessProfileModal({ visible, onClose }: Props) {
                 submitBehavior="submit"
               />
 
-              <Text style={[styles.fieldLabel, { color: palette.muter }]}>Phone number</Text>
+              <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('profile.phone')}</Text>
               <TextInput
                 value={profilePhone}
                 onChangeText={setProfilePhone}
@@ -256,7 +258,7 @@ export function BusinessProfileModal({ visible, onClose }: Props) {
                 submitBehavior="submit"
               />
 
-              <Text style={[styles.fieldLabel, { color: palette.muter }]}>Email</Text>
+              <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('profile.email')}</Text>
               <TextInput
                 value={profileEmail}
                 onChangeText={setProfileEmail}
@@ -269,18 +271,18 @@ export function BusinessProfileModal({ visible, onClose }: Props) {
                 submitBehavior="submit"
               />
 
-              <Text style={[styles.fieldLabel, { color: palette.muter }]}>Address</Text>
+              <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('profile.address')}</Text>
               <TextInput
                 value={profileAddress}
                 onChangeText={setProfileAddress}
                 style={[styles.input, styles.multilineInput, { backgroundColor: soft.inset, borderColor: soft.border, color: palette.text }]}
-                placeholder="Business address"
+                placeholder={t('profile.address.placeholder')}
                 placeholderTextColor={palette.muter}
                 multiline
                 textAlignVertical="top"
               />
 
-              <Text style={[styles.fieldLabel, { color: palette.muter }]}>Currency</Text>
+              <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('profile.currency')}</Text>
               <View style={styles.currencyOptions}>
                 {CURRENCY_OPTIONS.map((option) => {
                   const isSelected = option.code === profileCurrency;
@@ -322,7 +324,7 @@ export function BusinessProfileModal({ visible, onClose }: Props) {
                 disabled={isSaving}
                 style={[styles.submitButton, { backgroundColor: palette.accent, shadowColor: palette.accent }, isSaving && styles.pressed]}
                 onPress={handleSaveProfile}>
-                {isSaving ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitButtonText}>Save changes</Text>}
+                {isSaving ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitButtonText}>{t('profile.save')}</Text>}
               </Pressable>
             </ScrollView>
           </View>

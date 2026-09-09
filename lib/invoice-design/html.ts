@@ -1,5 +1,6 @@
 import { getInvoiceTemplate } from './templates';
 import type { InvoiceRenderData, InvoiceTemplateId } from './types';
+import { DEFAULT_INVOICE_DOCUMENT_LABELS } from '@/lib/i18n';
 
 /**
  * The one place an invoice becomes markup.
@@ -9,6 +10,11 @@ import type { InvoiceRenderData, InvoiceTemplateId } from './types';
  * business downloads are produced from identical HTML and CSS rather than from two implementations
  * that have to be kept in step by hand.
  */
+
+/** The document's wording, falling back to English for payloads saved before labels existed. */
+function labelsOf(data: InvoiceRenderData) {
+  return data.labels ?? DEFAULT_INVOICE_DOCUMENT_LABELS;
+}
 
 function escapeHtml(value: unknown) {
   // Also the guard against `undefined`, `null` and `NaN` reaching the page: anything that is not a
@@ -55,12 +61,14 @@ function logoTag(data: InvoiceRenderData, className: string) {
     : '';
 }
 
-function businessBlock(data: InvoiceRenderData, label = 'From') {
+function businessBlock(data: InvoiceRenderData, label?: string) {
+  const L = labelsOf(data);
   const { business, design } = data;
+  const heading = label ?? L.from;
 
   return `<div class="party">
-    ${label ? `<div class="label">${escapeHtml(label)}</div>` : ''}
-    <div class="party-name">${escapeHtml(business.name) || 'Your business'}</div>
+    ${heading ? `<div class="label">${escapeHtml(heading)}</div>` : ''}
+    <div class="party-name">${escapeHtml(business.name) || L.yourBusiness}</div>
     ${has(business.registrationNumber) ? line(`SSM: ${business.registrationNumber}`) : ''}
     ${line(business.phone)}
     ${line(business.email)}
@@ -70,11 +78,12 @@ function businessBlock(data: InvoiceRenderData, label = 'From') {
 }
 
 function clientBlock(data: InvoiceRenderData) {
+  const L = labelsOf(data);
   const { client, design } = data;
 
   return `<div class="party">
-    <div class="label">Bill to</div>
-    <div class="party-name">${escapeHtml(client.name) || 'Client'}</div>
+    <div class="label">${L.billToLabel}</div>
+    <div class="party-name">${escapeHtml(client.name) || L.client}</div>
     ${line(client.email)}
     ${line(client.phone)}
     ${design.visibility.clientAddress ? line(client.address) : ''}
@@ -87,24 +96,26 @@ function statusBadge(data: InvoiceRenderData) {
 }
 
 function metaBlock(data: InvoiceRenderData) {
+  const L = labelsOf(data);
   const { invoice, design } = data;
 
   return `<div class="meta">
-    ${row('Invoice number', invoice.number)}
-    ${row('Issued', invoice.issuedOn)}
+    ${row(L.invoiceNumber, invoice.number)}
+    ${row(L.issued, invoice.issuedOn)}
     ${design.visibility.dueDate ? row('Due', invoice.dueOn) : ''}
-    ${row('Event date', invoice.eventDate)}
-    ${row('Event time', invoice.eventTime)}
-    ${row('Location', invoice.eventLocation)}
+    ${row(L.eventDate, invoice.eventDate)}
+    ${row(L.eventTime, invoice.eventTime)}
+    ${row(L.location, invoice.eventLocation)}
   </div>`;
 }
 
 function itemsTable(data: InvoiceRenderData) {
+  const L = labelsOf(data);
   const rows = data.items
     .map(
       (item) => `<tr>
         <td>
-          <div class="item-name">${escapeHtml(item.description) || 'Professional services'}</div>
+          <div class="item-name">${escapeHtml(item.description) || L.professionalServices}</div>
           ${has(item.detail) ? `<div class="item-detail">${escapeHtml(item.detail.trim())}</div>` : ''}
         </td>
         <td class="amount">${escapeHtml(item.amountLabel)}</td>
@@ -113,47 +124,50 @@ function itemsTable(data: InvoiceRenderData) {
     .join('');
 
   return `<table class="items">
-    <thead><tr><th>Description</th><th class="amount">Amount</th></tr></thead>
+    <thead><tr><th>${L.description}</th><th class="amount">${L.amount}</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
 }
 
 function totalsBlock(data: InvoiceRenderData) {
+  const L = labelsOf(data);
   const { totals } = data;
 
   return `<div class="totals">
-    <div class="total-row"><span>Invoice total</span><strong>${escapeHtml(totals.total)}</strong></div>
-    ${totals.hasDeposit ? `<div class="total-row"><span>Deposit paid</span><strong>${escapeHtml(totals.depositPaid)}</strong></div>` : ''}
-    <div class="total-row"><span>Amount paid</span><strong>${escapeHtml(totals.amountPaid)}</strong></div>
-    <div class="total-due"><span>Balance due</span><strong>${escapeHtml(totals.balance)}</strong></div>
+    <div class="total-row"><span>${L.invoiceTotal}</span><strong>${escapeHtml(totals.total)}</strong></div>
+    ${totals.hasDeposit ? `<div class="total-row"><span>${L.depositPaid}</span><strong>${escapeHtml(totals.depositPaid)}</strong></div>` : ''}
+    <div class="total-row"><span>${L.amountPaid}</span><strong>${escapeHtml(totals.amountPaid)}</strong></div>
+    <div class="total-due"><span>${L.balanceDue}</span><strong>${escapeHtml(totals.balance)}</strong></div>
   </div>`;
 }
 
 function paymentBlock(data: InvoiceRenderData) {
+  const L = labelsOf(data);
   if (!data.design.visibility.paymentInformation) return '';
 
   const { payment } = data;
   const rows = [
     row('Bank', payment.bankName),
-    row('Account name', payment.accountHolder),
-    row('Account number', payment.accountNumber),
-    row('DuitNow', payment.duitNowId),
+    row(L.accountName, payment.accountHolder),
+    row(L.accountNumber, payment.accountNumber),
+    row(L.duitNow, payment.duitNowId),
   ].join('');
 
   // A payment panel with nothing in it is not printed at all.
   if (!rows) return '';
 
   return `<section class="panel">
-    <div class="label">Payment information</div>
+    <div class="label">${L.paymentInformation}</div>
     <div class="meta">${rows}</div>
   </section>`;
 }
 
 function instructionsBlock(data: InvoiceRenderData) {
+  const L = labelsOf(data);
   if (!data.design.visibility.paymentInstructions || !has(data.paymentInstructions)) return '';
 
   return `<section class="panel">
-    <div class="label">Payment instructions</div>
+    <div class="label">${L.paymentInstructions}</div>
     <div class="copy">${escapeMultiline(data.paymentInstructions.trim())}</div>
   </section>`;
 }
@@ -173,8 +187,9 @@ function thankYouBlock(data: InvoiceRenderData) {
 }
 
 function brandingBlock(data: InvoiceRenderData) {
+  const L = labelsOf(data);
   if (!data.design.visibility.bookflowBranding) return '';
-  return '<div class="branding">Created with BookFlow</div>';
+  return `<div class="branding">${L.createdWith}</div>`;
 }
 
 function footerBlock(data: InvoiceRenderData) {
@@ -189,19 +204,20 @@ function footerBlock(data: InvoiceRenderData) {
 // ---------------------------------------------------------------------------------------------
 
 function header(data: InvoiceRenderData, templateId: InvoiceTemplateId) {
+  const L = labelsOf(data);
   const number = escapeHtml(data.invoice.number);
 
   if (templateId === 'bold') {
     return `<header class="banner">
       <div class="banner-brand">
         ${logoTag(data, 'logo logo-invert')}
-        <div class="banner-name">${escapeHtml(data.business.name) || 'Your business'}</div>
+        <div class="banner-name">${escapeHtml(data.business.name) || L.yourBusiness}</div>
         ${has(data.business.email) ? `<div class="banner-line">${escapeHtml(data.business.email)}</div>` : ''}
         ${has(data.business.phone) ? `<div class="banner-line">${escapeHtml(data.business.phone)}</div>` : ''}
         ${data.design.visibility.businessAddress && has(data.business.address) ? `<div class="banner-line">${escapeHtml(data.business.address)}</div>` : ''}
       </div>
       <div class="banner-meta">
-        <div class="banner-title">Invoice</div>
+        <div class="banner-title">${L.invoice}</div>
         <div class="banner-number">${number}</div>
         ${statusBadge(data)}
       </div>
@@ -211,9 +227,9 @@ function header(data: InvoiceRenderData, templateId: InvoiceTemplateId) {
   if (templateId === 'elegant') {
     return `<header class="masthead">
       ${logoTag(data, 'logo logo-centred')}
-      <div class="masthead-name">${escapeHtml(data.business.name) || 'Your business'}</div>
+      <div class="masthead-name">${escapeHtml(data.business.name) || L.yourBusiness}</div>
       <div class="masthead-rule"></div>
-      <div class="masthead-title">Invoice</div>
+      <div class="masthead-title">${L.invoice}</div>
       <div class="masthead-number">${number}${data.design.visibility.paymentStatus ? ` · ${escapeHtml(data.invoice.paymentStatus)}` : ''}</div>
     </header>`;
   }
@@ -222,10 +238,10 @@ function header(data: InvoiceRenderData, templateId: InvoiceTemplateId) {
     return `<header class="head head-minimal">
       <div>
         ${logoTag(data, 'logo logo-small')}
-        <div class="head-name">${escapeHtml(data.business.name) || 'Your business'}</div>
+        <div class="head-name">${escapeHtml(data.business.name) || L.yourBusiness}</div>
       </div>
       <div class="head-meta">
-        <div class="head-title">Invoice</div>
+        <div class="head-title">${L.invoice}</div>
         <div class="head-number">${number}</div>
         ${statusBadge(data)}
       </div>
@@ -236,8 +252,8 @@ function header(data: InvoiceRenderData, templateId: InvoiceTemplateId) {
   return `<header class="head">
     <div>
       ${logoTag(data, 'logo')}
-      ${data.business.logoUrl ? '' : `<div class="head-brand">${escapeHtml(data.business.name) || 'Your business'}</div>`}
-      <div class="head-title">Invoice</div>
+      ${data.business.logoUrl ? '' : `<div class="head-brand">${escapeHtml(data.business.name) || L.yourBusiness}</div>`}
+      <div class="head-title">${L.invoice}</div>
     </div>
     <div class="head-meta">
       <div class="head-number">${number}</div>

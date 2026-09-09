@@ -46,3 +46,10 @@ app-example
 /android
 
 .env.local
+
+# Supabase CLI local link state (contains project ref and pooler URL)
+supabase/.temp/
+
+# Database dumps — contain real customer data, never commit
+*.sql.gz
+bookflow-backup-*.sql

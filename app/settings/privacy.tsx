@@ -1,14 +1,17 @@
 import { SettingsDetailScreen, SettingsNotice } from '@/components/settings/SettingsDetailScreen';
+import { useTranslation } from '@/lib/use-translation';
 
 export default function PrivacyPolicyScreen() {
+  const { t } = useTranslation();
+
   return (
     <SettingsDetailScreen
-      eyebrow="About"
-      title="Privacy Policy"
-      description="How BookFlow handles your data.">
+      eyebrow={t('sub.about')}
+      title={t('sub.privacy.title')}
+      description={t('sub.privacy.description')}>
       <SettingsNotice
-        title="The policy has not been published yet"
-        body="BookFlow does not have a published privacy policy to show here. Your business records are stored in your BookFlow workspace and your sign-in details are held by the app's authentication provider. Deleting your account from the Danger zone removes your workspace data."
+        title={t('sub.privacy.notice.title')}
+        body={t('sub.privacy.notice.body')}
       />
     </SettingsDetailScreen>
   );

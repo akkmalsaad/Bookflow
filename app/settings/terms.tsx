@@ -1,14 +1,17 @@
 import { SettingsDetailScreen, SettingsNotice } from '@/components/settings/SettingsDetailScreen';
+import { useTranslation } from '@/lib/use-translation';
 
 export default function TermsScreen() {
+  const { t } = useTranslation();
+
   return (
     <SettingsDetailScreen
-      eyebrow="About"
-      title="Terms of Service"
-      description="The terms you use BookFlow under.">
+      eyebrow={t('sub.about')}
+      title={t('sub.terms.title')}
+      description={t('sub.terms.description')}>
       <SettingsNotice
-        title="The terms have not been published yet"
-        body="BookFlow does not have published terms of service to show here. This screen will display them once they exist."
+        title={t('sub.terms.notice.title')}
+        body={t('sub.terms.notice.body')}
       />
     </SettingsDetailScreen>
   );

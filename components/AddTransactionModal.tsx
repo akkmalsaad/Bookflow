@@ -9,6 +9,7 @@ import { DatePickerField } from '@/components/DatePickerField';
 import { CurrencyAmountInput, PaymentModalShell, paymentModalStyles } from '@/components/PaymentModalShell';
 import { useAppData } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { useTranslation } from '@/lib/use-translation';
 
 type Props = {
   visible: boolean;
@@ -27,6 +28,7 @@ export function AddTransactionModal({ visible, onClose, onMeasure }: Props) {
   const { isDarkMode } = useTheme();
   const { addFinanceEntry, currency } = useAppData();
   const palette = getThemePalette(isDarkMode);
+  const { t } = useTranslation();
 
   const [entryType, setEntryType] = useState<'income' | 'expense'>(onMeasure ? 'expense' : 'income');
   const [category, setCategory] = useState('');
@@ -101,10 +103,10 @@ export function AddTransactionModal({ visible, onClose, onMeasure }: Props) {
     <PaymentModalShell
       visible={visible || showIncomeSuccess}
       onMeasure={onMeasure}
-      eyebrow="Manual entry"
-      title="Add transaction"
-      description="Record income or expenses manually."
-      primaryLabel={feedback.saving ? 'Saving…' : feedback.pending ? 'Retry save' : `Save ${entryType}`}
+      eyebrow={t('transaction.eyebrow')}
+      title={t('transaction.title')}
+      description={t('transaction.description')}
+      primaryLabel={feedback.saving ? t('payment.saving') : feedback.pending ? t('payment.retry') : isIncome ? t('transaction.saveIncome') : t('transaction.saveExpense')}
       primaryDisabled={feedback.saving || feedback.success || showIncomeSuccess}
       closeDisabled={feedback.saving || feedback.success || showIncomeSuccess}
       formDisabled={feedback.pending || showIncomeSuccess}
@@ -113,8 +115,8 @@ export function AddTransactionModal({ visible, onClose, onMeasure }: Props) {
       feedback={(
         <SuccessFeedback
           visible={showIncomeSuccess || (feedback.success && entryType === 'expense')}
-          title={showIncomeSuccess ? 'Income added' : 'Expense added'}
-          message={showIncomeSuccess ? 'Your income has been recorded' : 'Your expense has been recorded.'}
+          title={showIncomeSuccess ? t('transaction.income.added') : t('transaction.expense.added')}
+          message={showIncomeSuccess ? t('transaction.income.body') : t('transaction.expense.body')}
           onComplete={showIncomeSuccess ? () => {
             incomeSuccessActive.current = false;
             setShowIncomeSuccess(false);
@@ -126,7 +128,7 @@ export function AddTransactionModal({ visible, onClose, onMeasure }: Props) {
       palette={palette}
       isDarkMode={isDarkMode}
       bodyRef={bodyRef}>
-      <Text style={[paymentModalStyles.fieldLabel, styles.firstLabel, { color: palette.muter }]}>Transaction type</Text>
+      <Text style={[paymentModalStyles.fieldLabel, styles.firstLabel, { color: palette.muter }]}>{t('transaction.type')}</Text>
       <View style={styles.typeRow}>
         <Pressable
           accessibilityRole="button"
@@ -142,7 +144,7 @@ export function AddTransactionModal({ visible, onClose, onMeasure }: Props) {
             pressed && styles.pressed,
           ]}>
           <Ionicons name="trending-up" size={17} color={isIncome ? palette.success : palette.muter} />
-          <Text style={[styles.typeButtonText, { color: isIncome ? palette.success : palette.text }]}>Income</Text>
+          <Text style={[styles.typeButtonText, { color: isIncome ? palette.success : palette.text }]}>{t('transaction.income')}</Text>
         </Pressable>
         <Pressable
           accessibilityRole="button"
@@ -158,21 +160,21 @@ export function AddTransactionModal({ visible, onClose, onMeasure }: Props) {
             pressed && styles.pressed,
           ]}>
           <Ionicons name="trending-down" size={17} color={!isIncome ? palette.danger : palette.muter} />
-          <Text style={[styles.typeButtonText, { color: !isIncome ? palette.danger : palette.text }]}>Expense</Text>
+          <Text style={[styles.typeButtonText, { color: !isIncome ? palette.danger : palette.text }]}>{t('transaction.expense')}</Text>
         </Pressable>
       </View>
 
-      <Text style={[paymentModalStyles.fieldLabel, { color: palette.muter }]}>Category</Text>
+      <Text style={[paymentModalStyles.fieldLabel, { color: palette.muter }]}>{t('transaction.category')}</Text>
       <TextInput
         value={category}
         onChangeText={setCategory}
-        placeholder={isIncome ? 'Client payment' : 'Equipment'}
+        placeholder={isIncome ? t('transaction.category.income') : t('transaction.category.expense')}
         placeholderTextColor={palette.muter}
         selectionColor={palette.accent}
         style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
       />
 
-      <Text style={[paymentModalStyles.fieldLabel, { color: palette.muter }]}>Amount</Text>
+      <Text style={[paymentModalStyles.fieldLabel, { color: palette.muter }]}>{t('transaction.amount')}</Text>
       <CurrencyAmountInput
         hideReturnKey
         currency={currency}
@@ -185,12 +187,12 @@ export function AddTransactionModal({ visible, onClose, onMeasure }: Props) {
       <Text style={[paymentModalStyles.fieldLabel, { color: palette.muter }]}>Date</Text>
       <DatePickerField value={date} onChange={setDate} isDarkMode={isDarkMode} palette={palette} />
 
-      <Text style={[paymentModalStyles.fieldLabel, { color: palette.muter }]}>Description</Text>
+      <Text style={[paymentModalStyles.fieldLabel, { color: palette.muter }]}>{t('transaction.description.label')}</Text>
       <TextInput
         value={description}
         onChangeText={setDescription}
         onFocus={revealDescription}
-        placeholder="Add transaction details"
+        placeholder={t('transaction.description.placeholder')}
         placeholderTextColor={palette.muter}
         selectionColor={palette.accent}
         multiline

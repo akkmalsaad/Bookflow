@@ -4,18 +4,20 @@ import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-na
 import { getSoftTokens } from '@/components/settings/tokens';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 import { ProBadge, WalletIllustration } from './BusinessInsightsVisuals';
+import { useTranslation } from '@/lib/use-translation';
 
 export function BusinessInsightsPromoCard({ onPress }: { onPress: () => void }) {
   const { width } = useWindowDimensions();
   const compact = width < 360;
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
+  const { t } = useTranslation();
   const soft = getSoftTokens(isDarkMode);
 
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel="View Business Insights, Pro feature"
+      accessibilityLabel={t('a11y.insightsCard')}
       accessibilityHint="Opens Business Insights if your Pro subscription is active"
       onPress={onPress}
       style={({ pressed }) => [
@@ -29,12 +31,12 @@ export function BusinessInsightsPromoCard({ onPress }: { onPress: () => void }) 
       ]}>
       <View style={styles.copy}>
         <View style={styles.titleRow}>
-          <Text style={[styles.title, { color: palette.text }]} numberOfLines={1}>Business Insights</Text>
+          <Text style={[styles.title, { color: palette.text }]} numberOfLines={1}>{t('insights.card.title')}</Text>
           <ProBadge />
         </View>
-        <Text style={[styles.subtitle, compact && styles.subtitleCompact, { color: palette.muter }]}>Understand your business performance and growth</Text>
+        <Text style={[styles.subtitle, compact && styles.subtitleCompact, { color: palette.muter }]}>{t('insights.card.subtitle')}</Text>
         <View style={[styles.cta, { backgroundColor: palette.accent, shadowColor: palette.accent }]}>
-          <Text style={styles.ctaText}>View Insights</Text>
+          <Text style={styles.ctaText}>{t('insights.card.cta')}</Text>
           <Ionicons name="arrow-forward" size={14} color="#FFFFFF" />
         </View>
       </View>

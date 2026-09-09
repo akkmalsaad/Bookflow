@@ -20,6 +20,7 @@ import { posthog } from '@/lib/posthog';
 import { useResponsive } from '@/lib/responsive';
 import * as Sentry from '@sentry/react-native';
 import { PostHogProvider } from 'posthog-react-native';
+import { useTranslation } from '@/lib/use-translation';
 
 Sentry.init({
   dsn: 'https://7a8195f3ba780f8e273bf72bf039ac08@o4512021511274496.ingest.de.sentry.io/4512021521825872',
@@ -69,6 +70,7 @@ function AnalyticsProvider({ children }: { children: ReactNode }) {
 }
 
 function AppShell() {
+  const { t } = useTranslation();
   const { isDarkMode } = useTheme();
   const { isAuthenticated, isLoaded } = useAuth();
   const { isLoading: isDataLoading, loadError, reload, retrySync, syncError } = useAppData();
@@ -83,7 +85,7 @@ function AppShell() {
     return (
       <View style={[styles.dataGate, { backgroundColor: palette.background }]}>
         <ActivityIndicator color={palette.accent} size="large" />
-        <Text style={[styles.dataGateTitle, { color: palette.text }]}>Loading your workspace…</Text>
+        <Text style={[styles.dataGateTitle, { color: palette.text }]}>{t('app.loading')}</Text>
       </View>
     );
   }
@@ -91,13 +93,13 @@ function AppShell() {
   if (isAuthenticated && loadError) {
     return (
       <View style={[styles.dataGate, { backgroundColor: palette.background }]}>
-        <Text style={[styles.dataGateTitle, { color: palette.text }]}>Couldn’t load Bookflow</Text>
+        <Text style={[styles.dataGateTitle, { color: palette.text }]}>{t('app.loadFailed')}</Text>
         <Text style={[styles.dataGateMessage, { color: palette.muter }]}>{loadError}</Text>
         <Pressable
           accessibilityRole="button"
           onPress={reload}
           style={({ pressed }) => [styles.retryButton, { backgroundColor: palette.accent, opacity: pressed ? 0.82 : 1 }]}>
-          <Text style={styles.retryButtonText}>Try again</Text>
+          <Text style={styles.retryButtonText}>{t('app.tryAgain')}</Text>
         </Pressable>
       </View>
     );
@@ -134,9 +136,9 @@ function AppShell() {
             !isPhone && styles.syncBannerCapped,
             { backgroundColor: palette.surface, borderColor: palette.border },
           ]}>
-          <Text style={[styles.syncBannerText, { color: palette.text }]}>Some changes haven’t synced.</Text>
+          <Text style={[styles.syncBannerText, { color: palette.text }]}>{t('app.syncPending')}</Text>
           <Pressable accessibilityRole="button" hitSlop={8} onPress={retrySync}>
-            <Text style={[styles.syncRetryText, { color: palette.accent }]}>Retry</Text>
+            <Text style={[styles.syncRetryText, { color: palette.accent }]}>{t('app.retry')}</Text>
           </Pressable>
         </View>
       ) : null}
@@ -226,7 +228,9 @@ export default Sentry.wrap(function RootLayout() {
     // Required by react-native-gesture-handler for GestureDetector to receive touches. It is a
     // plain flex:1 view, so nothing about the existing layout changes.
     <GestureHandlerRootView style={styles.root}>
-      <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache}>
+      {/* telemetry={false}: Clerk's own collector throws "Value is a number, expected an Object"
+          while recording a hook event on this SDK version. Nothing else about Clerk changes. */}
+      <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache} telemetry={false}>
         <SafeAreaProvider>
         <AnalyticsProvider>
         <AppThemeProvider>

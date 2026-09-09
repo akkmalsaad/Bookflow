@@ -5,6 +5,7 @@ import { BottomSheetModal } from '@/components/BottomSheetModal';
 import { getSoftTokens } from '@/components/settings/tokens';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 import { countBackupRecords, type BookflowBackup } from '@/lib/workspace-backup';
+import { useTranslation } from '@/lib/use-translation';
 
 function formatCreatedAt(value: string) {
   const date = new Date(value);
@@ -30,25 +31,26 @@ type Props = {
 export function RestoreBackupSheet({ backup, discardedRecords, isRestoring, onCancel, onConfirm }: Props) {
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
+  const { t } = useTranslation();
   const soft = getSoftTokens(isDarkMode);
   const counts = backup ? countBackupRecords(backup) : [];
 
   return (
     <BottomSheetModal visible={backup !== null} onClose={isRestoring ? () => {} : onCancel} heightRatio={0.8}>
       <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
-        <Text style={[styles.eyebrow, { color: palette.accent }]}>Workspace backup</Text>
-        <Text style={[styles.title, { color: palette.text }]}>Restore workspace backup</Text>
+        <Text style={[styles.eyebrow, { color: palette.accent }]}>{t('restore.eyebrow')}</Text>
+        <Text style={[styles.title, { color: palette.text }]}>{t('restore.title')}</Text>
 
         {backup ? (
           <>
             <View style={[styles.meta, { backgroundColor: soft.inset, borderColor: soft.border }]}>
               <View style={styles.metaRow}>
-                <Text style={[styles.metaLabel, { color: palette.muter }]}>Created</Text>
+                <Text style={[styles.metaLabel, { color: palette.muter }]}>{t('restore.created')}</Text>
                 <Text style={[styles.metaValue, { color: palette.text }]}>{formatCreatedAt(backup.createdAt)}</Text>
               </View>
               {backup.workspace.businessName ? (
                 <View style={styles.metaRow}>
-                  <Text style={[styles.metaLabel, { color: palette.muter }]}>Business</Text>
+                  <Text style={[styles.metaLabel, { color: palette.muter }]}>{t('restore.business')}</Text>
                   <Text style={[styles.metaValue, { color: palette.text }]} numberOfLines={1}>
                     {backup.workspace.businessName}
                   </Text>
@@ -97,7 +99,7 @@ export function RestoreBackupSheet({ backup, discardedRecords, isRestoring, onCa
               { backgroundColor: soft.inset, borderColor: soft.border },
               pressed && styles.pressed,
             ]}>
-            <Text style={[styles.secondaryText, { color: palette.text }]}>Cancel</Text>
+            <Text style={[styles.secondaryText, { color: palette.text }]}>{t('restore.cancel')}</Text>
           </Pressable>
           <Pressable
             accessibilityRole="button"

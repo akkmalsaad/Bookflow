@@ -18,6 +18,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { type AppPalette, getThemePalette, useTheme } from '@/context/theme-context';
 import { useResponsive } from '@/lib/responsive';
+import { useTranslation } from '@/lib/use-translation';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
 
@@ -137,6 +138,7 @@ export function PrimaryAuthButton({
   onPress: () => void;
   pending?: boolean;
 }) {
+  const { t } = useTranslation();
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
 
@@ -153,13 +155,14 @@ export function PrimaryAuthButton({
           shadowColor: palette.accent,
         },
       ]}>
-      <Text style={styles.primaryButtonText}>{pending ? loadingLabel ?? 'Please wait…' : label}</Text>
+      <Text style={styles.primaryButtonText}>{pending ? loadingLabel ?? t('auth.pleaseWait') : label}</Text>
       {!pending ? <Ionicons name="arrow-forward" size={18} color="#FFFFFF" /> : null}
     </Pressable>
   );
 }
 
 export function SocialButtons({ onPress }: { onPress: (provider: 'apple' | 'google') => void }) {
+  const { t } = useTranslation();
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
 
@@ -168,7 +171,7 @@ export function SocialButtons({ onPress }: { onPress: (provider: 'apple' | 'goog
       {(['apple', 'google'] as const).map((provider) => (
         <Pressable
           key={provider}
-          accessibilityLabel={`Continue with ${provider === 'apple' ? 'Apple' : 'Google'}`}
+          accessibilityLabel={t('auth.continueWith', { provider: provider === 'apple' ? 'Apple' : 'Google' })}
           accessibilityRole="button"
           onPress={() => onPress(provider)}
           style={({ pressed }) => [
@@ -189,14 +192,16 @@ export function SocialButtons({ onPress }: { onPress: (provider: 'apple' | 'goog
   );
 }
 
-export function AuthDivider({ label = 'or continue with' }: { label?: string }) {
+export function AuthDivider({ label }: { label?: string }) {
+  const { t } = useTranslation();
+  const dividerLabel = label ?? t('auth.orContinue');
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
 
   return (
     <View style={styles.dividerRow}>
       <View style={[styles.dividerLine, { backgroundColor: palette.border }]} />
-      <Text style={[styles.dividerText, { color: palette.muter }]}>{label}</Text>
+      <Text style={[styles.dividerText, { color: palette.muter }]}>{dividerLabel}</Text>
       <View style={[styles.dividerLine, { backgroundColor: palette.border }]} />
     </View>
   );
@@ -217,6 +222,7 @@ export function AuthModal({
   title: string;
   visible: boolean;
 }) {
+  const { t } = useTranslation();
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
   // Bottom sheet on a phone, centred dialog from tablet width up.
@@ -241,7 +247,7 @@ export function AuthModal({
               <Ionicons name={icon} size={23} color={palette.accent} />
             </View>
             <Pressable
-              accessibilityLabel="Close modal"
+              accessibilityLabel={t('a11y.closeModal')}
               hitSlop={8}
               onPress={onClose}
               style={[styles.modalClose, { backgroundColor: isDarkMode ? palette.surfaceAlt : '#F1F5F9' }]}>

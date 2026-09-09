@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BottomSheetModal } from '@/components/BottomSheetModal';
 import { getSoftTokens } from '@/components/settings/tokens';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { useTranslation } from '@/lib/use-translation';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -39,6 +40,7 @@ export function InvoiceActionSheet({ visible, onClose, title, subtitle, items, o
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
   const soft = getSoftTokens(isDarkMode);
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
 
   return (
@@ -95,14 +97,14 @@ export function InvoiceActionSheet({ visible, onClose, title, subtitle, items, o
         <View style={{ paddingBottom: Math.max(insets.bottom, 16) }}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Close menu"
+            accessibilityLabel={t('actionSheet.close')}
             onPress={onClose}
             style={({ pressed }) => [
               styles.closeButton,
               { backgroundColor: soft.inset, borderColor: soft.border },
               pressed && styles.pressed,
             ]}>
-            <Text style={[styles.closeText, { color: palette.text }]}>Cancel</Text>
+            <Text style={[styles.closeText, { color: palette.text }]}>{t('actionSheet.cancel')}</Text>
           </Pressable>
         </View>
       </>

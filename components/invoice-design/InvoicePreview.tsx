@@ -1,5 +1,6 @@
 import { Image, StyleSheet, Text, View } from 'react-native';
 
+import { DEFAULT_INVOICE_DOCUMENT_LABELS } from '@/lib/i18n';
 import type { InvoiceRenderData } from '@/lib/invoice-design';
 
 /**
@@ -64,6 +65,7 @@ function StatusBadge({ data }: { data: InvoiceRenderData }) {
 }
 
 function Header({ data }: { data: InvoiceRenderData }) {
+  const L = data.labels ?? DEFAULT_INVOICE_DOCUMENT_LABELS;
   const { business, invoice, design, tokens } = data;
   const logo = business.logoUrl ? (
     <Image source={{ uri: business.logoUrl }} style={styles.logo} resizeMode="contain" />
@@ -81,14 +83,14 @@ function Header({ data }: { data: InvoiceRenderData }) {
             />
           ) : null}
           <Text style={[styles.bannerName, { color: tokens.accentText }]} numberOfLines={2}>
-            {business.name || 'Your business'}
+            {business.name || L.yourBusiness}
           </Text>
           <Line value={business.email} color={tokens.accentText} />
           <Line value={business.phone} color={tokens.accentText} />
           {design.visibility.businessAddress ? <Line value={business.address} color={tokens.accentText} /> : null}
         </View>
         <View style={styles.bannerMeta}>
-          <Text style={[styles.bannerTitle, { color: tokens.accentText }]}>INVOICE</Text>
+          <Text style={[styles.bannerTitle, { color: tokens.accentText }]}>{L.invoice.toUpperCase()}</Text>
           <Text style={[styles.bannerNumber, { color: tokens.accentText }]}>{invoice.number}</Text>
           {design.visibility.paymentStatus ? (
             <View style={[styles.badge, { backgroundColor: tokens.accentText }]}>
@@ -105,10 +107,10 @@ function Header({ data }: { data: InvoiceRenderData }) {
       <View style={styles.masthead}>
         {logo ? <View style={styles.logoCentre}>{logo}</View> : null}
         <Text style={[styles.mastheadName, { color: tokens.text }]} numberOfLines={2}>
-          {(business.name || 'Your business').toUpperCase()}
+          {(business.name || L.yourBusiness).toUpperCase()}
         </Text>
         <View style={[styles.mastheadRule, { backgroundColor: tokens.accent }]} />
-        <Text style={[styles.mastheadTitle, { color: tokens.accent }]}>INVOICE</Text>
+        <Text style={[styles.mastheadTitle, { color: tokens.accent }]}>{L.invoice.toUpperCase()}</Text>
         <Text style={[styles.mastheadNumber, { color: tokens.muted }]}>
           {invoice.number}
           {design.visibility.paymentStatus ? ` · ${invoice.paymentStatus}` : ''}
@@ -125,15 +127,15 @@ function Header({ data }: { data: InvoiceRenderData }) {
         {logo}
         {minimal || !business.logoUrl ? (
           <Text style={[styles.headBrand, { color: tokens.text }]} numberOfLines={2}>
-            {business.name || 'Your business'}
+            {business.name || L.yourBusiness}
           </Text>
         ) : null}
         {minimal ? null : (
-          <Text style={[styles.headTitle, { color: tokens.accent }]}>Invoice</Text>
+          <Text style={[styles.headTitle, { color: tokens.accent }]}>{L.invoice}</Text>
         )}
       </View>
       <View style={styles.headMeta}>
-        {minimal ? <Text style={[styles.headTitleMinimal, { color: tokens.muted }]}>INVOICE</Text> : null}
+        {minimal ? <Text style={[styles.headTitleMinimal, { color: tokens.muted }]}>{L.invoice.toUpperCase()}</Text> : null}
         <Text style={[styles.headNumber, { color: tokens.text }]}>{invoice.number}</Text>
         <StatusBadge data={data} />
       </View>
@@ -142,6 +144,7 @@ function Header({ data }: { data: InvoiceRenderData }) {
 }
 
 export function InvoicePreview({ data }: { data: InvoiceRenderData }) {
+  const L = data.labels ?? DEFAULT_INVOICE_DOCUMENT_LABELS;
   const { business, client, invoice, design, tokens, totals, payment } = data;
   const compact = design.templateId === 'compact';
   const bareTotal = design.templateId === 'minimal';
@@ -161,8 +164,8 @@ export function InvoicePreview({ data }: { data: InvoiceRenderData }) {
         <View style={[styles.parties, compact && styles.partiesCompact]}>
           {design.templateId === 'bold' ? null : (
             <View style={styles.party}>
-              <Text style={[styles.label, { color: tokens.muted }]}>FROM</Text>
-              <Text style={[styles.partyName, { color: tokens.text }]}>{business.name || 'Your business'}</Text>
+              <Text style={[styles.label, { color: tokens.muted }]}>{L.from}</Text>
+              <Text style={[styles.partyName, { color: tokens.text }]}>{business.name || L.yourBusiness}</Text>
               {has(business.registrationNumber) ? (
                 <Line value={`SSM: ${business.registrationNumber}`} color={tokens.muted} />
               ) : null}
@@ -173,7 +176,7 @@ export function InvoicePreview({ data }: { data: InvoiceRenderData }) {
             </View>
           )}
           <View style={styles.party}>
-            <Text style={[styles.label, { color: tokens.muted }]}>BILL TO</Text>
+            <Text style={[styles.label, { color: tokens.muted }]}>{L.billTo}</Text>
             <Text style={[styles.partyName, { color: tokens.text }]}>{client.name || 'Client'}</Text>
             <Line value={client.email} color={tokens.muted} />
             <Line value={client.phone} color={tokens.muted} />
@@ -182,12 +185,12 @@ export function InvoicePreview({ data }: { data: InvoiceRenderData }) {
         </View>
 
         <View style={styles.meta}>
-          <Row label="Invoice number" value={invoice.number} data={data} />
-          <Row label="Issued" value={invoice.issuedOn} data={data} />
-          {design.visibility.dueDate ? <Row label="Due" value={invoice.dueOn} data={data} /> : null}
-          <Row label="Event date" value={invoice.eventDate} data={data} />
-          <Row label="Event time" value={invoice.eventTime} data={data} />
-          <Row label="Location" value={invoice.eventLocation} data={data} />
+          <Row label={L.invoiceNumber} value={invoice.number} data={data} />
+          <Row label={L.issued} value={invoice.issuedOn} data={data} />
+          {design.visibility.dueDate ? <Row label={L.due} value={invoice.dueOn} data={data} /> : null}
+          <Row label={L.eventDate} value={invoice.eventDate} data={data} />
+          <Row label={L.eventTime} value={invoice.eventTime} data={data} />
+          <Row label={L.location} value={invoice.eventLocation} data={data} />
         </View>
 
         <View style={styles.items}>
@@ -231,17 +234,17 @@ export function InvoicePreview({ data }: { data: InvoiceRenderData }) {
 
         <View style={styles.totals}>
           <View style={styles.totalRow}>
-            <Text style={[styles.totalLabel, { color: tokens.muted }]}>Invoice total</Text>
+            <Text style={[styles.totalLabel, { color: tokens.muted }]}>{L.invoiceTotal}</Text>
             <Text style={[styles.totalValue, { color: tokens.text }]}>{totals.total}</Text>
           </View>
           {totals.hasDeposit ? (
             <View style={styles.totalRow}>
-              <Text style={[styles.totalLabel, { color: tokens.muted }]}>Deposit paid</Text>
+              <Text style={[styles.totalLabel, { color: tokens.muted }]}>{L.depositPaid}</Text>
               <Text style={[styles.totalValue, { color: tokens.text }]}>{totals.depositPaid}</Text>
             </View>
           ) : null}
           <View style={styles.totalRow}>
-            <Text style={[styles.totalLabel, { color: tokens.muted }]}>Amount paid</Text>
+            <Text style={[styles.totalLabel, { color: tokens.muted }]}>{L.amountPaid}</Text>
             <Text style={[styles.totalValue, { color: tokens.text }]}>{totals.amountPaid}</Text>
           </View>
           <View
@@ -271,22 +274,22 @@ export function InvoicePreview({ data }: { data: InvoiceRenderData }) {
         </View>
 
         {hasPayment ? (
-          <Panel title="PAYMENT INFORMATION" data={data}>
-            <Row label="Bank" value={payment.bankName} data={data} />
-            <Row label="Account name" value={payment.accountHolder} data={data} />
-            <Row label="Account number" value={payment.accountNumber} data={data} />
-            <Row label="DuitNow" value={payment.duitNowId} data={data} />
+          <Panel title={L.paymentInformation.toUpperCase()} data={data}>
+            <Row label={L.bank} value={payment.bankName} data={data} />
+            <Row label={L.accountName} value={payment.accountHolder} data={data} />
+            <Row label={L.accountNumber} value={payment.accountNumber} data={data} />
+            <Row label={L.duitNow} value={payment.duitNowId} data={data} />
           </Panel>
         ) : null}
 
         {design.visibility.paymentInstructions && has(data.paymentInstructions) ? (
-          <Panel title="PAYMENT INSTRUCTIONS" data={data}>
+          <Panel title={L.paymentInstructions.toUpperCase()} data={data}>
             <Text style={[styles.copy, { color: tokens.muted }]}>{data.paymentInstructions.trim()}</Text>
           </Panel>
         ) : null}
 
         {design.visibility.terms && has(data.terms) ? (
-          <Panel title="TERMS & CONDITIONS" data={data}>
+          <Panel title={L.terms.toUpperCase()} data={data}>
             <Text style={[styles.copy, { color: tokens.muted }]}>{data.terms.trim()}</Text>
           </Panel>
         ) : null}
@@ -297,7 +300,7 @@ export function InvoicePreview({ data }: { data: InvoiceRenderData }) {
               <Text style={[styles.thankYou, { color: tokens.text }]}>{data.thankYouMessage.trim()}</Text>
             ) : null}
             {design.visibility.bookflowBranding ? (
-              <Text style={[styles.branding, { color: tokens.muted }]}>Created with BookFlow</Text>
+              <Text style={[styles.branding, { color: tokens.muted }]}>{L.createdWith}</Text>
             ) : null}
           </View>
         ) : null}

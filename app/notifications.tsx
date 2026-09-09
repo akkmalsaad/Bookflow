@@ -8,6 +8,7 @@ import { useAppData } from '@/context/app-data-context';
 import type { AppNotification } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 import { useResponsive } from '@/lib/responsive';
+import { useTranslation } from '@/lib/use-translation';
 
 const notificationIcons: Record<AppNotification['type'], ComponentProps<typeof Ionicons>['name']> = {
   booking: 'calendar-outline',
@@ -30,6 +31,7 @@ export default function NotificationsScreen() {
   const { notifications, markNotificationOpened, markAllNotificationsOpened } = useAppData();
   const palette = getThemePalette(isDarkMode);
   const { readingStyle } = useResponsive();
+  const { t } = useTranslation();
   const unreadCount = notifications.filter((notification) => !notification.isOpened).length;
 
   return (
@@ -43,13 +45,13 @@ export default function NotificationsScreen() {
             { backgroundColor: palette.surface, borderColor: palette.border, opacity: pressed ? 0.7 : 1 },
           ]}
           accessibilityRole="button"
-          accessibilityLabel="Back to Home">
+          accessibilityLabel={t('notifications.back')}>
           <Ionicons name="arrow-back" size={22} color={palette.text} />
         </Pressable>
 
         <View style={styles.headerCopy}>
-          <Text style={[styles.eyebrow, { color: palette.accent }]}>Updates</Text>
-          <Text style={[styles.title, { color: palette.text }]}>Notifications</Text>
+          <Text style={[styles.eyebrow, { color: palette.accent }]}>{t('notifications.eyebrow')}</Text>
+          <Text style={[styles.title, { color: palette.text }]}>{t('notifications.title')}</Text>
         </View>
 
         <Pressable
@@ -57,15 +59,19 @@ export default function NotificationsScreen() {
           disabled={unreadCount === 0}
           style={({ pressed }) => [styles.markAllButton, { opacity: unreadCount === 0 ? 0.4 : pressed ? 0.65 : 1 }]}
           accessibilityRole="button"
-          accessibilityLabel="Mark all notifications as read"
+          accessibilityLabel={t('notifications.markAll.label')}
           accessibilityState={{ disabled: unreadCount === 0 }}>
-          <Text style={[styles.markAllText, { color: palette.accent }]}>Mark all read</Text>
+          <Text style={[styles.markAllText, { color: palette.accent }]}>{t('notifications.markAll')}</Text>
         </Pressable>
       </View>
 
       <View style={[styles.summaryRow, readingStyle]}>
         <Text style={[styles.summary, { color: palette.muter }]}>
-          {unreadCount === 0 ? 'You’re all caught up' : `${unreadCount} unread ${unreadCount === 1 ? 'notification' : 'notifications'}`}
+          {unreadCount === 0
+            ? t('notifications.caughtUp')
+            : unreadCount === 1
+              ? t('notifications.unread.one')
+              : t('notifications.unread', { count: unreadCount })}
         </Text>
       </View>
 
@@ -76,8 +82,8 @@ export default function NotificationsScreen() {
         ListEmptyComponent={
           <View style={[styles.emptyCard, { backgroundColor: palette.surface, borderColor: palette.border }]}>
             <Ionicons name="notifications-off-outline" size={30} color={palette.muter} />
-            <Text style={[styles.emptyTitle, { color: palette.text }]}>No notifications yet</Text>
-            <Text style={[styles.emptyMessage, { color: palette.muter }]}>New activity will appear here.</Text>
+            <Text style={[styles.emptyTitle, { color: palette.text }]}>{t('notifications.emptyTitle')}</Text>
+            <Text style={[styles.emptyMessage, { color: palette.muter }]}>{t('notifications.emptyBody')}</Text>
           </View>
         }
         renderItem={({ item }) => (

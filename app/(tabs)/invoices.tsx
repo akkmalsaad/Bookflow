@@ -14,21 +14,40 @@ import { UpdatePaymentModal } from '@/components/UpdatePaymentModal';
 import { InvoiceActionSheet } from '@/components/invoice/InvoiceActionSheet';
 import { InvoiceListCard } from '@/components/invoices/InvoiceListCard';
 import { ManagePaymentSheet } from '@/components/invoices/ManagePaymentSheet';
+import { DatePickerField } from '@/components/DatePickerField';
+import {
+  formatTime,
+  getSuggestedEndTime,
+  getTimeParts,
+  to24HourTime,
+  TimePickerMenu,
+  TimeSelectButton,
+  type TimePart,
+  type TimePeriod,
+} from '@/components/booking/EventTimePicker';
+import { addMinutesToTime, parsePackageDurationMinutes } from '@/lib/booking-conflicts';
 import { getCurrencyFormatter, useAppData } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 import { useResponsive } from '@/lib/responsive';
+import { useTranslation } from '@/lib/use-translation';
 import { isInvoiceClosed } from '@/lib/invoice-lifecycle';
 import { getInvoicePaymentSummary } from '@/lib/invoice-payments';
 import { shareInvoiceOnWhatsApp } from '@/lib/invoice-sharing';
 
+/** The device's own calendar day, so an invoice counts against the month it was really made in. */
+function getLocalDayKey(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
 export default function InvoicesScreen() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
-  const { customers, invoices, trashedInvoices, packages, payments, addCustomer, addInvoice, createInvoiceShareLink, refreshInvoiceStatuses, invoiceDraft, setInvoiceDraft, updateInvoiceStatus, currency } = useAppData();
+  const { customers, invoices, trashedInvoices, packages, payments, addCustomer, addInvoice, checkPlanLimit, confirmWorkspaceSave, createInvoiceShareLink, refreshInvoiceStatuses, invoiceDraft, setInvoiceDraft, updateInvoiceStatus, currency } = useAppData();
   const posthog = usePostHog();
   const palette = getThemePalette(isDarkMode);
   // Invoice rows are dense text, so they stay one column inside the narrower reading width.
   const { readingStyle, sheetStyle, isPhone } = useResponsive();
+  const { t } = useTranslation();
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const customerMap = new Map(customers.map((customer) => [customer.id, customer]));
   const [showComposer, setShowComposer] = useState(Boolean(invoiceDraft));
@@ -55,7 +74,17 @@ export default function InvoicesScreen() {
   const [showUtilityMenu, setShowUtilityMenu] = useState(false);
   const [openDustbinAfterMenu, setOpenDustbinAfterMenu] = useState(false);
   // Held while the payment sheet slides away, then opened — see the sheet's onClosed hand-off.
-  const [pendingPaymentAction, setPendingPaymentAction] = useState<{ kind: 'deposit' | 'payment'; invoiceId: string } | null>(null);
+  const [pendingPaymentAction, setPendingPaymentAction] = useState<{ kind: 'deposit' | 'payment' | 'paid'; invoiceId: string } | null>(null);
+  const [showPaidSuccess, setShowPaidSuccess] = useState(false);
+  // The event this invoice bills for. Kept separate from draftDueDate: one is when the job happens,
+  // the other is when the money is due.
+  const [draftEventDate, setDraftEventDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [draftStartTime, setDraftStartTime] = useState('10:00');
+  const [draftEndTime, setDraftEndTime] = useState('11:00');
+  // Once the finish time is dialled in by hand it stops following the package, until it is reset.
+  const [isEndTimeManual, setIsEndTimeManual] = useState(false);
+  const [activeTimePicker, setActiveTimePicker] = useState<'start' | 'finish' | null>(null);
+  const [scheduleError, setScheduleError] = useState('');
   const dropdownAnim = useRef(new Animated.Value(0)).current;
   const softSurface = isDarkMode ? '#172033' : '#F7F9FD';
   const softInset = isDarkMode ? '#111A2B' : '#EEF2F8';
@@ -78,6 +107,48 @@ export default function InvoicesScreen() {
     : lastManagedInvoice.current?.summary ?? null;
 
   const selectedPackage = packages.find((item) => item.id === selectedPackageId) ?? null;
+  // Same rule as the booking composer: the finish time follows the package's own duration until it
+  // is dialled in by hand.
+  const packageDurationMinutes = parsePackageDurationMinutes(selectedPackage?.duration);
+  const getPackageEndTime = (startTime: string) =>
+    (packageDurationMinutes ? addMinutesToTime(startTime, packageDurationMinutes) : null) ?? getSuggestedEndTime(startTime);
+  const timePickerColors = { palette, softInset, softBorder, accentSoft };
+  // An invoice raised from a booking already has its slot, so it never opens a second one.
+  const isLinkedToBooking = Boolean(invoiceDraft?.bookingId);
+
+  const updateTimePart = (part: TimePart, value: number | string) => {
+    if (!activeTimePicker) return;
+
+    const currentParts = getTimeParts(activeTimePicker === 'start' ? draftStartTime : draftEndTime);
+    const nextTime = to24HourTime(
+      part === 'hour' ? Number(value) : currentParts.hour,
+      part === 'minute' ? String(value) : currentParts.minute,
+      part === 'period' ? value as TimePeriod : currentParts.period,
+    );
+
+    if (activeTimePicker === 'start') {
+      setDraftStartTime(nextTime);
+      if (!isEndTimeManual) {
+        setDraftEndTime(getPackageEndTime(nextTime));
+      } else if (draftEndTime <= nextTime) {
+        setDraftEndTime(getSuggestedEndTime(nextTime));
+      }
+    } else {
+      setDraftEndTime(nextTime);
+      setIsEndTimeManual(true);
+    }
+    setScheduleError('');
+  };
+
+  const toggleTimeMenu = (menu: 'start' | 'finish') => {
+    if (activeTimePicker === menu) {
+      setActiveTimePicker(null);
+      return;
+    }
+
+    setActiveTimePicker(menu);
+    setShowCustomerDropdown(false);
+  };
   const selectedCustomer = customers.find((customer) => customer.id === selectedCustomerId) ?? null;
   const filteredCustomers = customers.filter((customer) => {
     const searchTerm = customerQuery.trim().toLowerCase();
@@ -128,6 +199,14 @@ export default function InvoicesScreen() {
     setSelectedPackageId(packageId);
     setUsePackagePrice(true);
     setDraftAmount(String(chosenPackage?.price ?? 0));
+
+    // As in the booking composer, a newly chosen package hands the end time back to its duration
+    // unless the end time has been dialled in by hand.
+    if (!isEndTimeManual) {
+      const minutes = parsePackageDurationMinutes(chosenPackage?.duration);
+      setDraftEndTime((minutes ? addMinutesToTime(draftStartTime, minutes) : null) ?? getSuggestedEndTime(draftStartTime));
+    }
+    setScheduleError('');
   };
 
   const handleShareInvoice = async (invoice: (typeof invoices)[number]) => {
@@ -146,6 +225,12 @@ export default function InvoicesScreen() {
 
   const handleCreateInvoice = () => {
     if (successActive.current) return;
+    // The same gate the mutation enforces; checked here only to route into the upgrade flow.
+    if (!checkPlanLimit('invoices').allowed) {
+      setShowComposer(false);
+      router.push({ pathname: '/paywall', params: { reason: 'invoices', returnTo: '/invoices' } });
+      return;
+    }
     const resolvedAmount = usePackagePrice && selectedPackage ? Number(selectedPackage.price) : Number(draftAmount);
     const amount = resolvedAmount;
     let resolvedCustomerId = selectedCustomerId;
@@ -174,21 +259,37 @@ export default function InvoicesScreen() {
       return;
     }
 
-    addInvoice({
-      bookingId: invoiceDraft?.bookingId ?? `booking-${Date.now()}`,
-      customerId: resolvedCustomerId,
-      amount,
-      dueDate: draftDueDate,
-      status: 'Draft',
-      sentAt: new Date().toISOString().slice(0, 10),
-      serviceName: selectedPackage?.name ?? invoiceDraft?.serviceName,
-      packageDetails: selectedPackage?.details,
-      terms: selectedPackage?.info ?? invoiceDraft?.terms,
-    });
+    const result = addInvoice(
+      {
+        bookingId: invoiceDraft?.bookingId ?? '',
+        customerId: resolvedCustomerId,
+        amount,
+        dueDate: draftDueDate,
+        status: 'Draft',
+          sentAt: getLocalDayKey(),
+        serviceName: selectedPackage?.name ?? invoiceDraft?.serviceName,
+        packageDetails: selectedPackage?.details,
+        terms: selectedPackage?.info ?? invoiceDraft?.terms,
+      },
+      // A booking-raised invoice keeps the slot it already has; only a standalone one books time.
+      isLinkedToBooking ? undefined : { date: draftEventDate, startTime: draftStartTime, endTime: draftEndTime },
+    );
+
+    // Nothing was written: the form keeps everything the user typed so only the time needs changing.
+    if (!result.ok) {
+      if (result.limit) {
+        setShowComposer(false);
+        router.push({ pathname: '/paywall', params: { reason: 'invoices', returnTo: '/invoices' } });
+        return;
+      }
+      setScheduleError(result.error);
+      return;
+    }
 
     posthog.capture('invoice_created', {
       customer_source: customerMode,
       source: invoiceDraft ? 'booking' : 'standalone',
+      has_event_schedule: !isLinkedToBooking,
     });
     successActive.current = true;
     setShowSuccess(true);
@@ -196,6 +297,12 @@ export default function InvoicesScreen() {
 
     setDraftAmount(packages[0] ? String(packages[0].price) : '');
     setDraftDueDate(new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10));
+    setDraftEventDate(new Date().toISOString().slice(0, 10));
+    setDraftStartTime('10:00');
+    setDraftEndTime('11:00');
+    setIsEndTimeManual(false);
+    setActiveTimePicker(null);
+    setScheduleError('');
     setSelectedPackageId(packages[0]?.id ?? '');
     setUsePackagePrice(Boolean(packages.length));
     setSelectedCustomerId(customers[0]?.id ?? '');
@@ -215,18 +322,20 @@ export default function InvoicesScreen() {
             <Ionicons name="receipt-outline" size={23} color={palette.accent} />
           </View>
           <View style={styles.headerCopy}>
-            <Text style={[styles.eyebrow, { color: palette.accent }]}>Invoices</Text>
-            <Text style={[styles.title, { color: palette.text }]} numberOfLines={1}>Client billing</Text>
+            <Text style={[styles.eyebrow, { color: palette.accent }]}>{t('invoices.eyebrow')}</Text>
+            <Text style={[styles.title, { color: palette.text }]} numberOfLines={1}>{t('invoices.title')}</Text>
           </View>
         </View>
         <View style={styles.headerActions}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="More invoice actions"
+            accessibilityLabel={t('invoices.moreActions')}
             accessibilityHint={
-              trashedInvoices.length
-                ? `Dustbin, ${trashedInvoices.length} deleted ${trashedInvoices.length === 1 ? 'invoice' : 'invoices'}`
-                : 'The Dustbin is empty'
+              trashedInvoices.length === 0
+                ? t('invoices.dustbin.empty')
+                : trashedInvoices.length === 1
+                  ? t('invoices.dustbin.count.one')
+                  : t('invoices.dustbin.count', { count: trashedInvoices.length })
             }
             hitSlop={8}
             onPress={() => setShowUtilityMenu(true)}
@@ -266,7 +375,7 @@ export default function InvoicesScreen() {
           return (
             <InvoiceListCard
               invoice={item}
-              clientName={customer?.name ?? 'Unknown customer'}
+              clientName={customer?.name ?? t('invoices.unknownCustomer')}
               summary={summary}
               currencyFormatter={currencyFormatter}
               // Same condition the old action rows used, so nothing gains or loses an action.
@@ -292,10 +401,14 @@ export default function InvoicesScreen() {
           const { kind, invoiceId } = pendingPaymentAction;
           setPendingPaymentAction(null);
           if (kind === 'deposit') setDepositInvoiceId(invoiceId);
-          else setPaymentInvoiceId(invoiceId);
+          else if (kind === 'payment') setPaymentInvoiceId(invoiceId);
+          // Confirmation only after the workspace save is acknowledged — the same signal
+          // useConfirmedSave waits on. A failed sync surfaces through the existing sync banner and
+          // simply never shows the success card.
+          else void confirmWorkspaceSave().then(() => setShowPaidSuccess(true)).catch(() => {});
         }}
         invoice={managePaymentInvoice}
-        clientName={managePaymentInvoice ? customerMap.get(managePaymentInvoice.customerId)?.name ?? 'Unknown customer' : ''}
+        clientName={managePaymentInvoice ? customerMap.get(managePaymentInvoice.customerId)?.name ?? t('invoices.unknownCustomer') : ''}
         summary={managePaymentSummary}
         currencyFormatter={currencyFormatter}
         onClose={() => setManagePaymentId(null)}
@@ -316,10 +429,25 @@ export default function InvoicesScreen() {
           setManagePaymentId(null);
         }}
         onMarkAsPaid={() => {
-          if (managePaymentId) updateInvoiceStatus(managePaymentId, 'Paid');
+          const invoiceId = managePaymentId;
+          if (invoiceId) {
+            updateInvoiceStatus(invoiceId, 'Paid');
+            setPendingPaymentAction({ kind: 'paid', invoiceId });
+          }
           setManagePaymentId(null);
         }}
       />
+
+      <Modal visible={showPaidSuccess} transparent animationType="fade" onRequestClose={() => {}}>
+        <View style={styles.successBackdrop}>
+          <SuccessFeedback
+            visible={showPaidSuccess}
+            title={t('invoices.paid.title')}
+            message={t('invoices.paid.body')}
+            onComplete={() => setShowPaidSuccess(false)}
+          />
+        </View>
+      </Modal>
 
       <InvoiceActionSheet
         visible={showUtilityMenu}
@@ -329,18 +457,20 @@ export default function InvoicesScreen() {
           setOpenDustbinAfterMenu(false);
           router.push('/settings/invoices/trash');
         }}
-        title="Invoices"
+        title={t('invoices.eyebrow')}
         subtitle={
-          trashedInvoices.length
-            ? `${trashedInvoices.length} deleted ${trashedInvoices.length === 1 ? 'invoice' : 'invoices'} in the Dustbin`
-            : 'The Dustbin is empty'
+          trashedInvoices.length === 0
+            ? t('invoices.dustbin.empty')
+            : trashedInvoices.length === 1
+              ? t('invoices.dustbin.subtitle.one')
+              : t('invoices.dustbin.subtitle', { count: trashedInvoices.length })
         }
         items={[
           {
             key: 'dustbin',
             icon: 'trash-outline',
-            label: 'Deleted invoices',
-            accessibilityHint: 'Opens the Dustbin, where deleted invoices can be restored',
+            label: t('invoices.dustbin.label'),
+            accessibilityHint: t('invoices.dustbin.hint'),
             onPress: () => {
               setOpenDustbinAfterMenu(true);
               setShowUtilityMenu(false);
@@ -355,8 +485,8 @@ export default function InvoicesScreen() {
             <View style={[styles.modalHandle, { backgroundColor: palette.border }]} />
             <View accessibilityElementsHidden={showSuccess} importantForAccessibility={showSuccess ? 'no-hide-descendants' : 'auto'} style={styles.modalHeader}>
               <View>
-                <Text style={[styles.modalEyebrow, { color: palette.accent }]}>Create</Text>
-                <Text style={[styles.modalTitle, { color: palette.text }]}>New invoice</Text>
+                <Text style={[styles.modalEyebrow, { color: palette.accent }]}>{t('invoices.create.eyebrow')}</Text>
+                <Text style={[styles.modalTitle, { color: palette.text }]}>{t('invoices.create.title')}</Text>
               </View>
               <Pressable
                 disabled={showSuccess}
@@ -374,7 +504,7 @@ export default function InvoicesScreen() {
             </View>
 
             <ScrollView accessibilityElementsHidden={showSuccess} importantForAccessibility={showSuccess ? 'no-hide-descendants' : 'auto'} pointerEvents={showSuccess ? 'none' : 'auto'} {...modalScrollProps} contentContainerStyle={styles.modalScrollContent}>
-            <Text style={[styles.fieldLabel, { color: palette.muter }]}>Customer source</Text>
+            <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('invoices.customerSource')}</Text>
             <View style={styles.modeRow}>
               <Pressable
                 onPress={() => setCustomerMode('existing')}
@@ -383,7 +513,7 @@ export default function InvoicesScreen() {
                   { backgroundColor: softInset, borderColor: softBorder },
                   customerMode === 'existing' && { backgroundColor: accentSoft, borderColor: palette.accent },
                 ]}>
-                <Text style={[styles.modeButtonText, { color: customerMode === 'existing' ? palette.accent : palette.text }]}>Existing customer</Text>
+                <Text style={[styles.modeButtonText, { color: customerMode === 'existing' ? palette.accent : palette.text }]}>{t('invoices.existingCustomer')}</Text>
               </Pressable>
               <Pressable
                 onPress={() => setCustomerMode('manual')}
@@ -392,17 +522,17 @@ export default function InvoicesScreen() {
                   { backgroundColor: softInset, borderColor: softBorder },
                   customerMode === 'manual' && { backgroundColor: accentSoft, borderColor: palette.accent },
                 ]}>
-                <Text style={[styles.modeButtonText, { color: customerMode === 'manual' ? palette.accent : palette.text }]}>Manual entry</Text>
+                <Text style={[styles.modeButtonText, { color: customerMode === 'manual' ? palette.accent : palette.text }]}>{t('invoices.manualEntry')}</Text>
               </Pressable>
             </View>
 
             {customerMode === 'existing' ? (
               <>
-                <Text style={[styles.fieldLabel, { color: palette.muter }]}>Select customer</Text>
+                <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('invoices.selectCustomer')}</Text>
                 <Pressable
                   onPress={() => setShowCustomerDropdown((current) => !current)}
                   style={[styles.dropdownButton, { backgroundColor: softInset, borderColor: softBorder }, showCustomerDropdown && { borderColor: palette.accent, backgroundColor: accentSoft }]}>
-                  <Text style={[styles.dropdownText, { color: palette.text }]}>{selectedCustomer ? selectedCustomer.name : 'Choose a customer'}</Text>
+                  <Text style={[styles.dropdownText, { color: palette.text }]}>{selectedCustomer ? selectedCustomer.name : t('invoices.chooseCustomer')}</Text>
                   <Ionicons name={showCustomerDropdown ? 'chevron-up' : 'chevron-down'} size={18} color={palette.text} />
                 </Pressable>
 
@@ -422,7 +552,7 @@ export default function InvoicesScreen() {
                   <TextInput
                     value={customerQuery}
                     onChangeText={setCustomerQuery}
-                    placeholder="Search customer"
+                    placeholder={t('invoices.searchCustomer')}
                     placeholderTextColor={palette.muter}
                     style={[styles.searchInput, { backgroundColor: softSurface, borderColor: softBorder, color: palette.text }]}
                   />
@@ -450,25 +580,25 @@ export default function InvoicesScreen() {
                         </Pressable>
                       ))
                     ) : (
-                      <Text style={[styles.emptySearchText, { color: palette.muter }]}>No matching customer</Text>
+                      <Text style={[styles.emptySearchText, { color: palette.muter }]}>{t('invoices.noMatchingCustomer')}</Text>
                     )}
                   </ScrollView>
                 </Animated.View>
               </>
             ) : (
               <>
-                <Text style={[styles.fieldLabel, { color: palette.muter }]}>Customer name</Text>
+                <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('invoices.field.customerName')}</Text>
                 <TextInput value={manualName} onChangeText={setManualName} style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]} placeholder="Siti Nur Izzah" placeholderTextColor={palette.muter} />
 
-                <Text style={[styles.fieldLabel, { color: palette.muter }]}>Customer email</Text>
+                <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('invoices.field.customerEmail')}</Text>
                 <TextInput value={manualEmail} onChangeText={setManualEmail} style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]} placeholder="siti@example.my" keyboardType="email-address" placeholderTextColor={palette.muter} />
 
-                <Text style={[styles.fieldLabel, { color: palette.muter }]}>Customer phone</Text>
+                <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('invoices.field.customerPhone')}</Text>
                 <TextInput value={manualPhone} onChangeText={setManualPhone} style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]} placeholder="+60 12-345 6789" placeholderTextColor={palette.muter} />
               </>
             )}
 
-            <Text style={[styles.fieldLabel, { color: palette.muter }]}>Package</Text>
+            <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('invoices.package')}</Text>
             <View style={styles.selectWrap}>
               <Pressable
                 onPress={() => {
@@ -477,7 +607,7 @@ export default function InvoicesScreen() {
                   setDraftAmount('');
                 }}
                 style={[styles.selectOption, { backgroundColor: softInset, borderColor: softBorder }, !usePackagePrice && { backgroundColor: accentSoft, borderColor: palette.accent }]}>
-                <Text style={[styles.selectText, { color: palette.text }]}>Custom amount</Text>
+                <Text style={[styles.selectText, { color: palette.text }]}>{t('invoices.customAmount')}</Text>
               </Pressable>
               {packages.map((item) => (
                 <Pressable
@@ -491,7 +621,7 @@ export default function InvoicesScreen() {
               ))}
             </View>
 
-            <Text style={[styles.fieldLabel, { color: palette.muter }]}>Amount</Text>
+            <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('invoices.amount')}</Text>
             <TextInput
               value={draftAmount}
               onChangeText={setDraftAmount}
@@ -502,7 +632,61 @@ export default function InvoicesScreen() {
               editable={!usePackagePrice || !selectedPackageId}
             />
 
-            <Text style={[styles.fieldLabel, { color: palette.muter }]}>Due date</Text>
+            {isLinkedToBooking ? null : (
+              <>
+                <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('invoices.eventDate')}</Text>
+                <DatePickerField
+                  value={draftEventDate}
+                  onChange={(next) => {
+                    setDraftEventDate(next);
+                    setScheduleError('');
+                  }}
+                  isDarkMode={isDarkMode}
+                  palette={palette}
+                />
+
+                <View style={styles.timeRow}>
+                  <View style={styles.timeField}>
+                    <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('invoices.startTime')}</Text>
+                    <TimeSelectButton
+                      value={draftStartTime}
+                      accessibilityLabel={`${t('invoices.chooseStartTime')}, ${formatTime(draftStartTime)}`}
+                      active={activeTimePicker === 'start'}
+                      onPress={() => toggleTimeMenu('start')}
+                      colors={timePickerColors}
+                    />
+                  </View>
+                  <View style={styles.timeField}>
+                    <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('invoices.endTime')}</Text>
+                    <TimeSelectButton
+                      value={draftEndTime}
+                      accessibilityLabel={`${t('invoices.chooseEndTime')}, ${formatTime(draftEndTime)}`}
+                      active={activeTimePicker === 'finish'}
+                      onPress={() => toggleTimeMenu('finish')}
+                      colors={timePickerColors}
+                    />
+                  </View>
+                </View>
+
+                {activeTimePicker ? (
+                  <TimePickerMenu
+                    title={activeTimePicker === 'start' ? t('invoices.chooseStartTime') : t('invoices.chooseEndTime')}
+                    value={activeTimePicker === 'start' ? draftStartTime : draftEndTime}
+                    onChangePart={updateTimePart}
+                    error={draftEndTime <= draftStartTime ? t('invoices.timeRangeError') : undefined}
+                    doneDisabled={draftEndTime <= draftStartTime}
+                    onDone={() => setActiveTimePicker(null)}
+                    colors={timePickerColors}
+                  />
+                ) : null}
+
+                {scheduleError ? (
+                  <Text accessibilityRole="alert" style={styles.scheduleError}>{scheduleError}</Text>
+                ) : null}
+              </>
+            )}
+
+            <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('invoices.dueDate')}</Text>
             <TextInput
               value={draftDueDate}
               onChangeText={setDraftDueDate}
@@ -512,14 +696,14 @@ export default function InvoicesScreen() {
             />
 
             <Pressable style={[styles.submitButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]} disabled={showSuccess} onPress={handleCreateInvoice}>
-              <Text style={styles.submitButtonText}>Save invoice</Text>
+              <Text style={styles.submitButtonText}>{t('invoices.save')}</Text>
             </Pressable>
             </ScrollView>
           </View>
           <SuccessFeedback
             visible={showSuccess}
-            title="Invoice created"
-            message="Your invoice has been created"
+            title={t('invoices.created.title')}
+            message={t('invoices.created.body')}
             onComplete={() => {
               successActive.current = false;
               setShowSuccess(false);
@@ -644,6 +828,25 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(15, 23, 42, 0.58)',
     justifyContent: 'flex-end',
+  },
+  timeRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  timeField: {
+    flex: 1,
+  },
+  scheduleError: {
+    color: '#DC2626',
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 17,
+    marginTop: 8,
+  },
+  /** The same dim every other BookFlow success state is presented over. */
+  successBackdrop: {
+    backgroundColor: 'rgba(15, 23, 42, 0.58)',
+    flex: 1,
   },
   modalCard: {
     borderTopLeftRadius: 30,

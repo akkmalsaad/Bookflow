@@ -11,6 +11,7 @@ import { getCurrencyFormatter, useAppData } from '@/context/app-data-context';
 import { useRequirePro } from '@/context/subscription-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 import { useResponsive } from '@/lib/responsive';
+import { useTranslation } from '@/lib/use-translation';
 import { getFinancialMetrics } from '@/lib/financial-metrics';
 
 
@@ -21,6 +22,7 @@ export default function FinanceScreen() {
   const { financeEntries, invoices, payments, currency } = useAppData();
   const palette = getThemePalette(isDarkMode);
   const { readingStyle, isPhone } = useResponsive();
+  const { t } = useTranslation();
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const [showComposer, setShowComposer] = useState(false);
   const softSurface = isDarkMode ? '#172033' : '#F7F9FD';
@@ -42,15 +44,15 @@ export default function FinanceScreen() {
             <Ionicons name="wallet-outline" size={23} color={palette.accent} />
           </View>
           <View style={styles.headerCopy}>
-            <Text style={[styles.eyebrow, { color: palette.accent }]}>Finance · All time</Text>
-            <Text style={[styles.title, { color: palette.text }]}>Cash flow</Text>
+            <Text style={[styles.eyebrow, { color: palette.accent }]}>{t('finance.eyebrow')}</Text>
+            <Text style={[styles.title, { color: palette.text }]}>{t('finance.title')}</Text>
           </View>
         </View>
         <Pressable
           style={[styles.primaryButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]}
           onPress={() => setShowComposer(true)}>
           <Ionicons name="add" size={18} color="#fff" />
-          <Text style={styles.primaryButtonText}>Add</Text>
+          <Text style={styles.primaryButtonText}>{t('finance.add')}</Text>
         </Pressable>
       </View>
 
@@ -62,9 +64,9 @@ export default function FinanceScreen() {
             { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow, opacity: pressed ? 0.85 : 1 },
           ]}
           accessibilityRole="button"
-          accessibilityLabel="View income breakdown">
+          accessibilityLabel={t('finance.income.open')}>
           <View style={styles.statLabelRow}>
-            <Text style={[styles.statLabel, { color: palette.muter }]}>Income</Text>
+            <Text style={[styles.statLabel, { color: palette.muter }]}>{t('finance.income')}</Text>
             <Ionicons name="chevron-forward" size={15} color={palette.muter} />
           </View>
           <Text
@@ -75,7 +77,7 @@ export default function FinanceScreen() {
             {currencyFormatter.format(financialMetrics.revenue)}
           </Text>
           <Text style={[styles.statDetail, { color: palette.success }]} numberOfLines={1}>
-            {financialMetrics.revenue > 0 ? 'Total collected' : 'Nothing received yet'}
+            {financialMetrics.revenue > 0 ? t('finance.income.collected') : t('finance.income.none')}
           </Text>
         </Pressable>
         <Pressable
@@ -85,9 +87,9 @@ export default function FinanceScreen() {
             { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow, marginRight: 0, opacity: pressed ? 0.85 : 1 },
           ]}
           accessibilityRole="button"
-          accessibilityLabel="View expense breakdown">
+          accessibilityLabel={t('finance.expenses.open')}>
           <View style={styles.statLabelRow}>
-            <Text style={[styles.statLabel, { color: palette.muter }]}>Expenses</Text>
+            <Text style={[styles.statLabel, { color: palette.muter }]}>{t('finance.expenses')}</Text>
             <Ionicons name="chevron-forward" size={15} color={palette.muter} />
           </View>
           <Text
@@ -100,7 +102,7 @@ export default function FinanceScreen() {
           <Text
             style={[styles.statDetail, { color: financialMetrics.expenses > 0 ? palette.danger : palette.muter }]}
             numberOfLines={1}>
-            {financialMetrics.expenses > 0 ? 'Total spent' : 'No expenses'}
+            {financialMetrics.expenses > 0 ? t('finance.expenses.spent') : t('finance.expenses.none')}
           </Text>
         </Pressable>
       </View>
@@ -115,7 +117,7 @@ export default function FinanceScreen() {
             <View style={styles.sectionHeader}>
               <SectionHeader
                 icon="swap-vertical-outline"
-                title="Recent entries"
+                title={t('finance.recentEntries')}
                 rightElement={
                   <View style={[styles.entryCount, { backgroundColor: softInset }]}>
                     <Text style={[styles.entryCountText, { color: palette.accent }]}>{financeEntries.length}</Text>

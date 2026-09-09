@@ -64,7 +64,7 @@ function SuccessPresentation(props: Omit<Props, 'visible'>) {
   );
 }
 
-function SuccessSequence({ title, message, onComplete, duration = 950, hapticEnabled = true, size }: Omit<Props, 'visible'> & { size: { width: number; height: number } }) {
+function SuccessSequence({ title, message, onComplete, duration = 2000, hapticEnabled = true, size }: Omit<Props, 'visible'> & { size: { width: number; height: number } }) {
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
   const soft = getSoftTokens(isDarkMode);
@@ -114,7 +114,7 @@ function SuccessSequence({ title, message, onComplete, duration = 950, hapticEna
       if (!active || completed) return;
       completed = true;
       callbacks.current.onComplete?.();
-    }, Math.max(700, Number.isFinite(duration) ? duration : 950));
+    }, Math.max(700, Number.isFinite(duration) ? duration : 2000));
     return () => {
       active = false;
       clearTimeout(timer);

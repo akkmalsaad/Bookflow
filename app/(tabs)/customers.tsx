@@ -14,6 +14,8 @@ import { getCompactCurrencyFormatter, useAppData } from '@/context/app-data-cont
 import { useSnackbar } from '@/context/snackbar-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 import { useResponsive } from '@/lib/responsive';
+import type { TranslationKey } from '@/lib/i18n';
+import { useTranslation } from '@/lib/use-translation';
 import {
   customerSortOptions,
   getCustomerMetrics,
@@ -25,13 +27,14 @@ import {
 export default function CustomersScreen() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
-  const { customers, bookings, invoices, payments, addCustomer, currency } = useAppData();
+  const { customers, bookings, invoices, payments, addCustomer, checkPlanLimit, currency } = useAppData();
   const posthog = usePostHog();
   const { showSnackbar } = useSnackbar();
   const palette = getThemePalette(isDarkMode);
   // Customer cards are compact, so they pair up from tablet width. The screen's own 20pt inset
   // steps aside there and the centred column owns the edge spacing instead.
   const { contentStyle, gridCellStyle, gridRowStyle, isPhone, listColumnCount, sheetStyle } = useResponsive();
+  const { t } = useTranslation();
   const [showComposer, setShowComposer] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const successActive = useRef(false);
@@ -63,10 +66,19 @@ export default function CustomersScreen() {
     [customers, metricsById, searchTerm, sortKey],
   );
 
-  const activeSortLabel = customerSortOptions.find((option) => option.key === sortKey)?.label ?? 'Recently added';
+  // The stored sort key drives the label, so the option list keeps its English keys untouched.
+  const activeSortLabel = t(`customers.sort.${sortKey}` as TranslationKey);
 
   const handleAddCustomer = () => {
     if (successActive.current) return;
+    // The same gate the mutation enforces; checked here only to route into the upgrade flow.
+    const allowance = checkPlanLimit('customers');
+    if (!allowance.allowed) {
+      setShowComposer(false);
+      router.push({ pathname: '/paywall', params: { reason: 'customers', returnTo: '/customers' } });
+      return;
+    }
+
     const savedCustomer = addCustomer({
       name,
       email,
@@ -78,7 +90,7 @@ export default function CustomersScreen() {
     // A name and an email are both required. Without this the form used to clear and close even
     // when nothing had been saved.
     if (!savedCustomer) {
-      showSnackbar({ message: 'Enter a name and an email address to save this customer.', tone: 'danger' });
+      showSnackbar({ message: t('customers.validation'), tone: 'danger' });
       return;
     }
 
@@ -103,15 +115,15 @@ export default function CustomersScreen() {
             <Ionicons name="people-outline" size={23} color={palette.accent} />
           </View>
           <View style={styles.headerCopy}>
-            <Text style={[styles.eyebrow, { color: palette.accent }]}>Customers</Text>
+            <Text style={[styles.eyebrow, { color: palette.accent }]}>{t('customers.eyebrow')}</Text>
             <Text style={[styles.title, { color: palette.text }]} numberOfLines={1}>
-              {customers.length} {customers.length === 1 ? 'client' : 'clients'}
+              {customers.length === 1 ? t('customers.count.one') : t('customers.count', { count: customers.length })}
             </Text>
           </View>
         </View>
         <Pressable style={[styles.primaryButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]} onPress={() => setShowComposer(true)}>
           <Ionicons name="add" size={18} color="#fff" />
-          <Text style={styles.primaryButtonText}>Add</Text>
+          <Text style={styles.primaryButtonText}>{t('customers.add')}</Text>
         </Pressable>
       </View>
 
@@ -122,19 +134,19 @@ export default function CustomersScreen() {
             value={searchTerm}
             onChangeText={setSearchTerm}
             style={[styles.searchInput, { color: palette.text }]}
-            placeholder="Search customers"
+            placeholder={t('customers.search')}
             placeholderTextColor={palette.muter}
             autoCorrect={false}
             autoCapitalize="none"
             returnKeyType="search"
-            accessibilityLabel="Search customers by name, phone, or email"
+            accessibilityLabel={t('customers.search.label')}
           />
           {searchTerm.length > 0 && (
             <Pressable
               onPress={() => setSearchTerm('')}
               hitSlop={8}
               accessibilityRole="button"
-              accessibilityLabel="Clear search">
+              accessibilityLabel={t('customers.search.clear')}>
               <Ionicons name="close-circle" size={17} color={palette.muter} />
             </Pressable>
           )}
@@ -142,7 +154,7 @@ export default function CustomersScreen() {
         <Pressable
           onPress={() => setShowSortSheet(true)}
           accessibilityRole="button"
-          accessibilityLabel={`Sort customers. Current sort: ${activeSortLabel}`}
+          accessibilityLabel={t('customers.sort.label', { sort: activeSortLabel })}
           style={({ pressed }) => [
             styles.sortButton,
             { backgroundColor: softInset, borderColor: softBorder },
@@ -156,9 +168,9 @@ export default function CustomersScreen() {
         <Pressable
           onPress={() => setShowSortSheet(true)}
           accessibilityRole="button"
-          accessibilityLabel={`Sorted by ${activeSortLabel}. Change sorting`}
+          accessibilityLabel={t('customers.sort.change', { sort: activeSortLabel })}
           style={[styles.sortHintRow, contentStyle]}>
-          <Text style={[styles.sortHint, { color: palette.muter }]}>Sorted by {activeSortLabel}</Text>
+          <Text style={[styles.sortHint, { color: palette.muter }]}>{t('customers.sort.hint', { sort: activeSortLabel })}</Text>
         </Pressable>
       )}
 
@@ -176,7 +188,7 @@ export default function CustomersScreen() {
           <View style={[styles.emptyState, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
             <Ionicons name={searchTerm ? 'search-outline' : 'people-outline'} size={22} color={palette.muter} />
             <Text style={[styles.emptyText, { color: palette.muter }]}>
-              {searchTerm ? `No customers match “${searchTerm}”.` : 'No customers yet. Add your first client to get started.'}
+              {searchTerm ? t('customers.empty.search', { term: searchTerm }) : t('customers.empty')}
             </Text>
           </View>
         )}
@@ -184,8 +196,10 @@ export default function CustomersScreen() {
           const metrics = metricsById.get(item.id);
           const bookingCount = metrics?.bookingCount ?? 0;
           const secondaryLine = bookingCount
-            ? `${bookingCount} ${bookingCount === 1 ? 'booking' : 'bookings'} · ${compactCurrency.format(metrics?.revenue ?? 0)}`
-            : 'No bookings yet';
+            ? bookingCount === 1
+              ? t('customers.bookings.one', { amount: compactCurrency.format(metrics?.revenue ?? 0) })
+              : t('customers.bookings', { count: bookingCount, amount: compactCurrency.format(metrics?.revenue ?? 0) })
+            : t('customers.noBookings');
 
           return (
             <Pressable
@@ -223,7 +237,7 @@ export default function CustomersScreen() {
             style={[styles.sortSheet, sheetStyle, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}
             onPress={(event) => event.stopPropagation()}>
             <View style={[styles.modalHandle, { backgroundColor: palette.border }]} />
-            <Text style={[styles.sortSheetTitle, { color: palette.muter }]}>Sort by</Text>
+            <Text style={[styles.sortSheetTitle, { color: palette.muter }]}>{t('customers.sort.title')}</Text>
             {customerSortOptions.map((option) => {
               const isActive = option.key === sortKey;
 
@@ -256,8 +270,8 @@ export default function CustomersScreen() {
             <View style={[styles.modalHandle, { backgroundColor: palette.border }]} />
             <View accessibilityElementsHidden={showSuccess} importantForAccessibility={showSuccess ? 'no-hide-descendants' : 'auto'} style={styles.modalHeader}>
               <View>
-                <Text style={[styles.modalEyebrow, { color: palette.accent }]}>Create</Text>
-                <Text style={[styles.modalTitle, { color: palette.text }]}>Add customer</Text>
+                <Text style={[styles.modalEyebrow, { color: palette.accent }]}>{t('customers.create.eyebrow')}</Text>
+                <Text style={[styles.modalTitle, { color: palette.text }]}>{t('customers.create.title')}</Text>
               </View>
               <Pressable disabled={showSuccess} hitSlop={8} onPress={() => setShowComposer(false)} style={[styles.closeButton, { backgroundColor: softInset }]}>
                 <Ionicons name="close" size={24} color={palette.text} />
@@ -265,30 +279,30 @@ export default function CustomersScreen() {
             </View>
 
             <ScrollView accessibilityElementsHidden={showSuccess} importantForAccessibility={showSuccess ? 'no-hide-descendants' : 'auto'} pointerEvents={showSuccess ? 'none' : 'auto'} {...modalScrollProps} contentContainerStyle={styles.modalScrollContent}>
-            <Text style={[styles.fieldLabel, { color: palette.muter }]}>Name</Text>
+            <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('customers.field.name')}</Text>
             <TextInput value={name} onChangeText={setName} style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]} placeholder="Nur Aisyah Rahman" placeholderTextColor={palette.muter} />
 
-            <Text style={[styles.fieldLabel, { color: palette.muter }]}>Email</Text>
+            <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('customers.field.email')}</Text>
             <TextInput value={email} onChangeText={setEmail} style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]} placeholder="aisyah@example.my" keyboardType="email-address" placeholderTextColor={palette.muter} />
 
-            <Text style={[styles.fieldLabel, { color: palette.muter }]}>Phone</Text>
+            <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('customers.field.phone')}</Text>
             <TextInput value={phone} onChangeText={setPhone} style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]} placeholder="+60 12-345 6789" placeholderTextColor={palette.muter} />
 
-            <Text style={[styles.fieldLabel, { color: palette.muter }]}>Location</Text>
+            <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('customers.field.location')}</Text>
             <TextInput value={location} onChangeText={setLocation} style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]} placeholder="Shah Alam, Selangor" placeholderTextColor={palette.muter} />
 
-            <Text style={[styles.fieldLabel, { color: palette.muter }]}>Notes</Text>
-            <TextInput value={notes} onChangeText={setNotes} style={[styles.input, styles.notesInput, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]} placeholder="Wedding client, prefers WhatsApp updates" placeholderTextColor={palette.muter} multiline />
+            <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('customers.field.notes')}</Text>
+            <TextInput value={notes} onChangeText={setNotes} style={[styles.input, styles.notesInput, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]} placeholder={t('customers.notes.placeholder')} placeholderTextColor={palette.muter} multiline />
 
             <Pressable style={[styles.submitButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]} disabled={showSuccess} onPress={handleAddCustomer}>
-              <Text style={styles.submitButtonText}>Save customer</Text>
+              <Text style={styles.submitButtonText}>{t('customers.save')}</Text>
             </Pressable>
             </ScrollView>
           </View>
           <SuccessFeedback
             visible={showSuccess}
-            title="Customer added"
-            message="Your customer has been added"
+            title={t('customers.added.title')}
+            message={t('customers.added.body')}
             onComplete={() => {
               successActive.current = false;
               setShowSuccess(false);

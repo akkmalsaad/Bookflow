@@ -8,6 +8,7 @@ import { modalScrollProps } from '@/components/modal-keyboard';
 import { getSoftTokens } from '@/components/settings/tokens';
 import type { InvoiceSettings } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { useTranslation } from '@/lib/use-translation';
 import {
   formatPaymentTerms,
   generateInvoiceNumber,
@@ -46,6 +47,7 @@ export function InvoiceSettingSheet({ field, settings, onClose, onSave }: Props)
   const insets = useSafeAreaInsets();
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
+  const { t } = useTranslation();
   const soft = getSoftTokens(isDarkMode);
 
   const [format, setFormat] = useState(settings.numberFormat);
@@ -99,12 +101,12 @@ export function InvoiceSettingSheet({ field, settings, onClose, onSave }: Props)
     <BottomSheetModal visible={field !== null} onClose={onClose}>
       <View style={styles.header}>
         <View style={styles.headerCopy}>
-          <Text style={[styles.eyebrow, { color: palette.accent }]}>Invoices</Text>
+          <Text style={[styles.eyebrow, { color: palette.accent }]}>{t('invset.sheet.eyebrow')}</Text>
           <Text style={[styles.title, { color: palette.text }]}>{copy?.title ?? ''}</Text>
         </View>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Close editor"
+          accessibilityLabel={t('invset.sheet.close')}
           onPress={onClose}
           hitSlop={8}
           style={[styles.closeButton, { backgroundColor: soft.inset }]}>
@@ -126,7 +128,7 @@ export function InvoiceSettingSheet({ field, settings, onClose, onSave }: Props)
               style={inputStyle}
               placeholder="INV-{YYYY}-{####}"
               placeholderTextColor={palette.muter}
-              accessibilityLabel="Invoice number format"
+              accessibilityLabel={t('invset.sheet.formatLabel')}
               autoCapitalize="characters"
               autoCorrect={false}
             />
@@ -182,13 +184,13 @@ export function InvoiceSettingSheet({ field, settings, onClose, onSave }: Props)
             <Pressable
               accessibilityRole="radio"
               accessibilityState={{ selected: isCustom }}
-              accessibilityLabel="Custom payment terms"
+              accessibilityLabel={t('invset.sheet.customTerms')}
               onPress={() => {
                 setIsCustom(true);
                 setError('');
               }}
               style={[styles.option, { backgroundColor: soft.inset, borderColor: isCustom ? palette.accent : soft.border }]}>
-              <Text style={[styles.optionText, { color: palette.text }]}>Custom</Text>
+              <Text style={[styles.optionText, { color: palette.text }]}>{t('invset.sheet.custom')}</Text>
               <Ionicons
                 name={isCustom ? 'checkmark-circle' : 'ellipse-outline'}
                 size={20}
@@ -203,9 +205,9 @@ export function InvoiceSettingSheet({ field, settings, onClose, onSave }: Props)
                   setError('');
                 }}
                 style={[...inputStyle, styles.spaced]}
-                placeholder="Number of days"
+                placeholder={t('invset.sheet.days')}
                 placeholderTextColor={palette.muter}
-                accessibilityLabel="Custom number of days"
+                accessibilityLabel={t('invset.sheet.customDays')}
                 keyboardType="number-pad"
               />
             ) : null}
@@ -221,9 +223,9 @@ export function InvoiceSettingSheet({ field, settings, onClose, onSave }: Props)
                 setError('');
               }}
               style={[...inputStyle, styles.multiline]}
-              placeholder="Example: Please transfer payment to Maybank 1234567890 and include the invoice number as your payment reference."
+              placeholder={t('invset.sheet.instructions.placeholder')}
               placeholderTextColor={palette.muter}
-              accessibilityLabel="Payment instructions"
+              accessibilityLabel={t('invset.sheet.instructionsLabel')}
               multiline
               textAlignVertical="top"
               maxLength={MAX_PAYMENT_INSTRUCTIONS}
@@ -242,7 +244,7 @@ export function InvoiceSettingSheet({ field, settings, onClose, onSave }: Props)
             accessibilityRole="button"
             onPress={onClose}
             style={[styles.secondaryButton, { backgroundColor: soft.inset, borderColor: soft.border }]}>
-            <Text style={[styles.secondaryButtonText, { color: palette.text }]}>Cancel</Text>
+            <Text style={[styles.secondaryButtonText, { color: palette.text }]}>{t('invset.sheet.cancel')}</Text>
           </Pressable>
           <Pressable
             accessibilityRole="button"
@@ -252,7 +254,7 @@ export function InvoiceSettingSheet({ field, settings, onClose, onSave }: Props)
               { backgroundColor: palette.accent, shadowColor: palette.accent },
               pressed && styles.pressed,
             ]}>
-            <Text style={styles.primaryButtonText}>Save</Text>
+            <Text style={styles.primaryButtonText}>{t('invset.sheet.save')}</Text>
           </Pressable>
         </View>
       </View>

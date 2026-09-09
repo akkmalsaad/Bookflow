@@ -16,6 +16,7 @@ import {
 import { MIN_PASSWORD_LENGTH } from '@/constants/auth';
 import { type SocialProvider, useAuth } from '@/context/auth-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { useTranslation } from '@/lib/use-translation';
 
 type ResetStage = 'email' | 'code' | 'password' | 'success';
 
@@ -24,6 +25,7 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export default function LoginScreen() {
   const { signIn, signInWithSocial, sendPasswordResetCode, verifyPasswordResetCode, submitNewPassword } = useAuth();
   const posthog = usePostHog();
+  const { t } = useTranslation();
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
 
@@ -46,36 +48,36 @@ export default function LoginScreen() {
     switch (resetStage) {
       case 'code':
         return {
-          title: 'Check your inbox',
-          subtitle: `Enter the 6-digit reset code sent to ${resetEmail}.`,
+          title: t('auth.reset.codeTitle'),
+          subtitle: t('auth.reset.codeSubtitle', { email: resetEmail }),
           icon: 'mail-unread-outline' as const,
         };
       case 'password':
         return {
-          title: 'Choose a new password',
-          subtitle: `Use at least ${MIN_PASSWORD_LENGTH} characters so your account stays secure.`,
+          title: t('auth.reset.passwordTitle'),
+          subtitle: t('auth.reset.passwordSubtitle', { count: MIN_PASSWORD_LENGTH }),
           icon: 'lock-closed-outline' as const,
         };
       case 'success':
         return {
-          title: 'Password updated',
-          subtitle: 'Your new password is ready. You can now return to sign in.',
+          title: t('auth.reset.successTitle'),
+          subtitle: t('auth.reset.successSubtitle'),
           icon: 'checkmark-circle-outline' as const,
         };
       default:
         return {
-          title: 'Reset your password',
-          subtitle: 'Enter the email address linked to your Bookflow account.',
+          title: t('auth.reset.title'),
+          subtitle: t('auth.reset.subtitle'),
           icon: 'key-outline' as const,
         };
     }
-  }, [resetEmail, resetStage]);
+  }, [resetEmail, resetStage, t]);
 
   const handleLogin = async () => {
     const safeEmail = email.trim().toLowerCase();
 
     if (!EMAIL_PATTERN.test(safeEmail)) {
-      setFormError('Enter a valid email address.');
+      setFormError(t('auth.error.email'));
       return;
     }
     if (password.length < MIN_PASSWORD_LENGTH) {
@@ -89,7 +91,7 @@ export default function LoginScreen() {
       await signIn({ email: safeEmail, password });
       posthog.capture('user_signed_in', { method: 'password' });
     } catch (error) {
-      setFormError(error instanceof Error ? error.message : 'We could not sign you in. Please check your details and try again.');
+      setFormError(error instanceof Error ? error.message : t('auth.error.signIn'));
     } finally {
       setIsSubmitting(false);
     }
@@ -111,7 +113,7 @@ export default function LoginScreen() {
 
     if (resetStage === 'email') {
       if (!EMAIL_PATTERN.test(resetEmail.trim())) {
-        setResetError('Enter a valid email address.');
+        setResetError(t('auth.error.email'));
         return;
       }
       setIsResetSubmitting(true);
@@ -119,7 +121,7 @@ export default function LoginScreen() {
         await sendPasswordResetCode(resetEmail.trim());
         setResetStage('code');
       } catch (error) {
-        setResetError(error instanceof Error ? error.message : 'We could not send a reset code. Please try again.');
+        setResetError(error instanceof Error ? error.message : t('auth.error.resetSend'));
       } finally {
         setIsResetSubmitting(false);
       }
@@ -128,7 +130,7 @@ export default function LoginScreen() {
 
     if (resetStage === 'code') {
       if (!/^\d{6}$/.test(resetCode)) {
-        setResetError('Enter the complete 6-digit code.');
+        setResetError(t('auth.error.code'));
         return;
       }
       setIsResetSubmitting(true);
@@ -136,7 +138,7 @@ export default function LoginScreen() {
         await verifyPasswordResetCode(resetCode);
         setResetStage('password');
       } catch (error) {
-        setResetError(error instanceof Error ? error.message : 'That code is incorrect or has expired. Please try again.');
+        setResetError(error instanceof Error ? error.message : t('auth.error.codeInvalid'));
       } finally {
         setIsResetSubmitting(false);
       }
@@ -149,7 +151,7 @@ export default function LoginScreen() {
         return;
       }
       if (newPassword !== confirmPassword) {
-        setResetError('The passwords do not match.');
+        setResetError(t('auth.error.mismatch'));
         return;
       }
       setIsResetSubmitting(true);
@@ -158,7 +160,7 @@ export default function LoginScreen() {
         setEmail(resetEmail.trim().toLowerCase());
         setResetStage('success');
       } catch (error) {
-        setResetError(error instanceof Error ? error.message : 'We could not update your password. Please try again.');
+        setResetError(error instanceof Error ? error.message : t('auth.error.passwordUpdate'));
       } finally {
         setIsResetSubmitting(false);
       }
@@ -172,24 +174,24 @@ export default function LoginScreen() {
     try {
       await signInWithSocial(provider);
     } catch (error) {
-      setFormError(error instanceof Error ? error.message : `We could not continue with ${provider === 'apple' ? 'Apple' : 'Google'}.`);
+      setFormError(error instanceof Error ? error.message : t('auth.error.provider', { provider: provider === 'apple' ? 'Apple' : 'Google' }));
     }
   };
 
   return (
     <AuthScreen
-      eyebrow="Welcome back"
-      subtitle="Sign in to manage your bookings, customers, invoices, and cash flow."
-      title="Your business, right where you left it.">
+      eyebrow={t('auth.login.eyebrow')}
+      subtitle={t('auth.login.subtitle')}
+      title={t('auth.login.title')}>
       <AuthField
         autoCapitalize="none"
         autoComplete="email"
         icon="mail-outline"
         keyboardType="email-address"
-        label="Email address"
+        label={t('auth.email')}
         onChangeText={setEmail}
         onSubmitEditing={handleLogin}
-        placeholder="you@business.com"
+        placeholder={t('auth.email.placeholder')}
         returnKeyType="next"
         textContentType="emailAddress"
         value={email}
@@ -198,10 +200,10 @@ export default function LoginScreen() {
         autoCapitalize="none"
         autoComplete="current-password"
         icon="lock-closed-outline"
-        label="Password"
+        label={t('auth.password')}
         onChangeText={setPassword}
         onSubmitEditing={handleLogin}
-        placeholder="Enter your password"
+        placeholder={t('auth.password.placeholder')}
         returnKeyType="done"
         secureTextEntry
         textContentType="password"
@@ -216,13 +218,13 @@ export default function LoginScreen() {
             setResetEmail(email);
             setShowReset(true);
           }}>
-          <Text style={[styles.linkText, { color: palette.accent }]}>Forgot password?</Text>
+          <Text style={[styles.linkText, { color: palette.accent }]}>{t('auth.forgot')}</Text>
         </Pressable>
       </View>
 
       {formError ? <InlineMessage>{formError}</InlineMessage> : null}
       <PrimaryAuthButton
-        label="Sign in"
+        label={t('auth.signIn')}
         loadingLabel="Signing in…"
         onPress={handleLogin}
         pending={isSubmitting}
@@ -232,10 +234,10 @@ export default function LoginScreen() {
       <SocialButtons onPress={setSocialProvider} />
 
       <View style={styles.footerRow}>
-        <Text style={[styles.footerText, { color: palette.muter }]}>New to Bookflow?</Text>
+        <Text style={[styles.footerText, { color: palette.muter }]}>{t('auth.newHere')}</Text>
         <Link href="/signup" asChild>
           <Pressable hitSlop={8}>
-            <Text style={[styles.footerLink, { color: palette.accent }]}>Create an account</Text>
+            <Text style={[styles.footerLink, { color: palette.accent }]}>{t('auth.createAccount')}</Text>
           </Pressable>
         </Link>
       </View>
@@ -252,9 +254,9 @@ export default function LoginScreen() {
             autoComplete="email"
             icon="mail-outline"
             keyboardType="email-address"
-            label="Email address"
+            label={t('auth.email')}
             onChangeText={setResetEmail}
-            placeholder="you@business.com"
+            placeholder={t('auth.email.placeholder')}
             value={resetEmail}
           />
         ) : null}
@@ -264,7 +266,7 @@ export default function LoginScreen() {
               autoComplete="one-time-code"
               icon="keypad-outline"
               keyboardType="number-pad"
-              label="Reset code"
+              label={t('auth.reset.code')}
               maxLength={6}
               onChangeText={(value) => setResetCode(value.replace(/\D/g, ''))}
               placeholder="000000"
@@ -278,18 +280,18 @@ export default function LoginScreen() {
             <AuthField
               autoComplete="new-password"
               icon="lock-closed-outline"
-              label="New password"
+              label={t('auth.newPassword')}
               onChangeText={setNewPassword}
-              placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`}
+              placeholder={t('auth.newPassword.placeholder', { count: MIN_PASSWORD_LENGTH })}
               secureTextEntry
               value={newPassword}
             />
             <AuthField
               autoComplete="new-password"
               icon="shield-checkmark-outline"
-              label="Confirm password"
+              label={t('auth.confirmPassword')}
               onChangeText={setConfirmPassword}
-              placeholder="Repeat your password"
+              placeholder={t('auth.confirmPassword.placeholder')}
               secureTextEntry
               value={confirmPassword}
             />

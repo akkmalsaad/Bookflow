@@ -19,12 +19,14 @@ import {
   type BookflowBackup,
 } from '@/lib/workspace-backup';
 import { BackupFileError, shareWorkspaceBackup } from '@/lib/workspace-backup-file';
+import { useTranslation } from '@/lib/use-translation';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
 
 const APP_VERSION = Constants.expoConfig?.version ?? '1.0.0';
 
 export default function DataManagementScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
@@ -48,12 +50,12 @@ export default function DataManagementScreen() {
   const [pending, setPending] = useState<{ backup: BookflowBackup; discarded: number } | null>(null);
 
   const counts: { label: string; value: number }[] = [
-    { label: 'Customers', value: customers.length },
-    { label: 'Bookings', value: bookings.length },
-    { label: 'Invoices', value: invoices.length },
-    { label: 'Payment records', value: payments.length },
-    { label: 'Finance entries', value: financeEntries.length },
-    { label: 'Services & packages', value: packages.length },
+    { label: t('data.customers'), value: customers.length },
+    { label: t('data.bookings'), value: bookings.length },
+    { label: t('data.invoices'), value: invoices.length },
+    { label: t('data.payments'), value: payments.length },
+    { label: t('data.finance'), value: financeEntries.length },
+    { label: t('data.services'), value: packages.length },
   ];
 
   /**
@@ -148,10 +150,10 @@ export default function DataManagementScreen() {
 
   return (
     <SettingsDetailScreen
-      eyebrow="Data"
-      title="Data management"
-      description="Your BookFlow workspace and data controls.">
-      <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter, marginTop: 4 }]}>Your workspace</Text>
+      eyebrow={t('settings.section.data')}
+      title={t('data.title')}
+      description={t('data.description')}>
+      <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter, marginTop: 4 }]}>{t('data.workspace')}</Text>
       <View style={[styles.card, { backgroundColor: soft.surface, borderColor: soft.border }]}>
         {counts.map((item, index) => (
           <View
@@ -177,31 +179,30 @@ export default function DataManagementScreen() {
         ]}>
         <View style={styles.syncHeader}>
           <Ionicons name="cloud-done-outline" size={19} color={palette.accent} />
-          <Text style={[styles.cardTitle, { color: palette.text }]}>Your data is synced</Text>
+          <Text style={[styles.cardTitle, { color: palette.text }]}>{t('data.synced')}</Text>
         </View>
         <Text style={[styles.cardBody, { color: palette.muter }]}>
-          Your customers, bookings, invoices and financial records are securely synced with your BookFlow
-          account.
+          {t('data.synced.body')}
         </Text>
         <Text style={[styles.cardFootnote, { color: palette.muter }]}>
-          Sign in to BookFlow on your other supported devices to reach your latest synced data.
+          {t('data.synced.footnote')}
         </Text>
       </View>
 
-      <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter }]}>Export</Text>
+      <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter }]}>{t('data.export')}</Text>
       <ActionRow
         icon="download-outline"
-        title="Export data & reports"
-        subtitle="Download business reports and records for accounting, analysis or your own files."
+        title={t('export.title')}
+        subtitle={t('data.export.subtitle')}
         onPress={() => router.push('/settings/export')}
         isDarkMode={isDarkMode}
       />
 
-      <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter }]}>Backup & restore</Text>
+      <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter }]}>{t('data.backup')}</Text>
       <View style={[styles.card, { backgroundColor: soft.surface, borderColor: soft.border }]}>
         <View style={styles.backupHeader}>
           <Ionicons name="cloud-download-outline" size={19} color={palette.accent} />
-          <Text style={[styles.cardTitle, { color: palette.text }]}>Workspace Backup</Text>
+          <Text style={[styles.cardTitle, { color: palette.text }]}>{t('data.backup.title')}</Text>
           <View style={styles.badgeGroup}>
             {!isPro ? <Ionicons name="lock-closed-outline" size={15} color={palette.muter} /> : null}
             <ProBadge />
@@ -210,8 +211,8 @@ export default function DataManagementScreen() {
 
         <Text style={[styles.cardBody, styles.backupBody, { color: palette.muter }]}>
           {isPro
-            ? 'Portable backup and restore for your BookFlow workspace. Cloud sync keeps your live data — a backup is an extra copy you keep yourself.'
-            : 'Create a portable backup of your customers, bookings, invoices, payments, finances and settings, and restore it to BookFlow later.'}
+            ? t('data.backup.pro')
+            : t('data.backup.free')}
         </Text>
 
         <View style={[styles.divider, styles.dividerSpaced, { backgroundColor: soft.divider }]} />
@@ -220,7 +221,7 @@ export default function DataManagementScreen() {
           <>
             <BackupRow
               icon="archive-outline"
-              label={isCreating ? 'Creating backup…' : 'Create backup'}
+              label={isCreating ? t('data.backup.creating') : t('data.backup.create')}
               busy={isCreating}
               disabled={isCreating || isReading}
               onPress={handleCreateBackup}
@@ -229,7 +230,7 @@ export default function DataManagementScreen() {
             <View style={[styles.divider, { backgroundColor: soft.divider }]} />
             <BackupRow
               icon="cloud-upload-outline"
-              label={isReading ? 'Opening…' : 'Import backup'}
+              label={isReading ? t('data.backup.opening') : t('data.backup.import')}
               busy={isReading}
               disabled={isCreating || isReading}
               onPress={handlePickBackup}
@@ -239,7 +240,7 @@ export default function DataManagementScreen() {
         ) : (
           <BackupRow
             icon="lock-closed-outline"
-            label="Unlock with Pro"
+            label={t('data.backup.unlock')}
             accent
             onPress={() => router.push('/paywall')}
             isDarkMode={isDarkMode}

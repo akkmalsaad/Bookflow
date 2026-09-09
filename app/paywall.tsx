@@ -10,6 +10,9 @@ import { getSoftTokens } from '@/components/settings/tokens';
 import { useSubscription } from '@/context/subscription-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 import { useResponsive } from '@/lib/responsive';
+import { isLimitKind, LIMIT_COPY } from '@/lib/plan-limits';
+import type { TranslationKey } from '@/lib/i18n';
+import { useTranslation } from '@/lib/use-translation';
 import {
   describeMonthlyEquivalent,
   describePackage,
@@ -19,13 +22,13 @@ import {
 
 type PlanId = 'monthly' | 'yearly';
 
-const BENEFITS = [
-  'Unlimited customers',
-  'Unlimited bookings',
-  'Business logo on invoices',
-  'Advanced financial analytics',
-  'Invoice customization',
-  'More Pro features as they become available',
+const BENEFIT_KEYS: TranslationKey[] = [
+  'paywall.benefit1',
+  'paywall.benefit2',
+  'paywall.benefit3',
+  'paywall.benefit4',
+  'paywall.benefit5',
+  'paywall.benefit6',
 ];
 
 /**
@@ -36,12 +39,15 @@ const BENEFITS = [
  */
 export default function PaywallScreen() {
   const router = useRouter();
-  const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
+  const { returnTo, reason } = useLocalSearchParams<{ returnTo?: string; reason?: string }>();
+  // Set when a Free-plan limit sent the user here, so the headline names the limit they hit.
+  const limitCopy = isLimitKind(reason) ? LIMIT_COPY[reason] : null;
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
   const { readingStyle, isPhone } = useResponsive();
   const posthog = usePostHog();
   const soft = getSoftTokens(isDarkMode);
+  const { t } = useTranslation();
 
   const {
     canPurchase,
@@ -103,7 +109,7 @@ export default function PaywallScreen() {
     if (outcome.status === 'cancelled') return;
 
     if (outcome.status === 'error') {
-      Alert.alert('Purchase incomplete', outcome.message);
+      Alert.alert(t('paywall.incomplete'), outcome.message);
       return;
     }
 
@@ -118,8 +124,8 @@ export default function PaywallScreen() {
       // A completed transaction that did not grant the entitlement means the product is not
       // attached to `pro` in the dashboard, or the receipt is still being processed.
       Alert.alert(
-        'Almost there',
-        'Your purchase went through but Pro has not unlocked yet. It should appear shortly — try Restore Purchases if it does not.',
+        t('paywall.almost.title'),
+        t('paywall.almost.body'),
       );
     } else if (outcome.status === 'purchased') {
       // The purchase response already contains fresh CustomerInfo; this follow-up also reconciles
@@ -127,7 +133,7 @@ export default function PaywallScreen() {
       await refreshSubscription();
     }
     // The `isPro` effect above closes the screen once the entitlement lands.
-  }, [isBusy, posthog, purchase, refreshSubscription, selectedPackage, selectedPlan]);
+  }, [isBusy, posthog, purchase, refreshSubscription, selectedPackage, selectedPlan, t]);
 
   const handleRestore = useCallback(async () => {
     if (isBusy) return;
@@ -135,7 +141,7 @@ export default function PaywallScreen() {
     const outcome = await restore();
 
     if (outcome.status === 'error') {
-      Alert.alert('Restore failed', outcome.message);
+      Alert.alert(t('paywall.restoreFailed'), outcome.message);
       return;
     }
     if (outcome.status === 'purchased') {
@@ -143,11 +149,11 @@ export default function PaywallScreen() {
     }
     if (outcome.status === 'purchased' && !outcome.isPro) {
       Alert.alert(
-        'Nothing to restore',
-        'We could not find an active Bookflow Pro subscription for this store account.',
+        t('paywall.nothingToRestore'),
+        t('paywall.nothingToRestore.body'),
       );
     }
-  }, [isBusy, posthog, restore]);
+  }, [isBusy, posthog, restore, t]);
 
   // `canPurchase` comes from the subscription context, which knows which store is configured —
   // App Store, Play Store or the development Test Store. A development build purchases normally on
@@ -159,7 +165,7 @@ export default function PaywallScreen() {
       <View style={[styles.header, readingStyle]}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Close"
+          accessibilityLabel={t('common.close')}
           disabled={isBusy}
           hitSlop={8}
           onPress={close}
@@ -182,17 +188,17 @@ export default function PaywallScreen() {
           accessibilityLabel="Bookflow"
         />
 
-        <Text style={[styles.title, { color: palette.text }]}>Bookflow Pro</Text>
-        <Text style={[styles.subtitle, { color: palette.accent }]}>Run your business without limits</Text>
+        <Text style={[styles.title, { color: palette.text }]}>{limitCopy ? limitCopy.title : t('paywall.title')}</Text>
+        <Text style={[styles.subtitle, { color: palette.accent }]}>{t('paywall.subtitle')}</Text>
         <Text style={[styles.supporting, { color: palette.muter }]}>
-          Unlock powerful tools built for independent professionals.
+          {limitCopy ? limitCopy.body : t('paywall.supporting')}
         </Text>
 
         <View style={[styles.benefits, { backgroundColor: soft.surface, borderColor: soft.border }]}>
-          {BENEFITS.map((benefit) => (
-            <View key={benefit} style={styles.benefitRow}>
+          {BENEFIT_KEYS.map((benefitKey) => (
+            <View key={benefitKey} style={styles.benefitRow}>
               <Ionicons name="checkmark-circle" size={19} color={palette.accent} />
-              <Text style={[styles.benefitText, { color: palette.text }]}>{benefit}</Text>
+              <Text style={[styles.benefitText, { color: palette.text }]}>{t(benefitKey)}</Text>
             </View>
           ))}
         </View>
@@ -213,7 +219,7 @@ export default function PaywallScreen() {
                 { borderColor: palette.accent },
                 pressed && styles.pressed,
               ]}>
-              <Text style={[styles.retryText, { color: palette.accent }]}>Retry</Text>
+              <Text style={[styles.retryText, { color: palette.accent }]}>{t('common.retry')}</Text>
             </Pressable>
           </View>
         ) : (
@@ -221,7 +227,7 @@ export default function PaywallScreen() {
             {monthlyPackage ? (
               <PlanCard
                 isDarkMode={isDarkMode}
-                label="Monthly"
+                label={t('paywall.monthly')}
                 price={`${describePackage(monthlyPackage)} / month`}
                 selected={selectedPlan === 'monthly'}
                 onPress={() => setSelectedPlan('monthly')}
@@ -231,7 +237,7 @@ export default function PaywallScreen() {
             {yearlyPackage ? (
               <PlanCard
                 isDarkMode={isDarkMode}
-                label="Yearly"
+                label={t('paywall.yearly')}
                 price={`${describePackage(yearlyPackage)} / year`}
                 caption={monthlyEquivalent ? `About ${monthlyEquivalent}/month` : undefined}
                 badge={savings ? `BEST VALUE · SAVE ${savings}%` : 'BEST VALUE'}
@@ -246,8 +252,8 @@ export default function PaywallScreen() {
         {!canPurchase ? (
           <Text style={[styles.envNotice, { color: palette.muter }]}>
             {isExpoGo
-              ? 'Purchases are not available in Expo Go. Run a development build to subscribe.'
-              : 'Purchases are only available in the iOS and Android apps.'}
+              ? t('paywall.expoGo')
+              : t('paywall.storeOnly')}
           </Text>
         ) : null}
 
@@ -278,7 +284,7 @@ export default function PaywallScreen() {
           {isPurchasing ? (
             <ActivityIndicator color="#FFFFFF" />
           ) : (
-            <Text style={styles.primaryButtonText}>Upgrade to Pro</Text>
+            <Text style={styles.primaryButtonText}>{t('paywall.upgrade')}</Text>
           )}
         </Pressable>
 
@@ -289,17 +295,17 @@ export default function PaywallScreen() {
           onPress={handleRestore}
           style={({ pressed }) => [styles.restoreButton, pressed && styles.pressed, isBusy && styles.disabled]}>
           <Text style={[styles.restoreText, { color: palette.muter }]}>
-            {isRestoring ? 'Restoring…' : 'Restore Purchases'}
+            {isRestoring ? t('paywall.restoring') : t('paywall.restore')}
           </Text>
         </Pressable>
 
         <View style={styles.legal}>
           <Pressable accessibilityRole="link" hitSlop={6} onPress={() => router.push('/settings/terms')}>
-            <Text style={[styles.legalText, { color: palette.muter }]}>Terms of Service</Text>
+            <Text style={[styles.legalText, { color: palette.muter }]}>{t('paywall.terms')}</Text>
           </Pressable>
           <Text style={[styles.legalText, { color: palette.muter }]}> · </Text>
           <Pressable accessibilityRole="link" hitSlop={6} onPress={() => router.push('/settings/privacy')}>
-            <Text style={[styles.legalText, { color: palette.muter }]}>Privacy Policy</Text>
+            <Text style={[styles.legalText, { color: palette.muter }]}>{t('paywall.privacy')}</Text>
           </Pressable>
         </View>
         </View>

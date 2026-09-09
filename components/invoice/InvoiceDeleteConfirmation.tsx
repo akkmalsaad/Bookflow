@@ -9,6 +9,7 @@ import { modalScrollProps } from '@/components/modal-keyboard';
 import { getSoftTokens } from '@/components/settings/tokens';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 import { INVOICE_DELETION_REASONS, type InvoiceRemovalAction } from '@/lib/invoice-lifecycle';
+import { useTranslation } from '@/lib/use-translation';
 
 type Props = {
   visible: boolean;
@@ -43,6 +44,7 @@ export function InvoiceDeleteConfirmation({
   onConfirm,
   onClose,
 }: Props) {
+  const { t } = useTranslation();
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
   const soft = getSoftTokens(isDarkMode);
@@ -134,7 +136,7 @@ export function InvoiceDeleteConfirmation({
         <View style={[invoiceSheetStyles.actions, { paddingBottom: Math.max(insets.bottom, 16) }]}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Keep this invoice"
+            accessibilityLabel={t('delete.keep')}
             disabled={isBusy}
             onPress={onClose}
             style={({ pressed }) => [
@@ -143,7 +145,7 @@ export function InvoiceDeleteConfirmation({
               pressed && invoiceSheetStyles.pressed,
               isBusy && invoiceSheetStyles.disabled,
             ]}>
-            <Text style={[invoiceSheetStyles.secondaryText, { color: palette.text }]}>Cancel</Text>
+            <Text style={[invoiceSheetStyles.secondaryText, { color: palette.text }]}>{t('delete.cancel')}</Text>
           </Pressable>
           <Pressable
             accessibilityRole="button"

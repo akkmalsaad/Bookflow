@@ -26,6 +26,8 @@ import {
   type InvoiceVisibility,
 } from '@/lib/invoice-design';
 import { SAMPLE_INVOICE, SAMPLE_CUSTOMER, SAMPLE_PAYMENTS } from '@/lib/invoice-design/sample';
+import { getInvoiceDocumentLabels } from '@/lib/i18n';
+import { useTranslation } from '@/lib/use-translation';
 
 const MAX_TERMS = 1200;
 const MAX_INSTRUCTIONS = 500;
@@ -54,6 +56,8 @@ export default function InvoiceCustomisationScreen() {
   const soft = getSoftTokens(isDarkMode);
   const { showSnackbar } = useSnackbar();
   const { isPro } = useSubscription();
+  const { locale } = useTranslation();
+  const { t } = useTranslation();
   const { businessProfile, invoiceSettings, currency, updateBusinessProfile, updateInvoiceSettings } = useAppData();
 
   // Everything is edited locally and written once, so changing a colour or a toggle never touches
@@ -87,6 +91,7 @@ export default function InvoiceCustomisationScreen() {
   const preview = useMemo(
     () =>
       buildInvoiceRenderData({
+        labels: getInvoiceDocumentLabels(locale),
         invoice: SAMPLE_INVOICE,
         customer: SAMPLE_CUSTOMER,
         payments: SAMPLE_PAYMENTS,
@@ -188,9 +193,9 @@ export default function InvoiceCustomisationScreen() {
 
   return (
     <SettingsDetailScreen
-      eyebrow="Business"
-      title="Invoice customisation"
-      description="How your invoices look to customers, in the app, on their link and in the PDF."
+      eyebrow={t('settings.section.business')}
+      title={t('custom.title')}
+      description={t('custom.description')}
       footer={
         <View style={styles.footerRow}>
           <Pressable
@@ -219,7 +224,7 @@ export default function InvoiceCustomisationScreen() {
           </Pressable>
         </View>
       }>
-      <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter, marginTop: 0 }]}>Business identity</Text>
+      <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter, marginTop: 0 }]}>{t('custom.identity')}</Text>
       <View style={[styles.card, { backgroundColor: soft.surface, borderColor: soft.border }]}>
         {field('Business name', profile.name, (text) => setProfile((c) => ({ ...c, name: text })), { placeholder: 'Your business' })}
         {field('Registration / SSM number', profile.ssmRegistrationNo, (text) => setProfile((c) => ({ ...c, ssmRegistrationNo: text })))}
@@ -231,7 +236,7 @@ export default function InvoiceCustomisationScreen() {
 
       <ProRow
         icon="image-outline"
-        title="Business logo"
+        title={t('custom.logo')}
         subtitle={
           isPro
             ? profile.logoUrl
@@ -243,7 +248,7 @@ export default function InvoiceCustomisationScreen() {
         onPress={() => (isPro ? router.push('/(tabs)/settings') : router.push('/paywall'))}
       />
 
-      <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter }]}>Choose template</Text>
+      <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter }]}>{t('custom.template')}</Text>
       {INVOICE_TEMPLATES.map((template) => (
         <TemplateCard
           key={template.id}
@@ -258,7 +263,7 @@ export default function InvoiceCustomisationScreen() {
         />
       ))}
 
-      <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter }]}>Accent colour</Text>
+      <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter }]}>{t('custom.accent')}</Text>
       <View style={[styles.card, { backgroundColor: soft.surface, borderColor: soft.border }]}>
         <View style={styles.swatchRow}>
           {ACCENT_PRESETS.map((preset) => {
@@ -280,7 +285,7 @@ export default function InvoiceCustomisationScreen() {
             );
           })}
         </View>
-        <Text style={[styles.fieldLabel, { color: palette.muter, marginTop: 14 }]}>Custom colour</Text>
+        <Text style={[styles.fieldLabel, { color: palette.muter, marginTop: 14 }]}>{t('custom.customColour')}</Text>
         <View style={styles.customRow}>
           <TextInput
             value={customAccent}
@@ -293,7 +298,7 @@ export default function InvoiceCustomisationScreen() {
           />
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Apply custom colour"
+            accessibilityLabel={t('custom.applyLabel')}
             onPress={() => {
               if (!requirePro()) return;
               if (!isValidAccentColor(customAccent)) {
@@ -304,7 +309,7 @@ export default function InvoiceCustomisationScreen() {
               setCustomAccent('');
             }}
             style={({ pressed }) => [styles.applyButton, { backgroundColor: palette.accent }, pressed && styles.pressed]}>
-            <Text style={styles.applyText}>Apply</Text>
+            <Text style={styles.applyText}>{t('custom.apply')}</Text>
           </Pressable>
         </View>
         <Text style={[styles.hint, { color: palette.muter }]}>
@@ -312,10 +317,10 @@ export default function InvoiceCustomisationScreen() {
         </Text>
       </View>
 
-      <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter }]}>Invoice numbering</Text>
+      <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter }]}>{t('custom.numbering')}</Text>
       <View style={[styles.card, { backgroundColor: soft.surface, borderColor: soft.border }]}>
         <View style={styles.proFieldHeader}>
-          <Text style={[styles.fieldLabel, { color: palette.muter, marginBottom: 0 }]}>Invoice prefix</Text>
+          <Text style={[styles.fieldLabel, { color: palette.muter, marginBottom: 0 }]}>{t('custom.prefix')}</Text>
           <ProPill locked={!isPro} />
         </View>
         <Pressable disabled={isPro} onPress={() => requirePro()}>
@@ -335,16 +340,16 @@ export default function InvoiceCustomisationScreen() {
         </Text>
       </View>
 
-      <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter }]}>Payment information</Text>
+      <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter }]}>{t('custom.paymentInformation')}</Text>
       <View style={[styles.card, { backgroundColor: soft.surface, borderColor: soft.border }]}>
         {field('Bank name', bank.bankName, (text) => setBank({ bankName: text }), { placeholder: 'Maybank' })}
         {field('Account holder', bank.accountHolder, (text) => setBank({ accountHolder: text }))}
         {field('Account number', bank.accountNumber, (text) => setBank({ accountNumber: text }))}
         {field('DuitNow ID', bank.duitNowId, (text) => setBank({ duitNowId: text }), { placeholder: 'Optional' })}
-        <Text style={[styles.hint, { color: palette.muter }]}>Empty rows are left off the invoice entirely.</Text>
+        <Text style={[styles.hint, { color: palette.muter }]}>{t('custom.emptyRows')}</Text>
       </View>
 
-      <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter }]}>Notes on the invoice</Text>
+      <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter }]}>{t('custom.notes')}</Text>
       <View style={[styles.card, { backgroundColor: soft.surface, borderColor: soft.border }]}>
         {field('Payment instructions', paymentInstructions, setPaymentInstructions, {
           multiline: true,
@@ -357,7 +362,7 @@ export default function InvoiceCustomisationScreen() {
           placeholder: 'Deposit payments are non-refundable.',
         })}
         <View style={styles.proFieldHeader}>
-          <Text style={[styles.fieldLabel, { color: palette.muter, marginBottom: 0 }]}>Thank you message</Text>
+          <Text style={[styles.fieldLabel, { color: palette.muter, marginBottom: 0 }]}>{t('custom.thankYou')}</Text>
           <ProPill locked={!isPro} />
         </View>
         <Pressable disabled={isPro} onPress={() => requirePro()}>
@@ -365,7 +370,7 @@ export default function InvoiceCustomisationScreen() {
             value={design.thankYouMessage}
             onChangeText={(text) => setDesign((current) => ({ ...current, thankYouMessage: text }))}
             editable={isPro}
-            placeholder="Thank you for your business."
+            placeholder={t('custom.thankYou.placeholder')}
             placeholderTextColor={palette.muter}
             maxLength={MAX_THANK_YOU}
             style={[styles.input, { backgroundColor: soft.inset, borderColor: soft.border, color: palette.text }, !isPro && styles.disabled]}
@@ -374,7 +379,7 @@ export default function InvoiceCustomisationScreen() {
       </View>
 
       <View style={styles.sectionHeaderRow}>
-        <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter }]}>Invoice sections</Text>
+        <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter }]}>{t('custom.sections')}</Text>
         <ProPill locked={!isPro} />
       </View>
       <View style={[styles.card, { backgroundColor: soft.surface, borderColor: soft.border }]}>
@@ -404,16 +409,16 @@ export default function InvoiceCustomisationScreen() {
         onPress={handleReset}
         style={({ pressed }) => [styles.resetButton, pressed && styles.pressed]}>
         <Ionicons name="refresh-outline" size={17} color={palette.danger} />
-        <Text style={[styles.resetText, { color: palette.danger }]}>Reset to default</Text>
+        <Text style={[styles.resetText, { color: palette.danger }]}>{t('custom.reset')}</Text>
       </Pressable>
 
       <Modal visible={showPreview} animationType="slide" onRequestClose={() => setShowPreview(false)}>
         <View style={[styles.previewScreen, { backgroundColor: palette.background }]}>
           <View style={[styles.previewHeader, readingStyle, { paddingTop: insets.top + 8 }]}>
-            <Text style={[styles.previewTitle, { color: palette.text }]}>Preview</Text>
+            <Text style={[styles.previewTitle, { color: palette.text }]}>{t('custom.preview')}</Text>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Close preview"
+              accessibilityLabel={t('a11y.closePreview')}
               hitSlop={10}
               style={({ pressed }) => [styles.previewCloseButton, pressed && styles.pressed]}
               onPress={() => setShowPreview(false)}>

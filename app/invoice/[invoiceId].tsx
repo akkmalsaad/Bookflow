@@ -15,6 +15,8 @@ import { useSnackbar } from '@/context/snackbar-context';
 import { useSubscription } from '@/context/subscription-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 import { useResponsive } from '@/lib/responsive';
+import { getInvoiceDocumentLabels } from '@/lib/i18n';
+import { useTranslation } from '@/lib/use-translation';
 import { getInvoiceRemovalAction, isInvoiceClosed } from '@/lib/invoice-lifecycle';
 import { getInvoicePaymentSummary } from '@/lib/invoice-payments';
 import { saveInvoiceAsPdf } from '@/lib/invoice-pdf';
@@ -69,6 +71,7 @@ export default function InvoiceAcceptanceScreen() {
   const { showSnackbar } = useSnackbar();
   const palette = getThemePalette(isDarkMode);
   const { readingStyle } = useResponsive();
+  const { t, locale } = useTranslation();
   const [isSavingPdf, setIsSavingPdf] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
   const [depositInvoiceId, setDepositInvoiceId] = useState<string | null>(null);
@@ -117,9 +120,9 @@ export default function InvoiceAcceptanceScreen() {
     return (
       <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]}>
         <View style={styles.notFoundWrap}>
-          <Text style={[styles.title, { color: palette.text }]}>Invoice not found</Text>
+          <Text style={[styles.title, { color: palette.text }]}>{t('invoice.notFound')}</Text>
           <Pressable style={styles.backButton} onPress={() => router.back()}>
-            <Text style={styles.backButtonText}>Go back</Text>
+            <Text style={styles.backButtonText}>{t('invoice.goBack')}</Text>
           </Pressable>
         </View>
       </SafeAreaView>
@@ -147,6 +150,7 @@ export default function InvoiceAcceptanceScreen() {
     setIsSavingPdf(true);
     try {
       await saveInvoiceAsPdf({
+        labels: getInvoiceDocumentLabels(locale),
         invoice,
         customer,
         businessProfile,
@@ -165,7 +169,7 @@ export default function InvoiceAcceptanceScreen() {
       posthog.capture('invoice_pdf_saved');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'The PDF could not be created. Please try again.';
-      Alert.alert('Unable to save invoice', message);
+      Alert.alert(t('invoice.saveFailed'), message);
     } finally {
       setIsSavingPdf(false);
     }
@@ -203,7 +207,7 @@ export default function InvoiceAcceptanceScreen() {
 
     if (!result.ok) {
       setIsRemoving(false);
-      setRemoveError(result.error ?? 'The invoice could not be moved to the Dustbin.');
+      setRemoveError(result.error ?? t('invoice.trashFailed'));
       return;
     }
 
@@ -211,14 +215,14 @@ export default function InvoiceAcceptanceScreen() {
     setShowRemoveConfirmation(false);
     handleBack();
     showSnackbar({
-      message: result.error ?? (removalAction.mode === 'void' ? 'Invoice voided' : 'Invoice moved to the Dustbin'),
+      message: result.error ?? (removalAction.mode === 'void' ? t('invoice.voided') : t('invoice.trashed')),
       tone: result.error ? 'danger' : 'default',
       action: {
-        label: 'Undo',
+        label: t('invoice.undo'),
         onPress: () => {
           restoreInvoice(invoiceId).then((undone) => {
             showSnackbar({
-              message: undone.ok && !undone.error ? `${invoiceNumber} restored` : undone.error ?? 'The invoice could not be restored.',
+              message: undone.ok && !undone.error ? t('invoice.restored', { invoice: invoiceNumber }) : undone.error ?? t('invoice.restoreFailed'),
               tone: undone.ok && !undone.error ? 'success' : 'danger',
             });
           });
@@ -232,16 +236,16 @@ export default function InvoiceAcceptanceScreen() {
       <ScrollView contentContainerStyle={[styles.content, readingStyle]} showsVerticalScrollIndicator={false}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Back to invoices"
+          accessibilityLabel={t('invoice.backLabel')}
           onPress={handleBack}
           style={({ pressed }) => [styles.navigationBackButton, pressed && styles.navigationBackButtonPressed]}>
           <Ionicons name="chevron-back" size={21} color={palette.accent} />
-          <Text style={[styles.navigationBackText, { color: palette.accent }]}>Back</Text>
+          <Text style={[styles.navigationBackText, { color: palette.accent }]}>{t('invoice.back')}</Text>
         </Pressable>
 
         <View style={styles.header}>
           <View>
-            <Text style={[styles.eyebrow, { color: palette.accent }]}>Invoice details</Text>
+            <Text style={[styles.eyebrow, { color: palette.accent }]}>{t('invoice.eyebrow')}</Text>
             <Text style={[styles.title, { color: palette.text }]}>{getInvoiceNumber(invoice)}</Text>
           </View>
           <View style={styles.headerActions}>
@@ -279,90 +283,90 @@ export default function InvoiceAcceptanceScreen() {
               accessibilityLabel={`${businessProfile.name || 'Business'} logo`}
             />
           ) : null}
-          <Text style={[styles.sectionLabel, { color: palette.muter }]}>Business details</Text>
+          <Text style={[styles.sectionLabel, { color: palette.muter }]}>{t('invoice.businessDetails')}</Text>
           <View style={styles.detailRow}>
-            <Text style={[styles.detailLabel, { color: palette.muter }]}>Business name</Text>
+            <Text style={[styles.detailLabel, { color: palette.muter }]}>{t('invoice.businessName')}</Text>
             <Text style={[styles.detailValue, { color: palette.text }]}>{getProfileValue(businessProfile.name)}</Text>
           </View>
           <View style={styles.detailRow}>
-            <Text style={[styles.detailLabel, { color: palette.muter }]}>SSM Registration No.</Text>
+            <Text style={[styles.detailLabel, { color: palette.muter }]}>{t('invoice.ssm')}</Text>
             <Text style={[styles.detailValue, { color: palette.text }]}>{getProfileValue(businessProfile.ssmRegistrationNo)}</Text>
           </View>
           <View style={styles.detailRow}>
-            <Text style={[styles.detailLabel, { color: palette.muter }]}>Contact number</Text>
+            <Text style={[styles.detailLabel, { color: palette.muter }]}>{t('invoice.contactNumber')}</Text>
             <Text style={[styles.detailValue, { color: palette.text }]}>{getProfileValue(businessProfile.phone)}</Text>
           </View>
           <View style={styles.detailRow}>
-            <Text style={[styles.detailLabel, { color: palette.muter }]}>Email</Text>
+            <Text style={[styles.detailLabel, { color: palette.muter }]}>{t('invoice.email')}</Text>
             <Text style={[styles.detailValue, { color: palette.text }]}>{getProfileValue(businessProfile.email)}</Text>
           </View>
           <View style={[styles.detailRow, styles.lastDetailRow]}>
-            <Text style={[styles.detailLabel, { color: palette.muter }]}>Address</Text>
+            <Text style={[styles.detailLabel, { color: palette.muter }]}>{t('invoice.address')}</Text>
             <Text style={[styles.detailValue, { color: palette.text }]}>{getProfileValue(businessProfile.address)}</Text>
           </View>
         </View>
 
         <View style={[styles.card, { backgroundColor: palette.surface, borderColor: palette.border, shadowColor: isDarkMode ? '#020617' : '#101828' }]}>
-          <Text style={[styles.sectionLabel, { color: palette.muter }]}>Bill to</Text>
+          <Text style={[styles.sectionLabel, { color: palette.muter }]}>{t('invoice.billTo')}</Text>
           <Text style={[styles.customerName, { color: palette.text }]}>{customer.name}</Text>
           <Text style={[styles.customerMeta, { color: palette.muter }]}>{customer.email}</Text>
           {customer.phone ? <Text style={[styles.customerMeta, { color: palette.muter }]}>{customer.phone}</Text> : null}
 
           <View style={[styles.divider, { backgroundColor: palette.border }]} />
 
-          <Text style={[styles.sectionLabel, { color: palette.muter }]}>Amount</Text>
+          <Text style={[styles.sectionLabel, { color: palette.muter }]}>{t('invoice.amount')}</Text>
           <Text style={[styles.amount, { color: palette.text }]}>{currencyFormatter.format(invoice.amount)}</Text>
           {depositPaid > 0 ? (
             <View style={[styles.paymentBox, { backgroundColor: palette.surfaceAlt, borderColor: palette.border }]}>
               <View style={styles.paymentRow}>
-                <Text style={[styles.paymentLabel, { color: palette.muter }]}>Amount paid</Text>
+                <Text style={[styles.paymentLabel, { color: palette.muter }]}>{t('invoice.amountPaid')}</Text>
                 <Text style={[styles.paymentValue, { color: palette.success }]}>{currencyFormatter.format(depositPaid)}</Text>
               </View>
               <View style={[styles.paymentDivider, { backgroundColor: palette.border }]} />
               <View style={[styles.paymentRow, styles.paymentRowLast]}>
-                <Text style={[styles.paymentLabel, { color: palette.muter }]}>Remaining balance</Text>
+                <Text style={[styles.paymentLabel, { color: palette.muter }]}>{t('invoice.remainingBalance')}</Text>
                 <Text style={[styles.balanceValue, { color: palette.text }]}>{currencyFormatter.format(remainingBalance)}</Text>
               </View>
             </View>
           ) : null}
           <View style={styles.detailRow}>
-            <Text style={[styles.detailLabel, { color: palette.muter }]}>Issued</Text>
+            <Text style={[styles.detailLabel, { color: palette.muter }]}>{t('invoice.issued')}</Text>
             <Text style={[styles.detailValue, { color: palette.text }]}>{formatEventDate(invoice.sentAt)}</Text>
           </View>
           <View style={styles.detailRow}>
-            <Text style={[styles.detailLabel, { color: palette.muter }]}>Due date</Text>
+            <Text style={[styles.detailLabel, { color: palette.muter }]}>{t('invoice.dueDate')}</Text>
             <Text style={[styles.detailValue, { color: palette.text }]}>{formatEventDate(invoice.dueDate)}</Text>
           </View>
         </View>
 
         <View style={[styles.card, { backgroundColor: palette.surface, borderColor: palette.border, shadowColor: isDarkMode ? '#020617' : '#101828' }]}>
-          <Text style={[styles.sectionLabel, { color: palette.muter }]}>Package</Text>
+          <Text style={[styles.sectionLabel, { color: palette.muter }]}>{t('invoice.package')}</Text>
           <Text style={[styles.packageName, { color: palette.text }]}>{packageName ?? 'Custom service'}</Text>
           <Text style={[styles.packageDetails, { color: palette.muter }]}>{packageDetails}</Text>
 
           <View style={[styles.divider, { backgroundColor: palette.border }]} />
 
-          <Text style={[styles.sectionLabel, { color: palette.muter }]}>Event details</Text>
+          <Text style={[styles.sectionLabel, { color: palette.muter }]}>{t('invoice.eventDetails')}</Text>
           <View style={styles.detailRow}>
-            <Text style={[styles.detailLabel, { color: palette.muter }]}>Location</Text>
+            <Text style={[styles.detailLabel, { color: palette.muter }]}>{t('invoice.location')}</Text>
             <Text style={[styles.detailValue, { color: palette.text }]}>{eventLocation}</Text>
           </View>
           <View style={styles.detailRow}>
-            <Text style={[styles.detailLabel, { color: palette.muter }]}>Date</Text>
+            <Text style={[styles.detailLabel, { color: palette.muter }]}>{t('invoice.date')}</Text>
             <Text style={[styles.detailValue, { color: palette.text }]}>{formatEventDate(eventDate)}</Text>
           </View>
           <View style={styles.detailRow}>
-            <Text style={[styles.detailLabel, { color: palette.muter }]}>Start time</Text>
+            <Text style={[styles.detailLabel, { color: palette.muter }]}>{t('invoice.startTime')}</Text>
             <Text style={[styles.detailValue, { color: palette.text }]}>{eventStartTime}</Text>
           </View>
           <View style={styles.detailRow}>
-            <Text style={[styles.detailLabel, { color: palette.muter }]}>Finish time</Text>
+            <Text style={[styles.detailLabel, { color: palette.muter }]}>{t('invoice.finishTime')}</Text>
             <Text style={[styles.detailValue, { color: palette.text }]}>{eventEndTime}</Text>
           </View>
 
           {invoice.terms ? (
             <View style={[styles.termsBox, { backgroundColor: palette.surfaceAlt, borderColor: palette.border }]}>
-              <Text style={[styles.termsLabel, { color: palette.muter }]}>Information & terms</Text>
+              <Text style={[styles.termsLabel, { color: palette.muter }]}>{t('invoice.terms')}</Text>
               <Text style={[styles.termsText, { color: palette.text }]}>{invoice.terms}</Text>
             </View>
           ) : null}
@@ -372,7 +376,7 @@ export default function InvoiceAcceptanceScreen() {
           <View style={styles.paymentActions}>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Record the deposit for this invoice"
+              accessibilityLabel={t('invoice.recordDeposit.label')}
               onPress={() => setDepositInvoiceId(invoice.id)}
               style={({ pressed }) => [
                 styles.paymentActionButton,
@@ -381,12 +385,12 @@ export default function InvoiceAcceptanceScreen() {
               ]}>
               <Ionicons name="wallet-outline" size={18} color={palette.accent} />
               <Text style={[styles.paymentActionText, { color: palette.accent }]} numberOfLines={1}>
-                Deposit paid
+                {t('invoice.depositPaid')}
               </Text>
             </Pressable>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Update payment for this invoice"
+              accessibilityLabel={t('invoice.updatePayment.label')}
               onPress={() => setPaymentInvoiceId(invoice.id)}
               style={({ pressed }) => [
                 styles.paymentActionButton,
@@ -395,7 +399,7 @@ export default function InvoiceAcceptanceScreen() {
               ]}>
               <Ionicons name="cash-outline" size={18} color={palette.accent} />
               <Text style={[styles.paymentActionText, { color: palette.text }]} numberOfLines={1}>
-                Update payment
+                {t('invoice.updatePayment')}
               </Text>
             </Pressable>
           </View>
@@ -403,7 +407,7 @@ export default function InvoiceAcceptanceScreen() {
 
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`Save invoice ${getInvoiceNumber(invoice)} as PDF`}
+          accessibilityLabel={t('invoice.savePdf.label', { invoice: getInvoiceNumber(invoice) })}
           disabled={isSavingPdf}
           onPress={handleSavePdf}
           style={({ pressed }) => [
@@ -415,9 +419,9 @@ export default function InvoiceAcceptanceScreen() {
           <Ionicons name={isSavingPdf ? 'hourglass-outline' : 'download-outline'} size={20} color={palette.accent} />
           <View style={styles.pdfButtonCopy}>
             <Text style={[styles.pdfButtonTitle, { color: palette.text }]}>
-              {isSavingPdf ? 'Preparing PDF…' : 'Save as PDF'}
+              {isSavingPdf ? t('invoice.savePdf.preparing') : t('invoice.savePdf')}
             </Text>
-            <Text style={[styles.pdfButtonSubtitle, { color: palette.muter }]}>Keep a copy for future reference</Text>
+            <Text style={[styles.pdfButtonSubtitle, { color: palette.muter }]}>{t('invoice.savePdf.subtitle')}</Text>
           </View>
         </Pressable>
 
@@ -425,11 +429,11 @@ export default function InvoiceAcceptanceScreen() {
           <View style={styles.actions}>
             <Pressable style={styles.declineButton} onPress={() => handleAction('Declined')}>
               <Ionicons name="close-circle-outline" size={18} color="#fff" />
-              <Text style={styles.buttonText}>Decline</Text>
+              <Text style={styles.buttonText}>{t('invoice.decline')}</Text>
             </Pressable>
             <Pressable style={styles.acceptButton} onPress={() => handleAction('Accepted')}>
               <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
-              <Text style={styles.buttonText}>Accept</Text>
+              <Text style={styles.buttonText}>{t('invoice.accept')}</Text>
             </Pressable>
           </View>
         )}

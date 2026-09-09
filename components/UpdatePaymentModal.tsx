@@ -14,6 +14,8 @@ import {
 } from '@/components/PaymentModalShell';
 import { getCurrencyFormatter, useAppData } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import type { TranslationKey } from '@/lib/i18n';
+import { useTranslation } from '@/lib/use-translation';
 import { fromCents, getInvoicePaymentSummary, parseAmountInput, toCents } from '@/lib/invoice-payments';
 
 export const paymentMethods = ['Cash', 'Bank transfer', 'Card', 'E-wallet'];
@@ -34,6 +36,7 @@ export function UpdatePaymentModal({ invoiceId, onClose, onSaved }: Props) {
   const { isDarkMode } = useTheme();
   const { invoices, payments, customers, currency, recordInvoicePayment } = useAppData();
   const posthog = usePostHog();
+  const { t } = useTranslation();
   const palette = getThemePalette(isDarkMode);
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const invoice = invoices.find((item) => item.id === invoiceId) ?? null;
@@ -86,12 +89,12 @@ export function UpdatePaymentModal({ invoiceId, onClose, onSaved }: Props) {
 
     const parsed = parseAmountInput(amount);
     if (parsed === null) {
-      setError('Enter a payment amount greater than zero.');
+      setError(t('payment.error.amount'));
       return false;
     }
 
     if (toCents(parsed) > outstandingCents) {
-      setError(`The payment cannot exceed the ${currencyFormatter.format(summary?.outstanding ?? 0)} outstanding.`);
+      setError(t('payment.error.exceeds', { amount: currencyFormatter.format(summary?.outstanding ?? 0) }));
       return false;
     }
 
@@ -105,7 +108,7 @@ export function UpdatePaymentModal({ invoiceId, onClose, onSaved }: Props) {
     });
 
     if (!result.ok) {
-      setError(result.error ?? 'The payment could not be recorded.');
+      setError(result.error ?? t('payment.error.failed'));
       return false;
     }
 
@@ -117,16 +120,16 @@ export function UpdatePaymentModal({ invoiceId, onClose, onSaved }: Props) {
   return (
     <PaymentModalShell
       visible={invoice !== null}
-      eyebrow="Payment received"
-      title="Update payment"
-      description="Record a payment received for this invoice. The remaining balance updates automatically."
-      primaryLabel={feedback.saving ? 'Saving…' : feedback.pending ? 'Retry save' : 'Save payment'}
+      eyebrow={t('payment.eyebrow')}
+      title={t('payment.update.title')}
+      description={t('payment.update.description')}
+      primaryLabel={feedback.saving ? t('payment.saving') : feedback.pending ? t('payment.retry') : t('payment.save')}
       primaryDisabled={feedback.saving || feedback.success}
       closeDisabled={feedback.saving || feedback.success}
       formDisabled={feedback.pending}
       saveError={feedback.error}
       feedbackActive={feedback.success}
-      feedback={<SuccessFeedback visible={feedback.success} title="Payment recorded" message="Invoice balance has been updated." onComplete={() => { onSaved?.(savedAmount.current); onClose(); }} />}
+      feedback={<SuccessFeedback visible={feedback.success} title={t('payment.recorded.title')} message={t('payment.recorded.body')} onComplete={() => { onSaved?.(savedAmount.current); onClose(); }} />}
       onPrimary={handleSave}
       onClose={onClose}
       palette={palette}
@@ -141,27 +144,27 @@ export function UpdatePaymentModal({ invoiceId, onClose, onSaved }: Props) {
       ) : null}
 
       <PaymentSummaryRow
-        label="Invoice total"
+        label={t('payment.invoiceTotal')}
         value={currencyFormatter.format(summary?.totalAmount ?? 0)}
         palette={palette}
         isDarkMode={isDarkMode}
       />
       <PaymentSummaryRow
-        label="Amount paid"
+        label={t('payment.amountPaid')}
         value={currencyFormatter.format(summary?.amountPaid ?? 0)}
         palette={palette}
         isDarkMode={isDarkMode}
         valueColor={palette.success}
       />
       <PaymentSummaryRow
-        label="Outstanding"
+        label={t('payment.outstanding')}
         value={currencyFormatter.format(summary?.outstanding ?? 0)}
         palette={palette}
         isDarkMode={isDarkMode}
         valueColor={(summary?.outstanding ?? 0) > 0 ? palette.warning : palette.success}
       />
 
-      <Text style={[paymentModalStyles.fieldLabel, { color: palette.muter }]}>Payment amount</Text>
+      <Text style={[paymentModalStyles.fieldLabel, { color: palette.muter }]}>{t('payment.amount')}</Text>
       <CurrencyAmountInput
         currency={currency}
         hasError={Boolean(error)}
@@ -177,12 +180,12 @@ export function UpdatePaymentModal({ invoiceId, onClose, onSaved }: Props) {
       {error ? <Text accessibilityRole="alert" style={[paymentModalStyles.error, { color: palette.danger }]}>{error}</Text> : null}
 
       <PaymentBalanceRow
-        label="Remaining after payment"
+        label={t('payment.remainingAfter')}
         value={currencyFormatter.format(remaining)}
         palette={palette}
       />
 
-      <Text style={[paymentModalStyles.fieldLabel, { color: palette.muter }]}>Payment method</Text>
+      <Text style={[paymentModalStyles.fieldLabel, { color: palette.muter }]}>{t('payment.method')}</Text>
       <View style={styles.methodRow}>
         {paymentMethods.map((option) => {
           const isActive = option === method;
@@ -199,20 +202,20 @@ export function UpdatePaymentModal({ invoiceId, onClose, onSaved }: Props) {
                 isActive && { backgroundColor: accentSoft, borderColor: palette.accent },
                 pressed && styles.pressed,
               ]}>
-              <Text style={[styles.methodChipText, { color: isActive ? palette.accent : palette.text }]}>{option}</Text>
+              <Text style={[styles.methodChipText, { color: isActive ? palette.accent : palette.text }]}>{t(`payment.method.${option}` as TranslationKey)}</Text>
             </Pressable>
           );
         })}
       </View>
 
-      <Text style={[paymentModalStyles.fieldLabel, { color: palette.muter }]}>Payment date</Text>
+      <Text style={[paymentModalStyles.fieldLabel, { color: palette.muter }]}>{t('payment.date')}</Text>
       <DatePickerField value={date} onChange={setDate} isDarkMode={isDarkMode} palette={palette} />
 
-      <Text style={[paymentModalStyles.fieldLabel, { color: palette.muter }]}>Notes (optional)</Text>
+      <Text style={[paymentModalStyles.fieldLabel, { color: palette.muter }]}>{t('deposit.notes')}</Text>
       <TextInput
         multiline
         onChangeText={setNotes}
-        placeholder="Bank reference, remarks"
+        placeholder={t('deposit.notes.placeholder')}
         placeholderTextColor={palette.muter}
         style={[styles.notesInput, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
         value={notes}

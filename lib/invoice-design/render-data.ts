@@ -11,6 +11,8 @@ import { getInvoicePaymentSummary, getInvoicePayments, sumPaymentsInCents, fromC
 import { getInvoiceNumber } from '@/lib/invoice-numbering';
 
 import { resolveInvoiceTokens } from './tokens';
+import { DEFAULT_INVOICE_DOCUMENT_LABELS, type InvoiceDocumentLabels } from '@/lib/i18n';
+
 import {
   DEFAULT_INVOICE_DESIGN,
   DEFAULT_INVOICE_VISIBILITY,
@@ -141,6 +143,8 @@ export type BuildInvoiceRenderDataInput = {
     logoUrl: string | null;
   };
   paymentDetails: InvoiceBankDetails;
+  /** The document's wording. Omitted means English. */
+  labels?: InvoiceDocumentLabels;
   paymentInstructions: string;
   /** Workspace default, printed when the invoice has no terms of its own. */
   termsAndConditions?: string;
@@ -161,7 +165,7 @@ export type BuildInvoiceRenderDataInput = {
  * customer's page and the PDF cannot disagree about what is owed.
  */
 export function buildInvoiceRenderData(input: BuildInvoiceRenderDataInput): InvoiceRenderData {
-  const { invoice, customer, payments, currency, design, business, paymentDetails } = input;
+  const { invoice, customer, payments, currency, design, business, paymentDetails, labels } = input;
   const formatter = getCurrencyFormatter(currency);
   const summary = getInvoicePaymentSummary(invoice, payments);
   const depositCents = sumPaymentsInCents(
@@ -171,6 +175,7 @@ export function buildInvoiceRenderData(input: BuildInvoiceRenderDataInput): Invo
 
   return {
     design,
+    labels: labels ?? DEFAULT_INVOICE_DOCUMENT_LABELS,
     tokens: resolveInvoiceTokens(design.accentColor, design.templateId),
     business,
     client: {

@@ -6,6 +6,7 @@ import { ServiceForm, type ServiceFormValues } from '@/components/settings/Servi
 import { getSoftTokens } from '@/components/settings/tokens';
 import type { PackageOption } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { useTranslation } from '@/lib/use-translation';
 
 type Props = {
   visible: boolean;
@@ -23,6 +24,7 @@ type Props = {
 export function ServiceFormModal({ visible, service, onClose, onSubmit }: Props) {
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
+  const { t } = useTranslation();
   const soft = getSoftTokens(isDarkMode);
   const isEdit = service !== null;
 
@@ -30,12 +32,12 @@ export function ServiceFormModal({ visible, service, onClose, onSubmit }: Props)
     <BottomSheetModal visible={visible} onClose={onClose}>
       <View style={styles.header}>
         <View style={styles.headerCopy}>
-          <Text style={[styles.eyebrow, { color: palette.accent }]}>Services</Text>
-          <Text style={[styles.title, { color: palette.text }]}>{isEdit ? 'Edit service' : 'New service'}</Text>
+          <Text style={[styles.eyebrow, { color: palette.accent }]}>{t('services.eyebrow')}</Text>
+          <Text style={[styles.title, { color: palette.text }]}>{isEdit ? t('services.editTitle') : t('services.newTitle')}</Text>
         </View>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={isEdit ? 'Close service editor' : 'Close new service form'}
+          accessibilityLabel={isEdit ? t('services.closeEditor') : t('services.closeNew')}
           onPress={onClose}
           hitSlop={8}
           style={[styles.closeButton, { backgroundColor: soft.inset }]}>

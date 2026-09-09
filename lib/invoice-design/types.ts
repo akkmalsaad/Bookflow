@@ -1,3 +1,4 @@
+import type { InvoiceDocumentLabels } from '@/lib/i18n';
 import type { CurrencyCode } from '@/context/app-data-context';
 
 /**
@@ -121,6 +122,11 @@ export type InvoiceLineItem = {
  */
 export type InvoiceRenderData = {
   design: InvoiceDesign;
+  /**
+   * The document's own wording, resolved when the invoice was built. Optional so a payload saved
+   * before this existed still renders — the renderer falls back to English.
+   */
+  labels?: InvoiceDocumentLabels;
   tokens: InvoiceDesignTokens;
   business: {
     name: string;

@@ -15,6 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/context/auth-context';
 import { renderInvoiceBody, type InvoiceRenderData } from '@/lib/invoice-design';
+import { DEFAULT_LOCALE, isLocale, translate, type Locale, type TranslationKey } from '@/lib/i18n';
 import { getSupabaseFunctionUrl } from '@/lib/supabase';
 
 /**
@@ -37,6 +38,8 @@ function TemplatedInvoiceDocument({ data }: { data: InvoiceRenderData }) {
 type InvoiceStatus = 'Sent' | 'Accepted' | 'Declined' | 'Paid' | 'Cancelled' | 'Void';
 
 type InvoicePayload = {
+  /** The interface language the sender's app was in when the link was made. */
+  locale?: Locale;
   /**
    * The frozen presentation model written when the link was created. Links made before invoice
    * customisation existed do not have it, and fall back to the original layout below.
@@ -81,11 +84,11 @@ function DetailRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function PartyCard({ label, name, lines }: { label: string; name: string; lines: string[] }) {
+function PartyCard({ label, name, lines, fallback }: { label: string; name: string; lines: string[]; fallback: string }) {
   return (
     <View style={styles.partyCard}>
       <Text style={styles.eyebrow}>{label}</Text>
-      <Text style={styles.partyName}>{name || 'Not specified'}</Text>
+      <Text style={styles.partyName}>{name || fallback}</Text>
       {lines.filter(Boolean).map((line) => (
         <Text key={line} style={styles.mutedText}>
           {line}
@@ -112,6 +115,14 @@ export default function PublicInvoiceRoute() {
 }
 
 function PublicInvoiceScreen() {
+  /**
+   * The language the invoice was sent in, carried on the link itself. The reader's own device
+   * language is deliberately not consulted: this page belongs to the invoice, not to whoever opens
+   * it. Links made before this existed have no locale and read as English.
+   */
+  const [documentLocale, setDocumentLocale] = useState<Locale>(DEFAULT_LOCALE);
+  const t = useCallback((key: TranslationKey) => translate(documentLocale, key), [documentLocale]);
+
   const params = useLocalSearchParams<{ token?: string | string[] }>();
   const token = Array.isArray(params.token) ? params.token[0] : params.token;
   const { width } = useWindowDimensions();
@@ -128,7 +139,7 @@ function PublicInvoiceScreen() {
 
   const loadInvoice = useCallback(async () => {
     if (!apiUrl) {
-      setError('This invoice link is incomplete. Ask the sender for a new link.');
+      setError(t('public.linkIncomplete'));
       setIsLoading(false);
       return;
     }
@@ -138,14 +149,16 @@ function PublicInvoiceScreen() {
     try {
       const response = await fetch(apiUrl, { headers: { accept: 'application/json' } });
       const body = await response.json();
-      if (!response.ok) throw new Error(body?.error ?? 'This invoice could not be loaded.');
-      setResult(body as InvoiceResult);
+      if (!response.ok) throw new Error(body?.error ?? t('public.loadFailed'));
+      const loaded = body as InvoiceResult;
+      setDocumentLocale(isLocale(loaded.payload?.locale) ? loaded.payload.locale : DEFAULT_LOCALE);
+      setResult(loaded);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'This invoice could not be loaded.');
+      setError(loadError instanceof Error ? loadError.message : t('public.loadFailed'));
     } finally {
       setIsLoading(false);
     }
-  }, [apiUrl]);
+  }, [apiUrl, t]);
 
   useEffect(() => {
     loadInvoice();
@@ -162,11 +175,13 @@ function PublicInvoiceScreen() {
         body: JSON.stringify({ action }),
       });
       const body = await response.json();
-      if (!response.ok) throw new Error(body?.error ?? 'Your response could not be recorded.');
-      setResult(body as InvoiceResult);
-      setNotice(action === 'Accepted' ? 'Thank you. The invoice has been accepted.' : 'Your response has been recorded.');
+      if (!response.ok) throw new Error(body?.error ?? t('public.responseFailed'));
+      const loaded = body as InvoiceResult;
+      setDocumentLocale(isLocale(loaded.payload?.locale) ? loaded.payload.locale : DEFAULT_LOCALE);
+      setResult(loaded);
+      setNotice(action === 'Accepted' ? t('public.accepted') : t('public.declined'));
     } catch (responseError) {
-      setError(responseError instanceof Error ? responseError.message : 'Your response could not be recorded.');
+      setError(responseError instanceof Error ? responseError.message : t('public.responseFailed'));
     } finally {
       setPendingAction(null);
     }
@@ -176,7 +191,7 @@ function PublicInvoiceScreen() {
     return (
       <SafeAreaView style={styles.centeredPage}>
         <ActivityIndicator color="#4F46E5" size="large" />
-        <Text style={styles.loadingText}>Loading invoice…</Text>
+        <Text style={styles.loadingText}>{t('public.loading')}</Text>
       </SafeAreaView>
     );
   }
@@ -185,10 +200,10 @@ function PublicInvoiceScreen() {
     return (
       <SafeAreaView style={styles.centeredPage}>
         <View style={styles.errorCard}>
-          <Text style={styles.errorTitle}>Invoice unavailable</Text>
+          <Text style={styles.errorTitle}>{t('public.unavailable')}</Text>
           <Text style={styles.errorMessage}>{error ?? 'This invoice link is invalid or has expired.'}</Text>
           <Pressable onPress={loadInvoice} style={({ pressed }) => [styles.retryButton, pressed && styles.pressed]}>
-            <Text style={styles.retryButtonText}>Try again</Text>
+            <Text style={styles.retryButtonText}>{t('app.tryAgain')}</Text>
           </Pressable>
         </View>
       </SafeAreaView>
@@ -230,23 +245,23 @@ function PublicInvoiceScreen() {
                       disabled={Boolean(pendingAction)}
                       onPress={() => respond('Declined')}
                       style={({ pressed }) => [styles.actionButton, styles.declineButton, pressed && styles.pressed]}>
-                      {pendingAction === 'Declined' ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.actionButtonText}>Decline invoice</Text>}
+                      {pendingAction === 'Declined' ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.actionButtonText}>{t('public.declineInvoice')}</Text>}
                     </Pressable>
                     <Pressable
                       accessibilityRole="button"
                       disabled={Boolean(pendingAction)}
                       onPress={() => respond('Accepted')}
                       style={({ pressed }) => [styles.actionButton, styles.acceptButton, pressed && styles.pressed]}>
-                      {pendingAction === 'Accepted' ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.actionButtonText}>Accept invoice</Text>}
+                      {pendingAction === 'Accepted' ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.actionButtonText}>{t('public.accept')}</Text>}
                     </Pressable>
                   </View>
                 ) : isInactive ? (
-                  <Text style={styles.resolved}>This invoice is no longer active.</Text>
+                  <Text style={styles.resolved}>{t('public.resolved')}</Text>
                 ) : (
                   <Text style={styles.resolved}>This invoice is {status.toLowerCase()}.</Text>
                 )}
               </View>
-              <Text style={styles.footer}>Secure invoice link generated by Bookflow</Text>
+              <Text style={styles.footer}>{t('public.footer')}</Text>
             </View>
           ) : (
             <>
@@ -265,12 +280,12 @@ function PublicInvoiceScreen() {
             <View style={styles.content}>
               <View style={[styles.header, stackContent && styles.headerStacked]}>
                 <View>
-                  <Text style={styles.eyebrow}>Invoice</Text>
+                  <Text style={styles.eyebrow}>{t('doc.invoice')}</Text>
                   <Text selectable style={styles.invoiceId}>{payload.invoice.invoiceNumber || payload.invoice.id}</Text>
                 </View>
                 <View style={[styles.statusPill, isInactive && styles.statusPillInactive]}>
                   <Text style={[styles.statusText, isInactive && styles.statusTextInactive]}>
-                    {isInactive ? 'No longer active' : status}
+                    {isInactive ? t('public.noLongerActive') : status}
                   </Text>
                 </View>
               </View>
@@ -285,7 +300,8 @@ function PublicInvoiceScreen() {
 
               <View style={[styles.parties, stackContent && styles.partiesStacked]}>
                 <PartyCard
-                  label="From"
+                  fallback={t('public.notSpecified')}
+                  label={t('doc.from')}
                   name={payload.businessProfile.name || 'Bookflow business'}
                   lines={[
                     payload.businessProfile.ssmRegistrationNo ? `SSM: ${payload.businessProfile.ssmRegistrationNo}` : '',
@@ -295,34 +311,35 @@ function PublicInvoiceScreen() {
                   ]}
                 />
                 <PartyCard
-                  label="Bill to"
+                  fallback={t('public.notSpecified')}
+                  label={t('doc.billToLabel')}
                   name={payload.customer.name}
                   lines={[payload.customer.email, payload.customer.phone]}
                 />
               </View>
 
               <View style={styles.summary}>
-                <Text style={styles.eyebrow}>Service</Text>
+                <Text style={styles.eyebrow}>{t('public.service')}</Text>
                 <Text style={styles.serviceName}>{payload.serviceName || 'Custom service'}</Text>
                 <Text style={styles.description}>{payload.packageDetails || 'Professional services'}</Text>
                 <Text style={styles.amount}>{formatter.format(payload.invoice.amount)}</Text>
               </View>
 
               <View style={styles.details}>
-                <DetailRow label="Issued" value={formatDate(payload.invoice.sentAt)} />
-                <DetailRow label="Due date" value={formatDate(payload.invoice.dueDate)} />
-                <DetailRow label="Deposit paid" value={formatter.format(deposit)} />
-                <DetailRow label="Balance due" value={formatter.format(balance)} />
+                <DetailRow label={t('doc.issued')} value={formatDate(payload.invoice.sentAt)} />
+                <DetailRow label={t('public.dueDate')} value={formatDate(payload.invoice.dueDate)} />
+                <DetailRow label={t('doc.depositPaid')} value={formatter.format(deposit)} />
+                <DetailRow label={t('doc.balanceDue')} value={formatter.format(balance)} />
                 <DetailRow
-                  label="Event"
-                  value={`${formatDate(payload.eventDate)} · ${payload.eventStartTime || 'Not specified'}–${payload.eventEndTime || 'Not specified'}`}
+                  label={t('public.event')}
+                  value={`${formatDate(payload.eventDate)} · ${payload.eventStartTime || t('public.notSpecified')}–${payload.eventEndTime || t('public.notSpecified')}`}
                 />
-                <DetailRow label="Location" value={payload.eventLocation || 'Not specified'} />
+                <DetailRow label={t('doc.location')} value={payload.eventLocation || t('public.notSpecified')} />
               </View>
 
               {payload.invoice.terms?.trim() ? (
                 <View style={styles.terms}>
-                  <Text style={styles.eyebrow}>Information &amp; terms</Text>
+                  <Text style={styles.eyebrow}>{t('public.infoTerms')}</Text>
                   <Text style={styles.termsText}>{payload.invoice.terms}</Text>
                 </View>
               ) : null}
@@ -334,23 +351,23 @@ function PublicInvoiceScreen() {
                     disabled={Boolean(pendingAction)}
                     onPress={() => respond('Declined')}
                     style={({ pressed }) => [styles.actionButton, styles.declineButton, pressed && styles.pressed]}>
-                    {pendingAction === 'Declined' ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.actionButtonText}>Decline invoice</Text>}
+                    {pendingAction === 'Declined' ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.actionButtonText}>{t('public.declineInvoice')}</Text>}
                   </Pressable>
                   <Pressable
                     accessibilityRole="button"
                     disabled={Boolean(pendingAction)}
                     onPress={() => respond('Accepted')}
                     style={({ pressed }) => [styles.actionButton, styles.acceptButton, pressed && styles.pressed]}>
-                    {pendingAction === 'Accepted' ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.actionButtonText}>Accept invoice</Text>}
+                    {pendingAction === 'Accepted' ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.actionButtonText}>{t('public.accept')}</Text>}
                   </Pressable>
                 </View>
               ) : isInactive ? (
-                <Text style={styles.resolved}>This invoice is no longer active.</Text>
+                <Text style={styles.resolved}>{t('public.resolved')}</Text>
               ) : (
                 <Text style={styles.resolved}>This invoice is {status.toLowerCase()}.</Text>
               )}
             </View>
-            <Text style={styles.footer}>Secure invoice link generated by Bookflow</Text>
+            <Text style={styles.footer}>{t('public.footer')}</Text>
           </View>
             </>
           )}

@@ -16,8 +16,10 @@ import { getThemePalette, useTheme } from '@/context/theme-context';
 import { useSubscription } from '@/context/subscription-context';
 import { getInvoiceTemplate, normalizeBankDetails } from '@/lib/invoice-design';
 import { formatPaymentTerms, generateInvoiceNumber } from '@/lib/invoice-numbering';
+import { useTranslation } from '@/lib/use-translation';
 
 export default function InvoiceSettingsScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
   const { isDarkMode } = useTheme();
   const { businessProfile, invoiceSettings, trashedInvoices, updateInvoiceSettings } = useAppData();
@@ -40,76 +42,76 @@ export default function InvoiceSettingsScreen() {
 
   return (
     <SettingsDetailScreen
-      eyebrow="Business"
-      title="Invoice settings"
-      description="What appears on the invoices you send to customers, and how customers pay you.">
-      <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter, marginTop: 0 }]}>Business details</Text>
-      <SettingsInfoRow label="Business name" value={businessProfile.name || 'Not set'} />
-      <SettingsInfoRow label="SSM registration no." value={businessProfile.ssmRegistrationNo || 'Not set'} />
-      <SettingsInfoRow label="Phone" value={businessProfile.phone || 'Not set'} />
-      <SettingsInfoRow label="Email" value={businessProfile.email || 'Not set'} />
-      <SettingsInfoRow label="Address" value={businessProfile.address || 'Not set'} />
+      eyebrow={t('settings.section.business')}
+      title={t('invset.title')}
+      description={t('invset.description')}>
+      <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter, marginTop: 0 }]}>{t('invset.businessDetails')}</Text>
+      <SettingsInfoRow label={t('invset.businessName')} value={businessProfile.name || t('invset.notSet')} />
+      <SettingsInfoRow label={t('invset.ssm')} value={businessProfile.ssmRegistrationNo || t('invset.notSet')} />
+      <SettingsInfoRow label={t('invset.phone')} value={businessProfile.phone || t('invset.notSet')} />
+      <SettingsInfoRow label={t('invset.email')} value={businessProfile.email || t('invset.notSet')} />
+      <SettingsInfoRow label={t('invset.address')} value={businessProfile.address || t('invset.notSet')} />
 
-      <SettingsSection title="Invoice details">
+      <SettingsSection title={t('invset.invoiceDetails')}>
         <SettingsRow
           icon="pricetag-outline"
-          title="Invoice number format"
-          subtitle={`${invoiceSettings.numberFormat} · Preview: ${preview}`}
+          title={t('invset.numberFormat')}
+          subtitle={t('invset.preview', { format: invoiceSettings.numberFormat, preview })}
           onPress={() => setEditing('numberFormat')}
         />
         <SettingsRow
           icon="calendar-outline"
-          title="Default payment terms"
+          title={t('invset.paymentTerms')}
           subtitle={formatPaymentTerms(invoiceSettings.paymentTermDays)}
           onPress={() => setEditing('paymentTerms')}
         />
         <SettingsRow
           icon="document-text-outline"
-          title="Invoice prefix & default notes"
-          subtitle="Prefix, terms & conditions and thank-you message"
+          title={t('invset.prefixNotes')}
+          subtitle={t('invset.prefixNotes.subtitle')}
           onPress={() => router.push('/settings/invoice-customisation')}
         />
       </SettingsSection>
 
-      <SettingsSection title="Payment">
+      <SettingsSection title={t('invset.payment')}>
         <SettingsRow
           icon="card-outline"
-          title="Payment instructions"
+          title={t('invset.paymentInstructions')}
           subtitle={instructions ? instructions.replace(/\s+/g, ' ') : 'Not set'}
           onPress={() => setEditing('paymentInstructions')}
         />
         <SettingsRow
           icon="business-outline"
-          title="Bank & DuitNow details"
+          title={t('invset.bankDetails')}
           subtitle={paymentDetailsSubtitle}
           onPress={() => router.push('/settings/invoice-customisation')}
         />
       </SettingsSection>
-      <SettingsInfoRow label="Payment methods you can record" value={paymentMethods.join(' · ')} />
+      <SettingsInfoRow label={t('invset.methods')} value={paymentMethods.join(' · ')} />
 
-      <SettingsSection title="Invoice appearance">
+      <SettingsSection title={t('invset.appearance')}>
         <SettingsRow
           icon="color-palette-outline"
-          title="Invoice customisation"
+          title={t('invset.customisation')}
           subtitle={`${templateName} template${isPro ? '' : ' · Pro templates available'}`}
           value="PRO"
           onPress={() => router.push('/settings/invoice-customisation')}
         />
       </SettingsSection>
 
-      <SettingsSection title="Deleted invoices">
+      <SettingsSection title={t('invset.dustbin')}>
         <SettingsRow
           icon="trash-outline"
-          title="Dustbin"
-          subtitle="View and restore deleted invoices"
+          title={t('invset.dustbin.title')}
+          subtitle={t('invset.dustbin.subtitle')}
           value={trashedInvoices.length ? String(trashedInvoices.length) : undefined}
           onPress={() => router.push('/settings/invoices/trash')}
         />
       </SettingsSection>
 
       <SettingsNotice
-        title="How these settings apply"
-        body="Business name, registration number, phone, email and address are managed under Business Profile and automatically included on invoices. The defaults above — numbering, payment terms, payment instructions and bank details — are applied to new invoices. Each invoice keeps the details it was created with, so changing anything here never rewrites an invoice you have already sent. Deposits are set per booking from the service you choose, under Services & packages."
+        title={t('invset.howApply')}
+        body={t('invset.howApply.body')}
       />
 
       <InvoiceSettingSheet

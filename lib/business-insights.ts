@@ -71,6 +71,8 @@ export type BusinessInsightsMetrics = {
   topClient: { name: string; amount: number } | null;
   expenseCategories: ExpenseCategoryMetric[];
   insights: BusinessInsight[];
+  /** The strongest three practical next steps for this period, most impactful first. */
+  opportunities: BusinessInsight[];
   trends: {
     income: number[];
     profit: number[];
@@ -150,6 +152,14 @@ function percentageChange(current: number, previous: number) {
   if (!Number.isFinite(current) || !Number.isFinite(previous) || previous === 0) return null;
   return ((current - previous) / Math.abs(previous)) * 100;
 }
+
+const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
+
+/**
+ * One opportunity before it is ranked. `weight` is business impact: money already at risk outranks
+ * growth ideas, which outrank scheduling observations.
+ */
+type OpportunityCandidate = BusinessInsight & { weight: number };
 
 function percentage(part: number, whole: number) {
   return whole > 0 ? (part / whole) * 100 : 0;
@@ -359,6 +369,164 @@ export function calculateBusinessInsights({
     });
   }
 
+  /**
+   * Business Opportunities.
+   *
+   * Every candidate is built from the records already gathered above for the selected period, so
+   * these can never disagree with the numbers on the rest of the screen. Revenue attributed to a
+   * service or a client is the same "booking-linked revenue" the insights use — payments received
+   * in the period against an active invoice — and never a second definition.
+   *
+   * Each rule carries a minimum sample so a single booking cannot produce a confident-sounding
+   * percentage, and the three strongest survive.
+   */
+  const candidates: OpportunityCandidate[] = [];
+  const todayKey = dateKey(now);
+
+  // D. Money already earned but not yet collected.
+  if (outstanding > 0 && outstandingInvoices.length > 0) {
+    const invoiceWord = outstandingInvoices.length === 1 ? 'invoice' : 'invoices';
+    candidates.push({
+      id: 'opportunity-outstanding',
+      tone: 'client',
+      weight: 100,
+      message: `${formatCurrency(outstanding)} is still outstanding across ${outstandingInvoices.length} ${invoiceWord}. Following up could improve cash flow.`,
+    });
+  }
+
+  // E. Upcoming work with no deposit taken. Read from the deposit payment records themselves.
+  const depositedInvoiceIds = new Set(
+    payments.filter((payment) => payment.kind === 'deposit' && payment.amount > 0).map((payment) => payment.invoiceId),
+  );
+  const invoicesByBooking = new Map<string, Invoice[]>();
+  for (const invoice of invoices) {
+    if (!invoice.bookingId || !isActiveInvoice(invoice)) continue;
+    invoicesByBooking.set(invoice.bookingId, [...(invoicesByBooking.get(invoice.bookingId) ?? []), invoice]);
+  }
+  const upcomingBookings = validBookings.filter((booking) => booking.date > todayKey);
+  const upcomingWithoutDeposit = upcomingBookings.filter((booking) =>
+    !(invoicesByBooking.get(booking.id) ?? []).some((invoice) => depositedInvoiceIds.has(invoice.id)),
+  ).length;
+  if (upcomingWithoutDeposit > 0) {
+    const bookingWord = upcomingWithoutDeposit === 1 ? 'booking has' : 'bookings have';
+    candidates.push({
+      id: 'opportunity-deposits',
+      tone: 'attention',
+      weight: 90,
+      message: `${upcomingWithoutDeposit} upcoming ${bookingWord} no deposit recorded.`,
+    });
+  }
+
+  // A. A service carrying a large share of the period's booking-linked revenue. Needs more than one
+  // service to compare against, and more than a couple of payments behind the share.
+  if (topService && serviceTotals.size >= 2 && attributablePayments.length >= 3 && topService.share >= 40) {
+    candidates.push({
+      id: 'opportunity-top-service',
+      tone: 'service',
+      weight: 80,
+      message: `Promote ${topService.name} — it generated ${Math.round(topService.share)}% of your booking-linked revenue.`,
+    });
+  }
+
+  // I. The service earning most per booking, which is not always the one earning most in total.
+  const serviceBookingCounts = new Map<string, Set<string>>();
+  for (const item of attributablePayments) {
+    if (!item.service || !item.booking) continue;
+    serviceBookingCounts.set(item.service, (serviceBookingCounts.get(item.service) ?? new Set()).add(item.booking.id));
+  }
+  const serviceAverages = Array.from(serviceTotals.entries())
+    .map(([name, amount]) => ({ name, amount, bookings: serviceBookingCounts.get(name)?.size ?? 0 }))
+    .filter((item) => item.bookings >= 2)
+    .map((item) => ({ ...item, average: item.amount / item.bookings }))
+    .sort((first, second) => second.average - first.average);
+  const [bestAverage, runnerUpAverage] = serviceAverages;
+  if (
+    bestAverage &&
+    runnerUpAverage &&
+    bestAverage.average >= runnerUpAverage.average * 1.25 &&
+    // Nothing to add when it is already named as the top earner above.
+    bestAverage.name !== topService?.name
+  ) {
+    candidates.push({
+      id: 'opportunity-service-value',
+      tone: 'service',
+      weight: 70,
+      message: `${bestAverage.name} has your highest average booking value at ${formatCurrency(Math.round(bestAverage.average))}.`,
+    });
+  }
+
+  // H. Revenue concentrated in a few clients.
+  const rankedClients = Array.from(clientTotals.values()).sort((first, second) => second - first);
+  if (rankedClients.length >= 4 && attributableRevenue > 0) {
+    const topCount = 3;
+    const topShare = percentage(rankedClients.slice(0, topCount).reduce((total, amount) => total + amount, 0), attributableRevenue);
+    if (topShare >= 50) {
+      candidates.push({
+        id: 'opportunity-top-clients',
+        tone: 'client',
+        weight: 65,
+        message: `Your top ${topCount} clients generated ${Math.round(topShare)}% of revenue. Consider prioritising retention.`,
+      });
+    }
+  }
+
+  // C. Clients seen in this period with nothing on the books ahead of them.
+  const bookedAheadCustomerIds = new Set(upcomingBookings.map((booking) => booking.customerId));
+  const periodBookingCustomerIds = new Set(periodBookings.map((booking) => booking.customerId));
+  const lapsedClients = Array.from(periodBookingCustomerIds).filter((customerId) => !bookedAheadCustomerIds.has(customerId)).length;
+  if (lapsedClients >= 2) {
+    candidates.push({
+      id: 'opportunity-reengage',
+      tone: 'client',
+      weight: 60,
+      message: `${lapsedClients} past clients have no upcoming booking. Consider following up with them.`,
+    });
+  }
+
+  // B. Clients who already come back, which is a package worth naming.
+  if (repeatClients >= 2) {
+    candidates.push({
+      id: 'opportunity-repeat-clients',
+      tone: 'client',
+      weight: 50,
+      message: `${repeatClients} clients have booked you more than once. Consider offering a repeat-client package.`,
+    });
+  }
+
+  // F and G. When the work actually happens, so these read the event date rather than the date the
+  // booking was taken. Both need a real sample before a weekday pattern means anything.
+  const eventBookings = validBookings.filter((booking) => isWithin(booking.date, bounds.start, bounds.end));
+  const weekdayCounts = new Array(7).fill(0) as number[];
+  for (const booking of eventBookings) {
+    weekdayCounts[localDate(booking.date).getDay()] += 1;
+  }
+  const busiestIndex = weekdayCounts.indexOf(Math.max(...weekdayCounts));
+  const busiestShare = eventBookings.length ? percentage(weekdayCounts[busiestIndex], eventBookings.length) : 0;
+  if (eventBookings.length >= 6 && busiestShare >= 35) {
+    candidates.push({
+      id: 'opportunity-busy-day',
+      tone: 'positive',
+      weight: 40,
+      message: `Most bookings happen on ${WEEKDAY_NAMES[busiestIndex]}. Consider protecting or expanding availability during this period.`,
+    });
+  }
+  if (eventBookings.length >= 10 && weekdayCounts[busiestIndex] >= 3) {
+    const quietIndex = weekdayCounts.indexOf(Math.min(...weekdayCounts));
+    if (weekdayCounts[quietIndex] === 0) {
+      candidates.push({
+        id: 'opportunity-quiet-day',
+        tone: 'positive',
+        weight: 30,
+        message: `Bookings are quieter on ${WEEKDAY_NAMES[quietIndex]}. Consider testing a promotion for those slots.`,
+      });
+    }
+  }
+
+  const opportunities: BusinessInsight[] = candidates
+    .sort((first, second) => second.weight - first.weight)
+    .slice(0, 3)
+    .map(({ weight: _weight, ...insight }) => insight);
+
   const incomeTrend = buildTrend(bounds.start, bounds.end, incomeEntries);
   const expenseTrend = buildTrend(bounds.start, bounds.end, expenseEntries);
   const invoiceBalanceTrendItems = invoicesWithBalances.map(({ invoice, balance }) => ({
@@ -397,6 +565,7 @@ export function calculateBusinessInsights({
     topClient,
     expenseCategories,
     insights,
+    opportunities,
     trends: {
       income: incomeTrend,
       profit: incomeTrend.map((amount, index) => amount - expenseTrend[index]),

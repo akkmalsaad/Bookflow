@@ -9,6 +9,8 @@ import { StatusPill } from '@/components/StatusPill';
 import type { Booking, Customer } from '@/context/app-data-context';
 import { useTheme, type AppPalette } from '@/context/theme-context';
 import { getBookingStatusConfig } from '@/lib/booking-status';
+import type { TranslationKey } from '@/lib/i18n';
+import { useTranslation } from '@/lib/use-translation';
 
 /** How far left the front card travels to park the Complete action open. */
 const ACTION_WIDTH = 116;
@@ -88,6 +90,7 @@ export function PriorityStack({
   onComplete,
 }: PriorityStackProps) {
   const { isDarkMode } = useTheme();
+  const { t } = useTranslation();
   const [order, setOrder] = useState<string[]>(() => bookings.map((booking) => booking.id));
   const [cardHeight, setCardHeight] = useState(DEFAULT_CARD_HEIGHT);
   // At most one card may sit open, and only ever the front one.
@@ -131,8 +134,8 @@ export function PriorityStack({
         <View style={[styles.emptyIcon, { backgroundColor: isDarkMode ? '#12362B' : '#EAFBF2' }]}>
           <Ionicons name="checkmark-circle" size={24} color={palette.success} />
         </View>
-        <Text style={[styles.emptyTitle, { color: palette.text }]}>You&rsquo;re all caught up</Text>
-        <Text style={[styles.emptyText, { color: palette.muter }]}>No more priority jobs for today.</Text>
+        <Text style={[styles.emptyTitle, { color: palette.text }]}>{t('home.priority.emptyTitle')}</Text>
+        <Text style={[styles.emptyText, { color: palette.muter }]}>{t('home.priority.emptyBody')}</Text>
       </View>
     );
   }
@@ -176,10 +179,10 @@ export function PriorityStack({
                   {booking.title}
                 </Text>
                 <Text style={[styles.bookingCustomer, { color: palette.muter }]} numberOfLines={1}>
-                  {customer?.name ?? 'Unknown customer'}
+                  {customer?.name ?? t('home.unknownCustomer')}
                 </Text>
               </View>
-              <StatusPill label={booking.status} tone={statusTone(booking.status)} />
+              <StatusPill label={t(`status.booking.${booking.status}` as TranslationKey)} tone={statusTone(booking.status)} />
             </View>
 
             <View style={styles.metaRow}>
@@ -240,6 +243,7 @@ function PriorityCard({
   onComplete,
   accessibilityLabel,
 }: PriorityCardProps) {
+  const { t } = useTranslation();
   const { width: screenWidth } = useWindowDimensions();
   const animatedDepth = useSharedValue(depth);
   // Horizontal offset of the card face. Entirely separate from the depth animation above, which
@@ -347,7 +351,7 @@ function PriorityCard({
           pointerEvents={isOpen && !isExiting ? 'auto' : 'none'}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Mark job as completed"
+            accessibilityLabel={t('home.priority.completeLabel')}
             accessibilityState={{ disabled: isCompleting || isExiting }}
             disabled={isCompleting || isExiting}
             onPress={handleCompletePress}
@@ -363,7 +367,7 @@ function PriorityCard({
               color="#FFFFFF"
             />
             <Text style={styles.completeActionText} numberOfLines={1}>
-              Complete
+              {t('home.priority.complete')}
             </Text>
           </Pressable>
         </Animated.View>
@@ -374,7 +378,7 @@ function PriorityCard({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={accessibilityLabel}
-            accessibilityHint={canSwipe ? 'Swipe left to reveal the complete action' : 'Brings this booking to the front'}
+            accessibilityHint={canSwipe ? t('home.priority.swipeHint') : t('home.priority.frontHint')}
             // Unchanged for every card behind the front one. On the front card, where bringing to
             // front is already a no-op, a tap closes an exposed action instead.
             disabled={isExiting}

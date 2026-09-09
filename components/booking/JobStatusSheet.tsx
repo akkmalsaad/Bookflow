@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BottomSheetModal } from '@/components/BottomSheetModal';
 import { getSoftTokens } from '@/components/settings/tokens';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { useTranslation } from '@/lib/use-translation';
 import {
   BOOKING_STATUS_ORDER,
   getBookingStatusVisual,
@@ -36,6 +37,7 @@ export function JobStatusSheet({ visible, status, bookingTitle, onSelect, onClos
   const palette = getThemePalette(isDarkMode);
   const soft = getSoftTokens(isDarkMode);
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
   const selected = resolveBookingStatus(status);
   const [pendingDestructive, setPendingDestructive] = useState<BookingStatus | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
@@ -93,7 +95,7 @@ export function JobStatusSheet({ visible, status, bookingTitle, onSelect, onClos
         }}>
         <View style={[styles.body, { paddingBottom: Math.max(insets.bottom, 16) }]}>
           <View style={styles.header}>
-            <Text style={[styles.title, { color: palette.text }]}>Update Job Status</Text>
+            <Text style={[styles.title, { color: palette.text }]}>{t('jobStatus.title')}</Text>
             {bookingTitle ? (
               <Text style={[styles.subtitle, { color: palette.muter }]} numberOfLines={1}>
                 {bookingTitle}
@@ -140,32 +142,32 @@ export function JobStatusSheet({ visible, status, bookingTitle, onSelect, onClos
       <BottomSheetModal visible={showConfirm} onClose={dismissConfirm} heightRatio={0.6}>
         <View style={[styles.body, { paddingBottom: Math.max(insets.bottom, 16) }]}>
           <View style={styles.header}>
-            <Text style={[styles.eyebrow, { color: palette.danger }]}>Cancel</Text>
-            <Text style={[styles.title, { color: palette.text }]}>Cancel this booking?</Text>
+            <Text style={[styles.eyebrow, { color: palette.danger }]}>{t('jobStatus.cancel.eyebrow')}</Text>
+            <Text style={[styles.title, { color: palette.text }]}>{t('jobStatus.cancel.title')}</Text>
           </View>
 
           <View style={[styles.confirmNote, { backgroundColor: confirmVisual.colors.tint }]}>
             <Ionicons name="information-circle-outline" size={17} color={confirmVisual.colors.text} />
             <Text style={[styles.confirmNoteText, { color: palette.text }]}>
-              The booking will remain in your records, but its job status will be marked as cancelled.
+              {t('jobStatus.cancel.note')}
             </Text>
           </View>
 
           <View style={styles.confirmActions}>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Keep booking"
+              accessibilityLabel={t('jobStatus.cancel.keepLabel')}
               onPress={dismissConfirm}
               style={({ pressed }) => [
                 styles.secondaryButton,
                 { backgroundColor: soft.inset, borderColor: soft.border },
                 pressed && styles.pressed,
               ]}>
-              <Text style={[styles.secondaryText, { color: palette.text }]}>Keep Booking</Text>
+              <Text style={[styles.secondaryText, { color: palette.text }]}>{t('jobStatus.cancel.keep')}</Text>
             </Pressable>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Mark this booking as cancelled"
+              accessibilityLabel={t('jobStatus.cancel.confirmLabel')}
               onPress={confirmDestructive}
               style={({ pressed }) => [
                 styles.destructiveButton,
@@ -174,7 +176,7 @@ export function JobStatusSheet({ visible, status, bookingTitle, onSelect, onClos
               ]}>
               <Ionicons name="close-circle-outline" size={18} color="#FFFFFF" />
               <Text style={styles.destructiveText} numberOfLines={1}>
-                Mark as Cancelled
+                {t('jobStatus.cancel.confirm')}
               </Text>
             </Pressable>
           </View>

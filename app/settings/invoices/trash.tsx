@@ -12,12 +12,14 @@ import { useSnackbar } from '@/context/snackbar-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 import { DUSTBIN_RETENTION_DAYS, hasInvoiceFinancialHistory } from '@/lib/invoice-lifecycle';
 import { getInvoiceNumber } from '@/lib/invoice-numbering';
+import { useTranslation } from '@/lib/use-translation';
 
 type PendingAction =
   | { kind: 'restore'; invoiceId: string }
   | { kind: 'purge'; invoiceId: string };
 
 export default function InvoiceTrashScreen() {
+  const { t } = useTranslation();
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
   const soft = getSoftTokens(isDarkMode);
@@ -80,7 +82,7 @@ export default function InvoiceTrashScreen() {
 
   return (
     <SettingsDetailScreen
-      title="Dustbin"
+      title={t('trash.title')}
       description={`Deleted invoices stay here for ${DUSTBIN_RETENTION_DAYS} days, then BookFlow removes them permanently. Restore one any time before that.`}>
       {trashedInvoices.length > 0 ? (
         trashedInvoices.map((invoice) => (
@@ -100,8 +102,8 @@ export default function InvoiceTrashScreen() {
           <View style={[styles.emptyIcon, { backgroundColor: soft.inset }]}>
             <Ionicons name="trash-outline" size={26} color={palette.muter} />
           </View>
-          <Text style={[styles.emptyTitle, { color: palette.text }]}>The Dustbin is empty</Text>
-          <Text style={[styles.emptyBody, { color: palette.muter }]}>Deleted invoices will appear here.</Text>
+          <Text style={[styles.emptyTitle, { color: palette.text }]}>{t('trash.empty')}</Text>
+          <Text style={[styles.emptyBody, { color: palette.muter }]}>{t('trash.empty.body')}</Text>
         </View>
       )}
 

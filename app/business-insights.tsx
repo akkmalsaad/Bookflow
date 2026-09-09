@@ -16,6 +16,7 @@ import { getCompactCurrencyFormatter, useAppData } from '@/context/app-data-cont
 import { useSubscription } from '@/context/subscription-context';
 import { getThemePalette, useTheme, type AppPalette } from '@/context/theme-context';
 import { useResponsive } from '@/lib/responsive';
+import { useTranslation } from '@/lib/use-translation';
 import {
   calculateBusinessInsights,
   type BusinessInsightsMetrics,
@@ -44,6 +45,7 @@ export default function BusinessInsightsScreen() {
   // Metric cards and charts, so this screen gets the wider card column rather than the reading one.
   const { contentStyle } = useResponsive();
   const soft = getSoftTokens(isDarkMode);
+  const { t } = useTranslation();
   const { isLoadingSubscription, isPro } = useSubscription();
   const {
     isLoading,
@@ -81,7 +83,7 @@ export default function BusinessInsightsScreen() {
     return (
       <SafeAreaView style={[styles.gate, { backgroundColor: palette.background }]}>
         <ActivityIndicator size="large" color={palette.accent} />
-        <Text style={[styles.gateText, { color: palette.muter }]}>Checking Bookflow Pro…</Text>
+        <Text style={[styles.gateText, { color: palette.muter }]}>{t('insights.gate.checking')}</Text>
       </SafeAreaView>
     );
   }
@@ -94,15 +96,15 @@ export default function BusinessInsightsScreen() {
   // carries the same meaning for anyone who cannot see the colour.
   const hasOverdue = metrics.overdueInvoiceCount > 0;
   const outstandingFooter = hasOverdue
-    ? `${metrics.outstandingInvoiceCount} ${invoiceWord} · ${metrics.overdueInvoiceCount} overdue`
-    : `${metrics.outstandingInvoiceCount} ${invoiceWord}`;
+    ? `${invoiceWord} · ${t('insights.overdueSuffix', { count: metrics.overdueInvoiceCount })}`
+    : invoiceWord;
 
   return (
     <SafeAreaView edges={['top', 'left', 'right']} style={[styles.screen, { backgroundColor: palette.background }]}>
       <View style={[styles.header, contentStyle]}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Back to Finance"
+          accessibilityLabel={t('insights.back')}
           hitSlop={8}
           onPress={goBack}
           style={({ pressed }) => [
@@ -113,8 +115,8 @@ export default function BusinessInsightsScreen() {
           <Ionicons name="arrow-back" size={22} color={palette.text} />
         </Pressable>
         <View style={styles.headerCopy}>
-          <Text style={[styles.title, { color: palette.text }]}>Business Insights</Text>
-          <Text style={[styles.subtitle, { color: palette.muter }]}>Understand your business performance</Text>
+          <Text style={[styles.title, { color: palette.text }]}>{t('insights.card.title')}</Text>
+          <Text style={[styles.subtitle, { color: palette.muter }]}>{t('insights.gate.subtitle')}</Text>
         </View>
       </View>
 
@@ -125,17 +127,17 @@ export default function BusinessInsightsScreen() {
       {isLoading ? (
         <View style={styles.loadingBody}>
           <ActivityIndicator size="large" color={palette.accent} />
-          <Text style={[styles.loadingText, { color: palette.muter }]}>Preparing your insights…</Text>
+          <Text style={[styles.loadingText, { color: palette.muter }]}>{t('insights.preparing')}</Text>
         </View>
       ) : loadError ? (
         <View style={[styles.errorCard, { backgroundColor: soft.surface, borderColor: soft.border }]}>
           <Ionicons name="cloud-offline-outline" size={26} color={palette.muter} />
-          <Text style={[styles.errorTitle, { color: palette.text }]}>Unable to load Business Insights.</Text>
+          <Text style={[styles.errorTitle, { color: palette.text }]}>{t('insights.loadFailed')}</Text>
           <Pressable
             accessibilityRole="button"
             onPress={reload}
             style={({ pressed }) => [styles.retryButton, { backgroundColor: palette.accent }, pressed && styles.pressed]}>
-            <Text style={styles.retryText}>Try again</Text>
+            <Text style={styles.retryText}>{t('app.tryAgain')}</Text>
           </Pressable>
         </View>
       ) : (
@@ -145,13 +147,13 @@ export default function BusinessInsightsScreen() {
           contentInsetAdjustmentBehavior="automatic">
           <SectionCard
             icon="pulse-outline"
-            title="Business Health"
-            subtitle="Overview of your business in this period"
+            title={t('insights.health')}
+            subtitle={t('insights.health.subtitle')}
             isDarkMode={isDarkMode}>
             <View style={styles.metricGrid}>
               <HealthMetric
                 icon="cash-outline"
-                label="Revenue"
+                label={t('insights.revenue')}
                 value={currencyFormatter.format(metrics.revenue)}
                 footer={changeLabel(metrics.revenueChange)}
                 footerColor={changeTone(metrics.revenueChange, palette)}
@@ -159,7 +161,7 @@ export default function BusinessInsightsScreen() {
               />
               <HealthMetric
                 icon="trending-up-outline"
-                label="Net Profit"
+                label={t('insights.netProfit')}
                 value={currencyFormatter.format(metrics.profit)}
                 footer={changeLabel(metrics.profitChange)}
                 footerColor={changeTone(metrics.profitChange, palette)}
@@ -167,7 +169,7 @@ export default function BusinessInsightsScreen() {
               />
               <HealthMetric
                 icon="receipt-outline"
-                label="Outstanding"
+                label={t('insights.outstanding')}
                 value={currencyFormatter.format(metrics.outstanding)}
                 footer={outstandingFooter}
                 footerColor={hasOverdue ? palette.warning : palette.muter}
@@ -175,7 +177,7 @@ export default function BusinessInsightsScreen() {
               />
               <HealthMetric
                 icon="trending-down-outline"
-                label="Expenses"
+                label={t('insights.expenses')}
                 value={currencyFormatter.format(metrics.expenses)}
                 footer={changeLabel(metrics.expenseChange)}
                 // Spending climbing is the negative movement here, so the comparison inverts.
@@ -187,10 +189,10 @@ export default function BusinessInsightsScreen() {
 
           <InsightsCard metrics={metrics} isDarkMode={isDarkMode} onViewAll={viewAll} />
 
-          <SectionCard icon="bar-chart-outline" title="Performance Overview" isDarkMode={isDarkMode}>
+          <SectionCard icon="bar-chart-outline" title={t('insights.performanceOverview')} isDarkMode={isDarkMode}>
             <View style={styles.metricGrid}>
               <TrendMetric
-                label="Income Trend"
+                label={t('insights.incomeTrend')}
                 value={currencyFormatter.format(metrics.revenue)}
                 footer={changeLabel(metrics.revenueChange)}
                 footerColor={changeTone(metrics.revenueChange, palette)}
@@ -199,7 +201,7 @@ export default function BusinessInsightsScreen() {
                 isDarkMode={isDarkMode}
               />
               <TrendMetric
-                label="Profit Trend"
+                label={t('insights.profitTrend')}
                 value={currencyFormatter.format(metrics.profit)}
                 footer={changeLabel(metrics.profitChange)}
                 footerColor={changeTone(metrics.profitChange, palette)}
@@ -208,7 +210,7 @@ export default function BusinessInsightsScreen() {
                 isDarkMode={isDarkMode}
               />
               <TrendMetric
-                label="Outstanding"
+                label={t('insights.outstanding')}
                 value={currencyFormatter.format(metrics.outstanding)}
                 footer={`${metrics.outstandingInvoiceCount} ${invoiceWord}`}
                 footerColor={palette.muter}
@@ -217,7 +219,7 @@ export default function BusinessInsightsScreen() {
                 isDarkMode={isDarkMode}
               />
               <TrendMetric
-                label="Overdue"
+                label={t('insights.overdue')}
                 value={currencyFormatter.format(metrics.overdue)}
                 footer={`${metrics.overdueInvoiceCount} ${metrics.overdueInvoiceCount === 1 ? 'invoice' : 'invoices'}`}
                 // The only trend that earns a colour, and only while something is actually overdue.
@@ -229,9 +231,9 @@ export default function BusinessInsightsScreen() {
             </View>
           </SectionCard>
 
-          <SectionCard icon="swap-vertical-outline" title="Income vs Expenses" isDarkMode={isDarkMode}>
+          <SectionCard icon="swap-vertical-outline" title={t('insights.incomeVsExpenses')} isDarkMode={isDarkMode}>
             {metrics.revenue === 0 && metrics.expenses === 0 ? (
-              <SmallEmpty label="Add income and expenses to see this breakdown." isDarkMode={isDarkMode} />
+              <SmallEmpty label={t('insights.breakdown.empty')} isDarkMode={isDarkMode} />
             ) : (
               <View style={styles.donutRow}>
                 <IncomeExpenseDonut
@@ -244,13 +246,13 @@ export default function BusinessInsightsScreen() {
                 <View style={styles.legend}>
                   <LegendRow
                     color={palette.accent}
-                    label="Income"
+                    label={t('insights.income')}
                     value={currencyFormatter.format(metrics.revenue)}
                     isDarkMode={isDarkMode}
                   />
                   <LegendRow
                     color={isDarkMode ? '#64748B' : '#B8C2D2'}
-                    label="Expenses"
+                    label={t('insights.expenses')}
                     value={currencyFormatter.format(metrics.expenses)}
                     isDarkMode={isDarkMode}
                   />
@@ -261,7 +263,7 @@ export default function BusinessInsightsScreen() {
 
           <SectionCard
             icon="pricetags-outline"
-            title="Top Expense Categories"
+            title={t('insights.topExpenses')}
             trailing={metrics.expenses ? currencyFormatter.format(metrics.expenses) : undefined}
             isDarkMode={isDarkMode}>
             {metrics.expenseCategories.length ? (
@@ -276,15 +278,15 @@ export default function BusinessInsightsScreen() {
                 />
               ))
             ) : (
-              <SmallEmpty label="Expense categories will appear as you record spending." isDarkMode={isDarkMode} />
+              <SmallEmpty label={t('insights.expenses.empty')} isDarkMode={isDarkMode} />
             )}
           </SectionCard>
 
-          <SectionCard icon="speedometer-outline" title="Performance" isDarkMode={isDarkMode}>
+          <SectionCard icon="speedometer-outline" title={t('insights.performance')} isDarkMode={isDarkMode}>
             <View style={styles.metricGrid}>
               <SimpleMetric
                 icon="calendar-outline"
-                label="Bookings"
+                label={t('insights.bookings')}
                 value={String(metrics.bookings)}
                 footer={changeLabel(metrics.bookingChange)}
                 footerColor={changeTone(metrics.bookingChange, palette)}
@@ -292,7 +294,7 @@ export default function BusinessInsightsScreen() {
               />
               <SimpleMetric
                 icon="checkmark-circle-outline"
-                label="Completed Bookings"
+                label={t('insights.completedBookings')}
                 value={String(metrics.completedBookings)}
                 footer={
                   metrics.completionRate == null
@@ -303,7 +305,7 @@ export default function BusinessInsightsScreen() {
               />
               <SimpleMetric
                 icon="person-add-outline"
-                label="New Clients"
+                label={t('insights.newClients')}
                 value={String(metrics.newClients)}
                 footer={changeLabel(metrics.newClientChange)}
                 footerColor={changeTone(metrics.newClientChange, palette)}
@@ -311,7 +313,7 @@ export default function BusinessInsightsScreen() {
               />
               <SimpleMetric
                 icon="people-outline"
-                label="Repeat Client Rate"
+                label={t('insights.repeatRate')}
                 value={metrics.repeatClientRate == null ? '—' : `${Math.round(metrics.repeatClientRate)}%`}
                 footer={`${metrics.repeatClients} repeat ${metrics.repeatClients === 1 ? 'client' : 'clients'}`}
                 isDarkMode={isDarkMode}
@@ -319,24 +321,24 @@ export default function BusinessInsightsScreen() {
             </View>
           </SectionCard>
 
-          <SectionCard icon="bulb-outline" title="Business Highlights" isDarkMode={isDarkMode}>
+          <SectionCard icon="bulb-outline" title={t('insights.highlights')} isDarkMode={isDarkMode}>
             <HighlightRow
               icon="pricetag-outline"
-              label="Top service"
+              label={t('insights.topService')}
               value={metrics.topService?.name ?? 'Not enough payment data'}
               supporting={metrics.topService ? `${currencyFormatter.format(metrics.topService.amount)} received` : undefined}
               isDarkMode={isDarkMode}
             />
             <HighlightRow
               icon="person-outline"
-              label="Top client"
+              label={t('insights.topClient')}
               value={metrics.topClient?.name ?? 'Not enough payment data'}
               supporting={metrics.topClient ? `${currencyFormatter.format(metrics.topClient.amount)} received` : undefined}
               isDarkMode={isDarkMode}
             />
             <HighlightRow
               icon="calculator-outline"
-              label="Average booking value"
+              label={t('insights.avgBooking')}
               value={
                 metrics.averageBookingValue == null
                   ? 'Not enough payment data'
@@ -509,6 +511,7 @@ function InsightsCard({
 }) {
   const palette = getThemePalette(isDarkMode);
   const soft = getSoftTokens(isDarkMode);
+  const { t } = useTranslation();
   const visibleInsights = metrics.insights.slice(0, 5);
 
   return (
@@ -524,17 +527,17 @@ function InsightsCard({
       <View style={styles.sectionHeader}>
         <SectionHeader
           icon="sparkles-outline"
-          title="BookFlow Insights"
-          subtitle="Smart insights from your business"
+          title={t('insights.promo.title')}
+          subtitle={t('insights.promo.subtitle')}
           tone="accent"
           rightElement={
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="View all insights"
+              accessibilityLabel={t('insights.viewAll')}
               hitSlop={10}
               onPress={onViewAll}
               style={({ pressed }) => [styles.viewAll, pressed && styles.pressed]}>
-              <Text style={[styles.viewAllText, { color: palette.accent }]}>View all</Text>
+              <Text style={[styles.viewAllText, { color: palette.accent }]}>{t('insights.viewAllShort')}</Text>
               <Ionicons name="chevron-forward" size={15} color={palette.accent} />
             </Pressable>
           }
@@ -557,7 +560,7 @@ function InsightsCard({
             <Ionicons name="sparkles-outline" size={19} color={palette.accent} />
           </View>
           <View style={styles.insightEmptyCopy}>
-            <Text style={[styles.insightEmptyTitle, { color: palette.text }]}>Your insights will appear here</Text>
+            <Text style={[styles.insightEmptyTitle, { color: palette.text }]}>{t('insights.empty')}</Text>
             <Text style={[styles.insightEmptyText, { color: palette.muter }]}>
               Keep adding bookings, invoices, payments and expenses to unlock useful business insights.
             </Text>
@@ -821,7 +824,7 @@ const styles = StyleSheet.create({
   insightEmptyTitle: { fontSize: 13.5, fontWeight: '700', marginBottom: 4 },
   insightEmptyText: { fontSize: 12, fontWeight: '500', lineHeight: 17 },
 
-  donutRow: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 16, justifyContent: 'space-around' },
+  donutRow: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 20, justifyContent: 'space-around' },
   legend: { gap: 16 },
   legendRow: { alignItems: 'center', flexDirection: 'row' },
   legendDot: { borderRadius: 4, height: 8, marginRight: 9, width: 8 },

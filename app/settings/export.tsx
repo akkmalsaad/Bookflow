@@ -1,13 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { SuccessFeedback } from '@/components/feedback/SuccessFeedback';
 import { SettingsDetailScreen, settingsDetailStyles } from '@/components/settings/SettingsDetailScreen';
 import { getSoftTokens } from '@/components/settings/tokens';
 import { useAppData } from '@/context/app-data-context';
-import { useSnackbar } from '@/context/snackbar-context';
 import { useSubscription } from '@/context/subscription-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { useTranslation } from '@/lib/use-translation';
 import {
   buildReportData,
   exportReport,
@@ -24,8 +25,8 @@ import {
 } from '@/lib/reports';
 
 export default function ExportScreen() {
+  const { t } = useTranslation();
   const { isDarkMode } = useTheme();
-  const { showSnackbar } = useSnackbar();
   const { isPro } = useSubscription();
   const { businessProfile, financeEntries, bookings, invoices, payments, customers, currency } = useAppData();
   const palette = getThemePalette(isDarkMode);
@@ -37,6 +38,7 @@ export default function ExportScreen() {
   const [reportType, setReportType] = useState<ReportType>('complete');
   const [format, setFormat] = useState<ReportFormat>('pdf');
   const [isExporting, setIsExporting] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
 
   const bounds = getRangeBounds(range, { start: customStart, end: customEnd });
   const reportData = useMemo(
@@ -79,12 +81,12 @@ export default function ExportScreen() {
     if (isExporting || hasNothingToExport) return;
 
     if (range === 'custom' && (!isValidDateKey(customStart) || !isValidDateKey(customEnd))) {
-      Alert.alert('Check the dates', 'Enter both dates as YYYY-MM-DD, for example 2026-08-01.');
+      Alert.alert(t('export.checkDates'), t('export.checkDates.format'));
       return;
     }
 
     if (range === 'custom' && customStart > customEnd) {
-      Alert.alert('Check the dates', 'The start date must come before the end date.');
+      Alert.alert(t('export.checkDates'), t('export.checkDates.order'));
       return;
     }
 
@@ -94,8 +96,11 @@ export default function ExportScreen() {
       // build itself is synchronous string and byte work; without this the spinner would only
       // appear after it finished.
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
-      const result = await exportReport({ data: reportData, format });
-      showSnackbar({ message: `${result.fileName} is ready`, tone: 'success' });
+      // Resolves once the file exists and the native save/share sheet has been dismissed, so the
+      // confirmation never sits behind that sheet. Expo cannot report whether the user saved or
+      // cancelled, which is why this says the report was generated and nothing more.
+      await exportReport({ data: reportData, format });
+      setShowSuccess(true);
     } catch (error) {
       if (__DEV__) {
         console.error('[export] report generation failed', error);
@@ -105,8 +110,8 @@ export default function ExportScreen() {
       const message =
         error instanceof Error && /rebuild|not available|pop-ups/i.test(error.message)
           ? error.message
-          : 'Unable to generate the report. Please try again.';
-      Alert.alert('Export failed', message);
+          : t('export.failed.body');
+      Alert.alert(t('export.failed'), message);
     } finally {
       setIsExporting(false);
     }
@@ -119,13 +124,13 @@ export default function ExportScreen() {
 
   return (
     <SettingsDetailScreen
-      eyebrow="Data"
-      title="Export data & reports"
-      description="Build a report from your records and save or share it as a file."
+      eyebrow={t('settings.section.data')}
+      title={t('export.title')}
+      description={t('export.description')}
       footer={
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={isExporting ? 'Generating report' : 'Export report'}
+          accessibilityLabel={isExporting ? t('export.generatingLabel') : t('export.button')}
           accessibilityState={{ disabled: isExporting || hasNothingToExport, busy: isExporting }}
           disabled={isExporting || hasNothingToExport}
           onPress={handleExport}
@@ -138,11 +143,11 @@ export default function ExportScreen() {
           ]}>
           {isExporting ? <ActivityIndicator color="#FFFFFF" size="small" /> : null}
           <Text style={settingsDetailStyles.primaryButtonText}>
-            {isExporting ? 'Generating report…' : 'Export report'}
+            {isExporting ? t('export.generating') : t('export.button')}
           </Text>
         </Pressable>
       }>
-      <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter, marginTop: 0 }]}>Date range</Text>
+      <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter, marginTop: 0 }]}>{t('export.dateRange')}</Text>
       <View style={styles.chipRow}>
         {REPORT_RANGES.map((option) => {
           const selected = option.id === range;
@@ -170,7 +175,7 @@ export default function ExportScreen() {
               placeholder="YYYY-MM-DD"
               placeholderTextColor={palette.muter}
               autoCapitalize="none"
-              accessibilityLabel="Start date"
+              accessibilityLabel={t('export.startDate')}
               style={[styles.input, { backgroundColor: soft.inset, borderColor: soft.border, color: palette.text }]}
             />
           </View>
@@ -182,7 +187,7 @@ export default function ExportScreen() {
               placeholder="YYYY-MM-DD"
               placeholderTextColor={palette.muter}
               autoCapitalize="none"
-              accessibilityLabel="End date"
+              accessibilityLabel={t('export.endDate')}
               style={[styles.input, { backgroundColor: soft.inset, borderColor: soft.border, color: palette.text }]}
             />
           </View>
@@ -191,7 +196,7 @@ export default function ExportScreen() {
         <Text style={[styles.rangeHint, { color: palette.muter }]}>{formatRangeLabel(bounds)}</Text>
       )}
 
-      <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter }]}>Report type</Text>
+      <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter }]}>{t('export.reportType')}</Text>
       {REPORT_TYPES.map((option) => {
         const selected = option.id === reportType;
         return (
@@ -215,7 +220,7 @@ export default function ExportScreen() {
                 <Text style={[styles.typeTitle, { color: palette.text }]}>{option.label}</Text>
                 {option.recommended ? (
                   <View style={[styles.badge, { backgroundColor: soft.accentSoft, borderColor: `${palette.accent}55` }]}>
-                    <Text style={[styles.badgeText, { color: palette.accent }]}>Recommended</Text>
+                    <Text style={[styles.badgeText, { color: palette.accent }]}>{t('export.recommended')}</Text>
                   </View>
                 ) : null}
               </View>
@@ -226,7 +231,7 @@ export default function ExportScreen() {
         );
       })}
 
-      <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter }]}>Format</Text>
+      <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter }]}>{t('export.format')}</Text>
       <View style={styles.chipRow}>
         {REPORT_FORMATS.map((option) => {
           const selected = option.id === format;
@@ -253,20 +258,38 @@ export default function ExportScreen() {
         />
         <View style={styles.outcomeCopy}>
           <Text style={[styles.outcomeTitle, { color: palette.text }]} numberOfLines={2}>
-            {hasNothingToExport ? 'No records available for this period.' : outputName}
+            {hasNothingToExport ? t('export.noRecords') : outputName}
           </Text>
           <Text style={[styles.outcomeHint, { color: palette.muter }]}>
             {hasNothingToExport
-              ? 'Choose another period or report type.'
-              : `${reportData.recordCount} ${reportData.recordCount === 1 ? 'record' : 'records'} in this period.`}
+              ? t('export.chooseAnother')
+              : reportData.recordCount === 1
+                ? t('export.records.one')
+                : t('export.records', { count: reportData.recordCount })}
           </Text>
         </View>
       </View>
+
+      <Modal visible={showSuccess} transparent animationType="fade" onRequestClose={() => {}}>
+        <View style={styles.successBackdrop}>
+          <SuccessFeedback
+            visible={showSuccess}
+            title={t('export.saved')}
+            message={t('export.saved.body')}
+            onComplete={() => setShowSuccess(false)}
+          />
+        </View>
+      </Modal>
     </SettingsDetailScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  /** The same dim every other BookFlow success state is presented over. */
+  successBackdrop: {
+    backgroundColor: 'rgba(15, 23, 42, 0.58)',
+    flex: 1,
+  },
   chipRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',

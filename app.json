@@ -4,11 +4,12 @@
     "slug": "Bookflow",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/Bookflow apps icon-fullbleed.png",
+    "icon": "./assets/branding/bookflow-app-icon.png",
     "scheme": "bookflow",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
+      "icon": "./assets/branding/bookflow-app-icon.png",
       "supportsTablet": true,
       "bundleIdentifier": "com.akkmal.bookflow.dev",
       "usesAppleSignIn": false,
@@ -27,10 +28,9 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/Bookflow Andoid Icon.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "backgroundColor": "#F5F7FB",
+        "foregroundImage": "./assets/branding/bookflow-adaptive-foreground.png",
+        "monochromeImage": "./assets/branding/bookflow-adaptive-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
@@ -38,7 +38,7 @@
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/Bookflow apps icon-fullbleed.png"
+      "favicon": "./assets/branding/bookflow-app-icon.png"
     },
     "plugins": [
       "./plugins/withPersonalTeamSigning",
@@ -51,7 +51,7 @@
           "resizeMode": "contain",
           "backgroundColor": "#F5F7FB",
           "android": {
-            "image": "./assets/images/Bookflow Andoid Icon.png",
+            "image": "./assets/images/bookflow-logo.png",
             "imageWidth": 160,
             "resizeMode": "contain",
             "backgroundColor": "#F5F7FB"

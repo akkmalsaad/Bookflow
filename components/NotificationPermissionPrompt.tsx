@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { useTranslation } from '@/lib/use-translation';
 
 type Props = {
   visible: boolean;
@@ -10,6 +11,7 @@ type Props = {
 };
 
 export function NotificationPermissionPrompt({ visible, onAllow, onDismiss }: Props) {
+  const { t } = useTranslation();
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
   const softSurface = isDarkMode ? '#172033' : '#FFFFFF';
@@ -25,7 +27,7 @@ export function NotificationPermissionPrompt({ visible, onAllow, onDismiss }: Pr
           <View style={[styles.iconWrap, { backgroundColor: iconBackground }]}>
             <Ionicons name="notifications" size={26} color={palette.accent} />
           </View>
-          <Text style={[styles.title, { color: palette.text }]}>Allow Notifications</Text>
+          <Text style={[styles.title, { color: palette.text }]}>{t('notifPrompt.title')}</Text>
           <Text style={[styles.copy, { color: palette.muter }]}>
             Bookflow would like to send you reminders for today&apos;s priority bookings so you never miss an appointment.
           </Text>
@@ -34,13 +36,13 @@ export function NotificationPermissionPrompt({ visible, onAllow, onDismiss }: Pr
               accessibilityRole="button"
               style={[styles.button, styles.dismissButton, { backgroundColor: softInset, borderColor: softBorder }]}
               onPress={onDismiss}>
-              <Text style={[styles.dismissText, { color: palette.text }]}>Not Now</Text>
+              <Text style={[styles.dismissText, { color: palette.text }]}>{t('notifPrompt.notNow')}</Text>
             </Pressable>
             <Pressable
               accessibilityRole="button"
               style={[styles.button, styles.allowButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]}
               onPress={onAllow}>
-              <Text style={styles.allowText}>Allow</Text>
+              <Text style={styles.allowText}>{t('notifPrompt.allow')}</Text>
             </Pressable>
           </View>
         </View>

@@ -7,6 +7,8 @@ import { getSoftTokens } from '@/components/settings/tokens';
 import type { PackageOption } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 import { MAX_DEPOSIT_PERCENT, type ServiceDepositType } from '@/lib/service-defaults';
+import type { TranslationKey } from '@/lib/i18n';
+import { useTranslation } from '@/lib/use-translation';
 
 export type ServiceFormValues = Omit<PackageOption, 'id'>;
 
@@ -19,10 +21,11 @@ type Props = {
 
 const EMPTY: ServiceFormValues = { name: '', details: '', duration: '', price: 0, info: '' };
 
-const DEPOSIT_OPTIONS: { key: ServiceDepositType | 'none'; label: string }[] = [
-  { key: 'none', label: 'No deposit' },
-  { key: 'percent', label: 'Percentage' },
-  { key: 'fixed', label: 'Fixed amount' },
+// The stored key is unchanged; only the label follows the language.
+const DEPOSIT_OPTIONS: { key: ServiceDepositType | 'none'; labelKey: TranslationKey }[] = [
+  { key: 'none', labelKey: 'service.deposit.none' },
+  { key: 'percent', labelKey: 'service.deposit.percent' },
+  { key: 'fixed', labelKey: 'service.deposit.fixed' },
 ];
 
 /**
@@ -33,6 +36,7 @@ export function ServiceForm({ mode, initialValues, onSubmit, onCancel }: Props) 
   const insets = useSafeAreaInsets();
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
+  const { t } = useTranslation();
   const soft = getSoftTokens(isDarkMode);
   const seed = initialValues ?? EMPTY;
 
@@ -54,14 +58,14 @@ export function ServiceForm({ mode, initialValues, onSubmit, onCancel }: Props) 
     // Name and price are what a booking cannot be created without. Details, time and deposit are
     // prefill conveniences, so a service is allowed to leave any of them blank.
     if (!name.trim() || Number.isNaN(parsedPrice) || parsedPrice <= 0) {
-      setError('Add a service name and a price greater than zero.');
+      setError(t('service.error.name'));
       return;
     }
 
     const parsedDeposit = Number(depositValue);
     if (depositMode !== 'none') {
       if (!depositValue.trim() || Number.isNaN(parsedDeposit) || parsedDeposit <= 0) {
-        setError('Enter a deposit greater than zero, or choose No deposit.');
+        setError(t('service.error.deposit'));
         return;
       }
       if (depositMode === 'percent' && parsedDeposit > MAX_DEPOSIT_PERCENT) {
@@ -93,7 +97,7 @@ export function ServiceForm({ mode, initialValues, onSubmit, onCancel }: Props) 
     <>
       {/* Only the fields scroll; the actions below stay pinned to the bottom of the sheet. */}
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} {...modalScrollProps}>
-        <Text style={labelStyle}>Service name</Text>
+        <Text style={labelStyle}>{t('service.name')}</Text>
         <TextInput
           value={name}
           onChangeText={(value) => {
@@ -101,12 +105,12 @@ export function ServiceForm({ mode, initialValues, onSubmit, onCancel }: Props) 
             setError('');
           }}
           style={inputStyle}
-          placeholder="Wedding photography"
+          placeholder={t('service.name.placeholder')}
           placeholderTextColor={palette.muter}
-          accessibilityLabel="Service name"
+          accessibilityLabel={t('service.name')}
         />
 
-        <Text style={labelStyle}>Details of service</Text>
+        <Text style={labelStyle}>{t('service.details')}</Text>
         <TextInput
           value={details}
           onChangeText={(value) => {
@@ -114,14 +118,14 @@ export function ServiceForm({ mode, initialValues, onSubmit, onCancel }: Props) 
             setError('');
           }}
           style={[...inputStyle, styles.multilineInput]}
-          placeholder="Describe what is included"
+          placeholder={t('service.details.placeholder')}
           placeholderTextColor={palette.muter}
-          accessibilityLabel="Details of service"
+          accessibilityLabel={t('service.details')}
           multiline
           textAlignVertical="top"
         />
 
-        <Text style={labelStyle}>Price</Text>
+        <Text style={labelStyle}>{t('service.price')}</Text>
         <TextInput
           value={price}
           onChangeText={(value) => {
@@ -131,11 +135,11 @@ export function ServiceForm({ mode, initialValues, onSubmit, onCancel }: Props) 
           style={inputStyle}
           placeholder="1200"
           placeholderTextColor={palette.muter}
-          accessibilityLabel="Price"
+          accessibilityLabel={t('service.price')}
           keyboardType="numeric"
         />
 
-        <Text style={labelStyle}>Default duration</Text>
+        <Text style={labelStyle}>{t('service.duration')}</Text>
         <TextInput
           value={duration}
           onChangeText={(value) => {
@@ -145,10 +149,10 @@ export function ServiceForm({ mode, initialValues, onSubmit, onCancel }: Props) 
           style={inputStyle}
           placeholder="e.g. 4 hours"
           placeholderTextColor={palette.muter}
-          accessibilityLabel="Default duration"
+          accessibilityLabel={t('service.duration')}
         />
 
-        <Text style={labelStyle}>Default deposit</Text>
+        <Text style={labelStyle}>{t('service.defaultDeposit')}</Text>
         <View style={styles.depositModeRow}>
           {DEPOSIT_OPTIONS.map((option) => {
             const selected = depositMode === option.key;
@@ -157,7 +161,7 @@ export function ServiceForm({ mode, initialValues, onSubmit, onCancel }: Props) 
                 key={option.key}
                 accessibilityRole="radio"
                 accessibilityState={{ selected }}
-                accessibilityLabel={option.label}
+                accessibilityLabel={t(option.labelKey)}
                 onPress={() => {
                   setDepositMode(option.key);
                   if (option.key === 'none') setDepositValue('');
@@ -171,7 +175,7 @@ export function ServiceForm({ mode, initialValues, onSubmit, onCancel }: Props) 
                 <Text
                   numberOfLines={1}
                   style={[styles.depositModeText, { color: selected ? palette.accent : palette.text }]}>
-                  {option.label}
+                  {t(option.labelKey)}
                 </Text>
               </Pressable>
             );
@@ -187,7 +191,7 @@ export function ServiceForm({ mode, initialValues, onSubmit, onCancel }: Props) 
             style={[...inputStyle, styles.depositInput]}
             placeholder={depositMode === 'percent' ? '30' : '500'}
             placeholderTextColor={palette.muter}
-            accessibilityLabel={depositMode === 'percent' ? 'Deposit percentage' : 'Deposit amount'}
+            accessibilityLabel={depositMode === 'percent' ? t('service.deposit.percentLabel') : t('service.deposit.amountLabel')}
             keyboardType="numeric"
           />
         )}
@@ -196,14 +200,14 @@ export function ServiceForm({ mode, initialValues, onSubmit, onCancel }: Props) 
           the values they were saved with.
         </Text>
 
-        <Text style={labelStyle}>Info / invoice terms</Text>
+        <Text style={labelStyle}>{t('service.terms')}</Text>
         <TextInput
           value={info}
           onChangeText={setInfo}
           style={[...inputStyle, styles.termsInput]}
-          placeholder="Add payment, cancellation, delivery, or other customer-facing terms"
+          placeholder={t('service.terms.placeholder')}
           placeholderTextColor={palette.muter}
-          accessibilityLabel="Info or invoice terms"
+          accessibilityLabel={t('a11y.serviceTerms')}
           multiline
           textAlignVertical="top"
         />
@@ -220,7 +224,7 @@ export function ServiceForm({ mode, initialValues, onSubmit, onCancel }: Props) 
             accessibilityRole="button"
             style={[styles.secondaryButton, { backgroundColor: soft.inset, borderColor: soft.border }]}
             onPress={onCancel}>
-            <Text style={[styles.secondaryButtonText, { color: palette.text }]}>Cancel</Text>
+            <Text style={[styles.secondaryButtonText, { color: palette.text }]}>{t('service.cancel')}</Text>
           </Pressable>
           <Pressable
             accessibilityRole="button"
@@ -230,7 +234,7 @@ export function ServiceForm({ mode, initialValues, onSubmit, onCancel }: Props) 
               pressed && styles.pressed,
             ]}
             onPress={handleSubmit}>
-            <Text style={styles.submitButtonText}>{mode === 'edit' ? 'Save Changes' : 'Save service'}</Text>
+            <Text style={styles.submitButtonText}>{mode === 'edit' ? t('service.saveChanges') : t('service.save')}</Text>
           </Pressable>
         </View>
       </View>

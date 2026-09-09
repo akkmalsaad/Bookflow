@@ -330,7 +330,7 @@ const SANITIZERS = {
   },
 } as const;
 
-const BOOKING_STATUSES: Booking['status'][] = ['Inquiry', 'Confirmed', 'In Progress', 'Completed', 'Cancelled'];
+const BOOKING_STATUSES: Booking['status'][] = ['Inquiry', 'Confirmed', 'Deposit Paid', 'In Progress', 'Completed', 'Cancelled'];
 const INVOICE_STATUSES: Invoice['status'][] = [
   'Draft',
   'Sent',

@@ -4,14 +4,25 @@ import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-nativ
 import { KeyboardDoneButton } from '@/components/KeyboardDoneButton';
 import { getSoftTokens } from '@/components/settings/tokens';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import type { TranslationKey } from '@/lib/i18n';
+import { useTranslation } from '@/lib/use-translation';
 
 /** The data a workspace deletion takes with it, spelled out before the user confirms. */
-const DELETED_RECORDS = ['Customers', 'Bookings', 'Invoices', 'Income', 'Expenses', 'Payment records', 'Business logo'];
+const DELETED_RECORD_KEYS: TranslationKey[] = [
+  'dialog.record.customers',
+  'dialog.record.bookings',
+  'dialog.record.invoices',
+  'dialog.record.income',
+  'dialog.record.expenses',
+  'dialog.record.payments',
+  'dialog.record.logo',
+];
 
 export function SignOutDialog({ visible, onCancel, onConfirm }: { visible: boolean; onCancel: () => void; onConfirm: () => void }) {
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
   const soft = getSoftTokens(isDarkMode);
+  const { t } = useTranslation();
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
@@ -20,22 +31,22 @@ export function SignOutDialog({ visible, onCancel, onConfirm }: { visible: boole
           <View style={[styles.dialogIcon, { backgroundColor: soft.dangerSoft }]}>
             <Ionicons name="log-out-outline" size={25} color={palette.danger} />
           </View>
-          <Text style={[styles.dialogTitle, { color: palette.text }]}>Sign out of BookFlow?</Text>
+          <Text style={[styles.dialogTitle, { color: palette.text }]}>{t('dialog.signOut.title')}</Text>
           <Text style={[styles.dialogCopy, { color: palette.muter }]}>
-            You will return to the login screen. Your local business data will stay on this device.
+            {t('dialog.signOut.body')}
           </Text>
           <View style={styles.actions}>
             <Pressable
               accessibilityRole="button"
               style={[styles.secondaryButton, { backgroundColor: soft.inset, borderColor: soft.border }]}
               onPress={onCancel}>
-              <Text style={[styles.secondaryButtonText, { color: palette.text }]}>Cancel</Text>
+              <Text style={[styles.secondaryButtonText, { color: palette.text }]}>{t('dialog.cancel')}</Text>
             </Pressable>
             <Pressable
               accessibilityRole="button"
               style={[styles.dangerButton, { backgroundColor: palette.danger, shadowColor: palette.danger }]}
               onPress={onConfirm}>
-              <Text style={styles.dangerButtonText}>Sign out</Text>
+              <Text style={styles.dangerButtonText}>{t('dialog.signOut.confirm')}</Text>
             </Pressable>
           </View>
         </View>
@@ -66,6 +77,7 @@ export function DeleteAccountDialog({
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
   const soft = getSoftTokens(isDarkMode);
+  const { t } = useTranslation();
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
@@ -76,29 +88,29 @@ export function DeleteAccountDialog({
             <View style={[styles.dialogIcon, { backgroundColor: soft.dangerSoft }]}>
               <Ionicons name="warning-outline" size={25} color={palette.danger} />
             </View>
-            <Text style={[styles.dialogTitle, { color: palette.text }]}>Delete your account?</Text>
+            <Text style={[styles.dialogTitle, { color: palette.text }]}>{t('dialog.delete.title')}</Text>
             <Text style={[styles.dialogCopy, { color: palette.muter }]}>
-              This permanently deletes your account and everything in your BookFlow workspace. It cannot be undone.
+              {t('dialog.delete.body')}
             </Text>
 
             <View style={[styles.recordList, { backgroundColor: soft.inset }]}>
-              {DELETED_RECORDS.map((record) => (
-                <View key={record} style={styles.recordItem}>
+              {DELETED_RECORD_KEYS.map((recordKey) => (
+                <View key={recordKey} style={styles.recordItem}>
                   <Ionicons name="close-circle" size={14} color={palette.danger} />
-                  <Text style={[styles.recordText, { color: palette.text }]}>{record}</Text>
+                  <Text style={[styles.recordText, { color: palette.text }]}>{t(recordKey)}</Text>
                 </View>
               ))}
             </View>
 
-            <Text style={[styles.fieldLabel, { color: palette.muter }]}>Confirm your password</Text>
+            <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('dialog.delete.password')}</Text>
             <TextInput
               value={password}
               onChangeText={onChangePassword}
-              placeholder="Enter your password"
+              placeholder={t('dialog.delete.passwordPlaceholder')}
               placeholderTextColor={palette.muter}
               secureTextEntry
               autoCapitalize="none"
-              accessibilityLabel="Password"
+              accessibilityLabel={t('a11y.password')}
               style={[styles.input, { backgroundColor: soft.inset, borderColor: soft.border, color: palette.text }]}
             />
             {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -108,7 +120,7 @@ export function DeleteAccountDialog({
                 accessibilityRole="button"
                 style={[styles.secondaryButton, { backgroundColor: soft.inset, borderColor: soft.border }]}
                 onPress={onCancel}>
-                <Text style={[styles.secondaryButtonText, { color: palette.text }]}>Cancel</Text>
+                <Text style={[styles.secondaryButtonText, { color: palette.text }]}>{t('dialog.cancel')}</Text>
               </Pressable>
               <Pressable
                 accessibilityRole="button"
@@ -120,7 +132,7 @@ export function DeleteAccountDialog({
                   (isDeleting || pressed) && styles.pressed,
                 ]}
                 onPress={onConfirm}>
-                <Text style={styles.dangerButtonText}>{isDeleting ? 'Deleting…' : 'Delete account'}</Text>
+                <Text style={styles.dangerButtonText}>{isDeleting ? t('dialog.delete.deleting') : t('dialog.delete.confirm')}</Text>
               </Pressable>
             </View>
           </View>

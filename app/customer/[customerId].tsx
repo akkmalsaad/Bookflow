@@ -17,6 +17,7 @@ import {
   type Booking,
 } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { useTranslation } from '@/lib/use-translation';
 import { useResponsive } from '@/lib/responsive';
 import {
   getBookingPaymentState,
@@ -29,21 +30,22 @@ import {
 } from '@/lib/customer-metrics';
 import { shareInvoiceOnWhatsApp } from '@/lib/invoice-sharing';
 
-function formatEventDate(date?: string) {
-  if (!date) return 'Not specified';
+/** Module scope, so the caller passes both the wording and the locale to format the date in. */
+function formatEventDate(date: string | undefined, intlLocale: string, fallback: string) {
+  if (!date) return fallback;
 
   const parsedDate = new Date(`${date}T00:00:00`);
   if (Number.isNaN(parsedDate.getTime())) return date;
 
-  return new Intl.DateTimeFormat('en-GB', {
+  return new Intl.DateTimeFormat(intlLocale, {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
   }).format(parsedDate);
 }
 
-function getProfileValue(value: string) {
-  return value.trim() || 'Not provided';
+function getProfileValueWith(value: string, fallback: string) {
+  return value.trim() || fallback;
 }
 
 export default function CustomerProfileScreen() {
@@ -64,6 +66,7 @@ export default function CustomerProfileScreen() {
     createInvoiceShareLink,
   } = useAppData();
   const palette = getThemePalette(isDarkMode);
+  const { t, intlLocale } = useTranslation();
   const { readingStyle, sheetStyle } = useResponsive();
   const customer = customers.find((item) => item.id === params.customerId);
   const [showMenu, setShowMenu] = useState(false);
@@ -116,7 +119,7 @@ export default function CustomerProfileScreen() {
     try {
       await Linking.openURL(url);
     } catch {
-      Alert.alert('Not available', unavailableMessage);
+      Alert.alert(t('customer.unavailable'), unavailableMessage);
     }
   };
 
@@ -145,7 +148,7 @@ export default function CustomerProfileScreen() {
     });
 
     if (!saved) {
-      setEditError('Add a customer name before saving.');
+      setEditError(t('customer.edit.error'));
       return;
     }
 
@@ -187,14 +190,14 @@ export default function CustomerProfileScreen() {
 
     setShowMenu(false);
     Alert.alert(
-      'Delete customer',
+      t('customer.delete.title'),
       relatedRecords.length
-        ? `${customer.name} will be removed from your client list. Their ${relatedRecords.join(' and ')} stay in your records.`
-        : `${customer.name} will be removed from your client list.`,
+        ? t('customer.delete.bodyRelated', { name: customer.name, records: relatedRecords.join(' & ') })
+        : t('customer.delete.body', { name: customer.name }),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('customer.cancel'), style: 'cancel' },
         {
-          text: 'Delete',
+          text: t('customer.delete.confirm'),
           style: 'destructive',
           onPress: () => {
             deleteCustomer(customer.id);
@@ -249,12 +252,12 @@ export default function CustomerProfileScreen() {
     const paymentActionId = `booking-deposit-${invoiceId}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
     Alert.alert(
-      'Record deposit',
-      `Mark the ${currencyFormatter.format(depositDue)} deposit for ${booking.packageName} as paid?`,
+      t('customer.recordDeposit.title'),
+      t('customer.recordDeposit.body', { amount: currencyFormatter.format(depositDue), service: booking.packageName }),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('customer.cancel'), style: 'cancel' },
         {
-          text: 'Record',
+          text: t('customer.recordDeposit.confirm'),
           onPress: () => {
             if (busyBookingId) return;
 
@@ -270,11 +273,11 @@ export default function CustomerProfileScreen() {
             setBusyBookingId(null);
 
             if (!result.ok) {
-              Alert.alert('Deposit not recorded', result.error ?? 'The deposit could not be recorded for this invoice.');
+              Alert.alert(t('customer.deposit.failed.title'), result.error ?? t('customer.deposit.failed.body'));
               return;
             }
 
-            Alert.alert('Deposit recorded', `${currencyFormatter.format(depositDue)} added to this booking.`);
+            Alert.alert(t('customer.deposit.done.title'), t('customer.deposit.done.body', { amount: currencyFormatter.format(depositDue) }));
           },
         },
       ],
@@ -285,9 +288,9 @@ export default function CustomerProfileScreen() {
     return (
       <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]}>
         <View style={styles.notFoundWrap}>
-          <Text style={[styles.title, { color: palette.text }]}>Customer not found</Text>
+          <Text style={[styles.title, { color: palette.text }]}>{t('customer.notFound')}</Text>
           <Pressable style={styles.backButton} onPress={handleBack}>
-            <Text style={styles.backButtonText}>Go back</Text>
+            <Text style={styles.backButtonText}>{t('customer.goBack')}</Text>
           </Pressable>
         </View>
       </SafeAreaView>
@@ -316,14 +319,14 @@ export default function CustomerProfileScreen() {
 
         <View style={styles.bookingMetaRow}>
           <Ionicons name="calendar-outline" size={15} color={palette.muter} />
-          <Text style={[styles.bookingMeta, { color: palette.muter }]}>{formatEventDate(booking.date)}</Text>
+          <Text style={[styles.bookingMeta, { color: palette.muter }]}>{formatEventDate(booking.date, intlLocale, t('customer.notSpecified'))}</Text>
           <StatusPill label={payment.status} tone={payment.tone} />
         </View>
 
         <View style={styles.bookingMetaRow}>
           <Ionicons name="location-outline" size={15} color={palette.muter} />
           <Text style={[styles.bookingMeta, { color: palette.muter }]} numberOfLines={1}>
-            {getProfileValue(booking.location)}
+            {getProfileValueWith(booking.location, t('customer.notProvided'))}
           </Text>
         </View>
 
@@ -342,7 +345,7 @@ export default function CustomerProfileScreen() {
         <View style={styles.bookingActionRow}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={payment.invoice ? `Send invoice ${payment.invoice.id}` : 'Create an invoice for this booking'}
+            accessibilityLabel={payment.invoice ? t('customer.sendInvoice.label', { invoice: payment.invoice.id }) : t('customer.createInvoice.label')}
             accessibilityState={{ disabled: isBusy }}
             disabled={isBusy}
             onPress={() => handleSendInvoice(booking, payment)}
@@ -353,12 +356,12 @@ export default function CustomerProfileScreen() {
               pressed && styles.pressed,
             ]}>
             <Ionicons name="receipt-outline" size={16} color={palette.accent} />
-            <Text style={[styles.bookingActionText, { color: palette.text }]}>Send Invoice</Text>
+            <Text style={[styles.bookingActionText, { color: palette.text }]}>{t('customer.sendInvoice')}</Text>
           </Pressable>
 
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Update payment for this booking"
+            accessibilityLabel={t('customer.updatePayment.label')}
             accessibilityState={{ disabled: !canUpdatePayment || isBusy }}
             disabled={!canUpdatePayment || isBusy}
             onPress={() => openPaymentModal(payment)}
@@ -380,8 +383,8 @@ export default function CustomerProfileScreen() {
             accessibilityRole="button"
             accessibilityLabel={
               payment.isDepositPaid
-                ? 'Deposit already recorded'
-                : `Record the ${compactCurrency.format(payment.depositAmount ?? 0)} deposit as paid`
+                ? t('customer.depositRecorded.label')
+                : t('customer.recordDeposit.label', { amount: compactCurrency.format(payment.depositAmount ?? 0) })
             }
             accessibilityState={{ disabled: payment.isDepositPaid || isBusy }}
             disabled={payment.isDepositPaid || isBusy}
@@ -405,8 +408,8 @@ export default function CustomerProfileScreen() {
                 { color: payment.isDepositPaid ? palette.success : palette.text },
               ]}>
               {payment.isDepositPaid
-                ? 'Deposit Paid'
-                : `Deposit Paid · ${compactCurrency.format(payment.depositAmount ?? 0)}`}
+                ? t('customer.depositPaid')
+                : t('customer.depositPaid.amount', { amount: compactCurrency.format(payment.depositAmount ?? 0) })}
             </Text>
           </Pressable>
         )}
@@ -419,11 +422,11 @@ export default function CustomerProfileScreen() {
       <ScrollView contentContainerStyle={[styles.content, readingStyle]} showsVerticalScrollIndicator={false}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Back to customers"
+          accessibilityLabel={t('customer.backLabel')}
           onPress={handleBack}
           style={({ pressed }) => [styles.navigationBackButton, pressed && styles.navigationBackButtonPressed]}>
           <Ionicons name="chevron-back" size={21} color={palette.accent} />
-          <Text style={[styles.navigationBackText, { color: palette.accent }]}>Back</Text>
+          <Text style={[styles.navigationBackText, { color: palette.accent }]}>{t('customer.back')}</Text>
         </Pressable>
 
         <View style={styles.header}>
@@ -435,12 +438,12 @@ export default function CustomerProfileScreen() {
             style={styles.avatar}
           />
           <View style={styles.headerCopy}>
-            <Text style={[styles.eyebrow, { color: palette.accent }]}>Customer profile</Text>
+            <Text style={[styles.eyebrow, { color: palette.accent }]}>{t('customer.eyebrow')}</Text>
             <Text style={[styles.title, { color: palette.text }]}>{customer.name}</Text>
           </View>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Customer actions"
+            accessibilityLabel={t('customer.actions')}
             hitSlop={8}
             onPress={() => setShowMenu(true)}
             style={({ pressed }) => [
@@ -455,14 +458,14 @@ export default function CustomerProfileScreen() {
         <View style={[...cardStyle, styles.summaryCard]}>
           <View style={styles.summaryItem}>
             <Text style={[styles.summaryValue, { color: palette.text }]}>{metrics.bookingCount}</Text>
-            <Text style={[styles.summaryLabel, { color: palette.muter }]}>Bookings</Text>
+            <Text style={[styles.summaryLabel, { color: palette.muter }]}>{t('customer.bookings')}</Text>
           </View>
           <View style={[styles.summaryDivider, { backgroundColor: palette.border }]} />
           <View style={styles.summaryItem}>
             <Text style={[styles.summaryValue, { color: palette.text }]} numberOfLines={1} adjustsFontSizeToFit>
               {compactCurrency.format(metrics.revenue)}
             </Text>
-            <Text style={[styles.summaryLabel, { color: palette.muter }]}>Revenue</Text>
+            <Text style={[styles.summaryLabel, { color: palette.muter }]}>{t('customer.revenue')}</Text>
           </View>
           <View style={[styles.summaryDivider, { backgroundColor: palette.border }]} />
           <View style={styles.summaryItem}>
@@ -472,44 +475,44 @@ export default function CustomerProfileScreen() {
               adjustsFontSizeToFit>
               {compactCurrency.format(metrics.outstanding)}
             </Text>
-            <Text style={[styles.summaryLabel, { color: palette.muter }]}>Outstanding</Text>
+            <Text style={[styles.summaryLabel, { color: palette.muter }]}>{t('customer.outstanding')}</Text>
           </View>
         </View>
 
         <View style={cardStyle}>
-          <Text style={[styles.sectionLabel, { color: palette.muter }]}>Contact details</Text>
+          <Text style={[styles.sectionLabel, { color: palette.muter }]}>{t('customer.contactDetails')}</Text>
           <View style={styles.detailRow}>
-            <Text style={[styles.detailLabel, { color: palette.muter }]}>Name</Text>
-            <Text style={[styles.detailValue, { color: palette.text }]}>{getProfileValue(customer.name)}</Text>
+            <Text style={[styles.detailLabel, { color: palette.muter }]}>{t('customer.name')}</Text>
+            <Text style={[styles.detailValue, { color: palette.text }]}>{getProfileValueWith(customer.name, t('customer.notProvided'))}</Text>
           </View>
           <View style={styles.detailRow}>
-            <Text style={[styles.detailLabel, { color: palette.muter }]}>Phone</Text>
+            <Text style={[styles.detailLabel, { color: palette.muter }]}>{t('customer.phone')}</Text>
             {phone ? (
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={`Call ${customer.name}`}
-                onPress={() => openExternalLink(`tel:${phone}`, 'This device cannot start a phone call.')}
+                onPress={() => openExternalLink(`tel:${phone}`, t('customer.noPhoneApp'))}
                 style={({ pressed }) => [styles.detailValueWrap, pressed && styles.pressed]}>
                 <Text style={[styles.detailValue, styles.detailLink, { color: palette.accent }]}>{phone}</Text>
               </Pressable>
             ) : (
-              <Text style={[styles.detailValue, { color: palette.text }]}>Not provided</Text>
+              <Text style={[styles.detailValue, { color: palette.text }]}>{t('customer.notProvided')}</Text>
             )}
           </View>
           <View style={[styles.detailRow, styles.lastDetailRow]}>
-            <Text style={[styles.detailLabel, { color: palette.muter }]}>Email</Text>
+            <Text style={[styles.detailLabel, { color: palette.muter }]}>{t('customer.email')}</Text>
             {email ? (
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={`Email ${customer.name}`}
-                onPress={() => openExternalLink(`mailto:${email}`, 'This device has no email app set up.')}
+                onPress={() => openExternalLink(`mailto:${email}`, t('customer.noEmailApp'))}
                 style={({ pressed }) => [styles.detailValueWrap, pressed && styles.pressed]}>
                 <Text style={[styles.detailValue, styles.detailLink, { color: palette.accent }]}>{email}</Text>
               </Pressable>
             ) : (
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Add an email address for this customer"
+                accessibilityLabel={t('customer.addEmail')}
                 onPress={openEditor}
                 style={({ pressed }) => [styles.detailValueWrap, pressed && styles.pressed]}>
                 <Text style={[styles.detailValue, styles.detailLink, { color: palette.accent }]}>+ Add email</Text>
@@ -522,7 +525,7 @@ export default function CustomerProfileScreen() {
               accessibilityRole="button"
               accessibilityLabel={`Call ${customer.name}`}
               disabled={!phone}
-              onPress={() => openExternalLink(`tel:${phone}`, 'This device cannot start a phone call.')}
+              onPress={() => openExternalLink(`tel:${phone}`, t('customer.noPhoneApp'))}
               style={({ pressed }) => [
                 styles.quickAction,
                 { backgroundColor: softInset, borderColor: softBorder },
@@ -530,7 +533,7 @@ export default function CustomerProfileScreen() {
                 pressed && styles.pressed,
               ]}>
               <Ionicons name="call-outline" size={16} color={phone ? palette.accent : palette.muter} />
-              <Text style={[styles.quickActionText, { color: phone ? palette.text : palette.muter }]}>Call</Text>
+              <Text style={[styles.quickActionText, { color: phone ? palette.text : palette.muter }]}>{t('customer.call')}</Text>
             </Pressable>
             <Pressable
               accessibilityRole="button"
@@ -539,7 +542,7 @@ export default function CustomerProfileScreen() {
               onPress={() =>
                 openExternalLink(
                   `https://wa.me/${toWhatsAppNumber(phone)}`,
-                  'WhatsApp could not be opened on this device.',
+                  t('customer.noWhatsApp'),
                 )
               }
               style={({ pressed }) => [
@@ -549,20 +552,20 @@ export default function CustomerProfileScreen() {
                 pressed && styles.pressed,
               ]}>
               <Ionicons name="logo-whatsapp" size={16} color={phone ? palette.accent : palette.muter} />
-              <Text style={[styles.quickActionText, { color: phone ? palette.text : palette.muter }]}>WhatsApp</Text>
+              <Text style={[styles.quickActionText, { color: phone ? palette.text : palette.muter }]}>{t('customer.whatsapp')}</Text>
             </Pressable>
             {email ? (
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={`Email ${customer.name}`}
-                onPress={() => openExternalLink(`mailto:${email}`, 'This device has no email app set up.')}
+                onPress={() => openExternalLink(`mailto:${email}`, t('customer.noEmailApp'))}
                 style={({ pressed }) => [
                   styles.quickAction,
                   { backgroundColor: softInset, borderColor: softBorder },
                   pressed && styles.pressed,
                 ]}>
                 <Ionicons name="mail-outline" size={16} color={palette.accent} />
-                <Text style={[styles.quickActionText, { color: palette.text }]}>Email</Text>
+                <Text style={[styles.quickActionText, { color: palette.text }]}>{t('customer.emailAction')}</Text>
               </Pressable>
             ) : null}
           </View>
@@ -579,14 +582,14 @@ export default function CustomerProfileScreen() {
             {upcoming.length > 0 && (
               <>
                 {past.length > 0 && (
-                  <Text style={[styles.groupLabel, { color: palette.muter }]}>Upcoming</Text>
+                  <Text style={[styles.groupLabel, { color: palette.muter }]}>{t('customer.upcoming')}</Text>
                 )}
                 {upcoming.map(renderBookingCard)}
               </>
             )}
             {past.length > 0 && (
               <>
-                {upcoming.length > 0 && <Text style={[styles.groupLabel, { color: palette.muter }]}>Past</Text>}
+                {upcoming.length > 0 && <Text style={[styles.groupLabel, { color: palette.muter }]}>{t('customer.past')}</Text>}
                 {past.map(renderBookingCard)}
               </>
             )}
@@ -594,7 +597,7 @@ export default function CustomerProfileScreen() {
         ) : (
           <View style={[...cardStyle, styles.emptyCard]}>
             <Ionicons name="calendar-outline" size={22} color={palette.muter} />
-            <Text style={[styles.emptyText, { color: palette.muter }]}>No bookings yet for this customer.</Text>
+            <Text style={[styles.emptyText, { color: palette.muter }]}>{t('customer.noBookings')}</Text>
           </View>
         )}
       </ScrollView>
@@ -610,21 +613,21 @@ export default function CustomerProfileScreen() {
               onPress={openEditor}
               style={({ pressed }) => [styles.menuItem, pressed && { backgroundColor: accentSoft }]}>
               <Ionicons name="create-outline" size={18} color={palette.accent} />
-              <Text style={[styles.menuItemText, { color: palette.text }]}>Edit customer</Text>
+              <Text style={[styles.menuItemText, { color: palette.text }]}>{t('customer.menu.edit')}</Text>
             </Pressable>
             <Pressable
               accessibilityRole="button"
               onPress={handleCreateBooking}
               style={({ pressed }) => [styles.menuItem, pressed && { backgroundColor: accentSoft }]}>
               <Ionicons name="calendar-outline" size={18} color={palette.accent} />
-              <Text style={[styles.menuItemText, { color: palette.text }]}>Create booking</Text>
+              <Text style={[styles.menuItemText, { color: palette.text }]}>{t('customer.menu.booking')}</Text>
             </Pressable>
             <Pressable
               accessibilityRole="button"
               onPress={handleCreateInvoice}
               style={({ pressed }) => [styles.menuItem, pressed && { backgroundColor: accentSoft }]}>
               <Ionicons name="document-text-outline" size={18} color={palette.accent} />
-              <Text style={[styles.menuItemText, { color: palette.text }]}>Create invoice</Text>
+              <Text style={[styles.menuItemText, { color: palette.text }]}>{t('customer.menu.invoice')}</Text>
             </Pressable>
             <View style={[styles.menuDivider, { backgroundColor: palette.border }]} />
             <Pressable
@@ -632,7 +635,7 @@ export default function CustomerProfileScreen() {
               onPress={handleDeleteCustomer}
               style={({ pressed }) => [styles.menuItem, pressed && styles.pressed]}>
               <Ionicons name="trash-outline" size={18} color={palette.danger} />
-              <Text style={[styles.menuItemText, { color: palette.danger }]}>Delete customer</Text>
+              <Text style={[styles.menuItemText, { color: palette.danger }]}>{t('customer.menu.delete')}</Text>
             </Pressable>
           </Pressable>
         </Pressable>
@@ -649,12 +652,12 @@ export default function CustomerProfileScreen() {
             <View style={[styles.modalHandle, { backgroundColor: palette.border }]} />
             <View style={styles.editorHeader}>
               <View>
-                <Text style={[styles.modalEyebrow, { color: palette.accent }]}>Edit</Text>
-                <Text style={[styles.modalTitle, { color: palette.text }]}>Customer details</Text>
+                <Text style={[styles.modalEyebrow, { color: palette.accent }]}>{t('customer.edit.eyebrow')}</Text>
+                <Text style={[styles.modalTitle, { color: palette.text }]}>{t('customer.edit.title')}</Text>
               </View>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Close editor"
+                accessibilityLabel={t('customer.edit.close')}
                 onPress={() => setShowEditor(false)}
                 hitSlop={8}
                 style={[styles.closeButton, { backgroundColor: softInset }]}>
@@ -663,7 +666,7 @@ export default function CustomerProfileScreen() {
             </View>
 
             <ScrollView {...modalScrollProps}>
-              <Text style={[styles.fieldLabel, { color: palette.muter }]}>Name</Text>
+              <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('customer.name')}</Text>
               <TextInput
                 value={editName}
                 onChangeText={(value) => {
@@ -675,7 +678,7 @@ export default function CustomerProfileScreen() {
                 placeholderTextColor={palette.muter}
               />
 
-              <Text style={[styles.fieldLabel, { color: palette.muter }]}>Email</Text>
+              <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('customer.email')}</Text>
               <TextInput
                 value={editEmail}
                 onChangeText={setEditEmail}
@@ -686,7 +689,7 @@ export default function CustomerProfileScreen() {
                 placeholderTextColor={palette.muter}
               />
 
-              <Text style={[styles.fieldLabel, { color: palette.muter }]}>Phone</Text>
+              <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('customer.phone')}</Text>
               <TextInput
                 value={editPhone}
                 onChangeText={setEditPhone}
@@ -696,7 +699,7 @@ export default function CustomerProfileScreen() {
                 placeholderTextColor={palette.muter}
               />
 
-              <Text style={[styles.fieldLabel, { color: palette.muter }]}>Location</Text>
+              <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('customer.edit.location')}</Text>
               <TextInput
                 value={editLocation}
                 onChangeText={setEditLocation}
@@ -705,7 +708,7 @@ export default function CustomerProfileScreen() {
                 placeholderTextColor={palette.muter}
               />
 
-              <Text style={[styles.fieldLabel, { color: palette.muter }]}>Notes</Text>
+              <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('customer.edit.notes')}</Text>
               <TextInput
                 value={editNotes}
                 onChangeText={setEditNotes}
@@ -725,7 +728,7 @@ export default function CustomerProfileScreen() {
                   pressed && styles.pressed,
                 ]}
                 onPress={handleSaveCustomer}>
-                <Text style={styles.submitButtonText}>Save changes</Text>
+                <Text style={styles.submitButtonText}>{t('customer.edit.save')}</Text>
               </Pressable>
             </ScrollView>
           </View>

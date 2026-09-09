@@ -14,6 +14,7 @@ import { getSoftTokens } from '@/components/settings/tokens';
 import { useSubscription } from '@/context/subscription-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 import { describePackage, isExpoGo, yearlySavingsPercent } from '@/lib/revenuecat';
+import { useTranslation } from '@/lib/use-translation';
 
 /** Store ids are for logs; customers recognise the brand name they were charged by. */
 const STORE_LABELS: Partial<Record<Store, string>> = {
@@ -40,6 +41,7 @@ export default function PlanScreen() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
+  const { t } = useTranslation();
   const soft = getSoftTokens(isDarkMode);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -62,19 +64,17 @@ export default function PlanScreen() {
     const outcome = await restore();
 
     if (outcome.status === 'error') {
-      Alert.alert('Restore failed', outcome.message);
+      Alert.alert(t('paywall.restoreFailed'), outcome.message);
       return;
     }
     if (outcome.status === 'purchased') {
       const restored = outcome.isPro;
       Alert.alert(
-        restored ? 'Subscription restored' : 'Nothing to restore',
-        restored
-          ? 'Bookflow Pro is active on this account again.'
-          : 'We could not find an active subscription for this store account.',
+        restored ? t('plan.restored') : t('paywall.nothingToRestore'),
+        restored ? t('plan.restored.body') : t('plan.nothingToRestore.body'),
       );
     }
-  }, [restore]);
+  }, [restore, t]);
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -87,14 +87,14 @@ export default function PlanScreen() {
   // development build included, falls through to the real plan flow.
   if (!canPurchase) {
     return (
-      <SettingsDetailScreen eyebrow="Account" title="Bookflow plan" description="Your current plan and what it includes.">
-        <SettingsInfoRow label="Current plan" value={isPro ? 'Bookflow Pro' : 'Free'} />
+      <SettingsDetailScreen eyebrow={t('sub.account')} title={t('plan.title')} description={t('plan.description')}>
+        <SettingsInfoRow label={t('plan.current')} value={isPro ? t('plan.pro') : t('plan.free')} />
         <SettingsNotice
-          title="Subscriptions need the full app"
+          title={t('plan.needsApp')}
           body={
             isExpoGo
-              ? 'In-app purchases are not available in Expo Go. Run a development build to buy, restore or manage a subscription — the RevenueCat Test Store works there without an Apple Developer account.'
-              : 'In-app purchases are only available in the iOS and Android apps.'
+              ? t('plan.expoGo')
+              : t('plan.storeOnly')
           }
         />
       </SettingsDetailScreen>
@@ -103,26 +103,26 @@ export default function PlanScreen() {
 
   if (isLoadingSubscription) {
     return (
-      <SettingsDetailScreen eyebrow="Account" title="Bookflow plan">
+      <SettingsDetailScreen eyebrow={t('sub.account')} title={t('plan.title')}>
         <View style={styles.loading}>
           <ActivityIndicator color={palette.accent} />
-          <Text style={[styles.loadingText, { color: palette.muter }]}>Checking your subscription…</Text>
+          <Text style={[styles.loadingText, { color: palette.muter }]}>{t('plan.checking')}</Text>
         </View>
       </SettingsDetailScreen>
     );
   }
 
   const savings = yearlySavingsPercent(monthlyPackage, yearlyPackage);
-  const renewalLabel = entitlement?.willRenew ? 'Renews' : 'Access ends';
+  const renewalLabel = entitlement?.willRenew ? t('plan.renews') : t('plan.accessEnds');
 
   return (
     <SettingsDetailScreen
-      eyebrow="Account"
-      title="Bookflow plan"
+      eyebrow={t('sub.account')}
+      title={t('plan.title')}
       description={
         isPro
-          ? 'You are on Bookflow Pro. Manage or cancel your subscription at any time.'
-          : 'Upgrade to Bookflow Pro to unlock the full workspace.'
+          ? t('plan.proBody')
+          : t('plan.freeBody')
       }
       footer={
         <Pressable
@@ -133,18 +133,18 @@ export default function PlanScreen() {
             { backgroundColor: palette.accent, shadowColor: palette.accent, opacity: pressed ? 0.85 : 1 },
           ]}>
           <Text style={settingsDetailStyles.primaryButtonText}>
-            {isPro ? 'Manage subscription' : 'Upgrade to Pro'}
+            {isPro ? t('plan.manage') : t('plan.upgrade')}
           </Text>
         </Pressable>
       }>
-      <SettingsInfoRow label="Current plan" value={isPro ? 'Bookflow Pro' : 'Free'} />
+      <SettingsInfoRow label={t('plan.current')} value={isPro ? t('plan.pro') : t('plan.free')} />
 
       {/* Development-only: makes it unmistakable that a purchase here is simulated. Never renders
           in a release build, where the Test Store cannot be configured at all. */}
       {__DEV__ && environment === 'test-store' ? (
         <SettingsNotice
-          title="RevenueCat Test Store"
-          body="Purchases on this build are simulated by RevenueCat and cost nothing. No Apple Developer account or App Store product is involved. Release builds use the App Store."
+          title={t('plan.testStore')}
+          body={t('plan.testStore.body')}
         />
       ) : null}
 
@@ -152,39 +152,39 @@ export default function PlanScreen() {
         <>
           <SettingsInfoRow label={renewalLabel} value={formatDate(entitlement.expirationDate)} />
           <SettingsInfoRow
-            label="Billed through"
-            value={STORE_LABELS[entitlement.store] ?? 'Your store'}
+            label={t('plan.billedThrough')}
+            value={STORE_LABELS[entitlement.store] ?? t('plan.yourStore')}
           />
           {entitlement.billingIssueDetectedAt ? (
             <SettingsNotice
-              title="There is a problem with your payment"
-              body="Your store could not take the last payment. Open Manage subscription to update your payment method before access ends."
+              title={t('plan.paymentProblem')}
+              body={t('plan.paymentProblem.body')}
             />
           ) : null}
           {!entitlement.willRenew && !entitlement.billingIssueDetectedAt ? (
             <SettingsNotice
-              title="Auto-renew is off"
-              body={`Bookflow Pro stays active until ${formatDate(entitlement.expirationDate)}, then this account returns to the free plan.`}
+              title={t('plan.autoRenewOff')}
+              body={t('plan.autoRenewOff.body', { date: formatDate(entitlement.expirationDate) })}
             />
           ) : null}
         </>
       ) : (
         <>
-          <SettingsInfoRow label="Cost" value="No charge" />
+          <SettingsInfoRow label={t('plan.cost')} value={t('plan.noCharge')} />
 
-          <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter }]}>Bookflow Pro</Text>
+          <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter }]}>{t('plan.pro')}</Text>
           <View style={[styles.priceCard, { backgroundColor: soft.surface, borderColor: soft.border }]}>
             <View style={styles.priceRow}>
-              <Text style={[styles.priceLabel, { color: palette.text }]}>Monthly</Text>
+              <Text style={[styles.priceLabel, { color: palette.text }]}>{t('plan.monthly')}</Text>
               <Text style={[styles.priceValue, { color: palette.text }]}>{describePackage(monthlyPackage)}</Text>
             </View>
             <View style={[styles.priceDivider, { backgroundColor: soft.divider }]} />
             <View style={styles.priceRow}>
               <View style={styles.priceLabelGroup}>
-                <Text style={[styles.priceLabel, { color: palette.text }]}>Yearly</Text>
+                <Text style={[styles.priceLabel, { color: palette.text }]}>{t('plan.yearly')}</Text>
                 {savings ? (
                   <View style={[styles.badge, { backgroundColor: soft.accentSoft }]}>
-                    <Text style={[styles.badgeText, { color: palette.accent }]}>Save {savings}%</Text>
+                    <Text style={[styles.badgeText, { color: palette.accent }]}>{t('plan.save', { percent: savings })}</Text>
                   </View>
                 ) : null}
               </View>
@@ -194,8 +194,8 @@ export default function PlanScreen() {
 
           {!monthlyPackage && !yearlyPackage ? (
             <SettingsNotice
-              title="Plans are still loading"
-              body="We could not reach the store for pricing. Check your connection and pull the prices again."
+              title={t('plan.loading')}
+              body={t('plan.loading.body')}
             />
           ) : null}
         </>

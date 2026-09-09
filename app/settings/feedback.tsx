@@ -1,14 +1,17 @@
 import { SettingsDetailScreen, SettingsNotice } from '@/components/settings/SettingsDetailScreen';
+import { useTranslation } from '@/lib/use-translation';
 
 export default function FeedbackScreen() {
+  const { t } = useTranslation();
+
   return (
     <SettingsDetailScreen
-      eyebrow="Support"
-      title="Send feedback"
-      description="Telling us what is working and what is not.">
+      eyebrow={t('sub.support')}
+      title={t('sub.feedback.title')}
+      description={t('sub.feedback.description')}>
       <SettingsNotice
-        title="Feedback cannot be sent from the app yet"
-        body="There is no inbox or form behind this screen, so a message written here would not go anywhere. Rather than pretend to send it, the form is left out until a real destination is connected."
+        title={t('sub.feedback.notice.title')}
+        body={t('sub.feedback.notice.body')}
       />
     </SettingsDetailScreen>
   );

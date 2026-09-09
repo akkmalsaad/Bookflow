@@ -7,6 +7,7 @@ import { BottomSheetModal } from '@/components/BottomSheetModal';
 import { getSoftTokens } from '@/components/settings/tokens';
 import type { Invoice } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { useTranslation } from '@/lib/use-translation';
 import type { InvoicePaymentSummary } from '@/lib/invoice-payments';
 import { getInvoiceNumber } from '@/lib/invoice-numbering';
 
@@ -51,6 +52,7 @@ export function ManagePaymentSheet({
   const palette = getThemePalette(isDarkMode);
   const soft = getSoftTokens(isDarkMode);
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
 
   if (!invoice || !summary) return null;
 
@@ -61,14 +63,14 @@ export function ManagePaymentSheet({
     {
       key: 'deposit',
       icon: 'wallet-outline' as const,
-      label: hasDeposit ? 'Update deposit' : 'Add deposit',
+      label: hasDeposit ? t('managePayment.updateDeposit') : t('managePayment.addDeposit'),
       onPress: onUpdateDeposit,
       emphasised: false,
     },
     {
       key: 'payment',
       icon: 'cash-outline' as const,
-      label: 'Record payment',
+      label: t('managePayment.recordPayment'),
       onPress: onRecordPayment,
       emphasised: false,
     },
@@ -77,7 +79,7 @@ export function ManagePaymentSheet({
           {
             key: 'accept',
             icon: 'checkmark-circle-outline' as const,
-            label: 'Mark as accepted',
+            label: t('managePayment.markAccepted'),
             onPress: onMarkAsAccepted,
             emphasised: false,
           },
@@ -88,23 +90,23 @@ export function ManagePaymentSheet({
       icon: 'checkmark-done-outline' as const,
       // Emphasised because it settles the invoice — with the brand indigo, never green. Green is
       // reserved for showing an achieved Paid state, not for the action that gets you there.
-      label: 'Mark as paid',
+      label: t('managePayment.markPaid'),
       onPress: onMarkAsPaid,
       emphasised: true,
     },
   ];
 
   const summaryLines: { label: string; value: string; tone?: string }[] = [
-    { label: 'Invoice total', value: currencyFormatter.format(summary.totalAmount) },
-    { label: 'Paid', value: currencyFormatter.format(summary.amountPaid), tone: palette.success },
-    { label: 'Remaining', value: currencyFormatter.format(summary.outstanding) },
+    { label: t('managePayment.invoiceTotal'), value: currencyFormatter.format(summary.totalAmount) },
+    { label: t('managePayment.paid'), value: currencyFormatter.format(summary.amountPaid), tone: palette.success },
+    { label: t('managePayment.remaining'), value: currencyFormatter.format(summary.outstanding) },
   ];
 
   return (
     <BottomSheetModal visible={visible} onClose={onClose} onClosed={onClosed} heightRatio={0.85}>
       <View style={[styles.body, { paddingBottom: Math.max(insets.bottom, 16) }]}>
         <View style={styles.header}>
-          <Text style={[styles.title, { color: palette.text }]}>Manage payment</Text>
+          <Text style={[styles.title, { color: palette.text }]}>{t('managePayment.title')}</Text>
           <Text style={[styles.subtitle, { color: palette.muter }]} numberOfLines={1}>
             {getInvoiceNumber(invoice)} · {clientName}
           </Text>

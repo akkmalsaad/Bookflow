@@ -7,6 +7,7 @@ import { InvoiceIdentityCard, SheetCallout, invoiceSheetStyles } from '@/compone
 import { modalScrollProps } from '@/components/modal-keyboard';
 import { getSoftTokens } from '@/components/settings/tokens';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { useTranslation } from '@/lib/use-translation';
 
 type Props = {
   visible: boolean;
@@ -36,6 +37,7 @@ export function InvoicePermanentDeleteConfirmation({
   onConfirm,
   onClose,
 }: Props) {
+  const { t } = useTranslation();
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
   const soft = getSoftTokens(isDarkMode);
@@ -46,8 +48,8 @@ export function InvoicePermanentDeleteConfirmation({
       <>
         <ScrollView {...modalScrollProps} style={styles.body}>
           <View style={invoiceSheetStyles.header}>
-            <Text style={[invoiceSheetStyles.eyebrow, { color: palette.danger }]}>Permanent</Text>
-            <Text style={[invoiceSheetStyles.title, { color: palette.text }]}>Permanently delete invoice?</Text>
+            <Text style={[invoiceSheetStyles.eyebrow, { color: palette.danger }]}>{t('purge.eyebrow')}</Text>
+            <Text style={[invoiceSheetStyles.title, { color: palette.text }]}>{t('purge.title')}</Text>
           </View>
 
           <InvoiceIdentityCard invoiceNumber={invoiceNumber} clientName={clientName} amount={amount} />
@@ -72,7 +74,7 @@ export function InvoicePermanentDeleteConfirmation({
         <View style={[invoiceSheetStyles.actions, { paddingBottom: Math.max(insets.bottom, 16) }]}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Keep this invoice in the Dustbin"
+            accessibilityLabel={t('purge.keep')}
             disabled={isBusy}
             onPress={onClose}
             style={({ pressed }) => [
@@ -81,7 +83,7 @@ export function InvoicePermanentDeleteConfirmation({
               pressed && invoiceSheetStyles.pressed,
               isBusy && invoiceSheetStyles.disabled,
             ]}>
-            <Text style={[invoiceSheetStyles.secondaryText, { color: palette.text }]}>Cancel</Text>
+            <Text style={[invoiceSheetStyles.secondaryText, { color: palette.text }]}>{t('purge.cancel')}</Text>
           </Pressable>
           <Pressable
             accessibilityRole="button"
@@ -102,7 +104,7 @@ export function InvoicePermanentDeleteConfirmation({
               <Ionicons name="trash-outline" size={18} color="#FFFFFF" />
             )}
             <Text style={invoiceSheetStyles.destructiveText} numberOfLines={1}>
-              {isBusy ? 'Deleting…' : 'Delete permanently'}
+              {isBusy ? t('purge.deleting') : t('purge.confirm')}
             </Text>
           </Pressable>
         </View>

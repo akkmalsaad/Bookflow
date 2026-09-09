@@ -1,6 +1,6 @@
 import type { Ionicons } from '@expo/vector-icons';
 
-import type { Booking } from '@/context/app-data-context';
+import type { Booking, Invoice, InvoicePayment } from '@/context/app-data-context';
 
 /**
  * The job's lifecycle. Deliberately separate from invoice status and payment status: nothing about
@@ -16,6 +16,7 @@ export type BookingStatus = Booking['status'];
 export const BOOKING_STATUS_ORDER: readonly BookingStatus[] = [
   'Inquiry',
   'Confirmed',
+  'Deposit Paid',
   'In Progress',
   'Completed',
   'Cancelled',
@@ -69,6 +70,14 @@ export const BOOKING_STATUS_CONFIG: Record<BookingStatus, BookingStatusConfig> =
     light: { tint: '#EEF2FF', text: '#4F46E5', dot: '#4F46E5' },
     dark: { tint: '#29284B', text: '#A5B4FC', dot: '#818CF8' },
   },
+  'Deposit Paid': {
+    label: 'Deposit Paid',
+    icon: 'wallet-outline',
+    destructive: false,
+    pillTone: 'green',
+    light: { tint: '#E7F8F3', text: '#0F766E', dot: '#14B8A6' },
+    dark: { tint: '#123536', text: '#5EEAD4', dot: '#2DD4BF' },
+  },
   'In Progress': {
     label: 'In Progress',
     icon: 'play-circle-outline',
@@ -116,4 +125,105 @@ export function getBookingStatusConfig(status: string | null | undefined) {
 export function getBookingStatusVisual(status: string | null | undefined, isDarkMode: boolean) {
   const config = getBookingStatusConfig(status);
   return { ...config, colors: isDarkMode ? config.dark : config.light };
+}
+
+/**
+ * The lane the automatic synchronisation may walk a booking along, in order. Cancelled is
+ * deliberately absent: it is terminal, reached only by a person, and nothing derived from an
+ * invoice or a payment may enter or leave it.
+ */
+const AUTOMATIC_PROGRESSION: readonly BookingStatus[] = [
+  'Inquiry',
+  'Confirmed',
+  'Deposit Paid',
+  'In Progress',
+  'Completed',
+] as const;
+
+/**
+ * Moves a booking forward to `target`, or leaves it exactly where it is.
+ *
+ * This is the single rule that stops derived data from undoing a person's decision: a booking that
+ * is already further along the lane — or off it, on Cancelled — is returned untouched.
+ */
+export function advanceBookingStatus(
+  current: string | null | undefined,
+  target: BookingStatus,
+): BookingStatus {
+  const status = resolveBookingStatus(current);
+  const currentRank = AUTOMATIC_PROGRESSION.indexOf(status);
+  const targetRank = AUTOMATIC_PROGRESSION.indexOf(target);
+
+  // Cancelled sits off the lane (rank -1) and so never moves.
+  if (currentRank === -1 || targetRank === -1) return status;
+  return targetRank > currentRank ? target : status;
+}
+
+/** What a booking's linked invoices say has actually happened, from the persisted records alone. */
+type BookingSignals = {
+  /** At least one live linked invoice the customer has accepted. */
+  accepted: boolean;
+  /** At least one deposit payment recorded against a live linked invoice. */
+  deposit: boolean;
+};
+
+/**
+ * The status a booking should hold given its own stored status and its invoices' real state.
+ *
+ * Forward-only by construction, so a manual 'In Progress', 'Completed' or 'Cancelled' is never
+ * pulled back by an invoice that was accepted earlier in the job's life.
+ */
+function syncedBookingStatus(stored: string | null | undefined, signals: BookingSignals): BookingStatus {
+  let status = resolveBookingStatus(stored);
+  if (signals.accepted) status = advanceBookingStatus(status, 'Confirmed');
+  if (signals.deposit) status = advanceBookingStatus(status, 'Deposit Paid');
+  return status;
+}
+
+/**
+ * Reconciles every booking against the invoices and payments actually on record.
+ *
+ * Acceptance is read from the invoice's own status and a deposit from an InvoicePayment of kind
+ * 'deposit' — the records BookFlow already persists — so nothing here depends on a screen having
+ * been open, and a workspace loaded from Supabase normalises on the first pass.
+ *
+ * Returns the array it was given when nothing moved, so callers can hand the result straight to
+ * setState without causing a render.
+ */
+export function syncBookingStatuses(
+  bookings: Booking[],
+  invoices: Invoice[],
+  payments: InvoicePayment[],
+): Booking[] {
+  const depositedInvoiceIds = new Set(
+    payments.filter((payment) => payment.kind === 'deposit' && payment.amount > 0).map((payment) => payment.invoiceId),
+  );
+
+  const signalsByBooking = new Map<string, BookingSignals>();
+  for (const invoice of invoices) {
+    // A trashed invoice's link is closed, so it stops being evidence of anything new. Bookings it
+    // already moved forward stay where they are — this pass only ever advances.
+    if (!invoice.bookingId || invoice.deletedAt) continue;
+
+    const signals = signalsByBooking.get(invoice.bookingId) ?? { accepted: false, deposit: false };
+    if (invoice.status === 'Accepted') signals.accepted = true;
+    if (depositedInvoiceIds.has(invoice.id)) signals.deposit = true;
+    signalsByBooking.set(invoice.bookingId, signals);
+  }
+
+  let changed = false;
+  const next = bookings.map((booking) => {
+    const signals = signalsByBooking.get(booking.id);
+    if (!signals) return booking;
+
+    const synced = syncedBookingStatus(booking.status, signals);
+    // Compared against the *resolved* status so a legacy or unknown value is only ever rewritten
+    // by a real advance, never by the display fallback.
+    if (synced === resolveBookingStatus(booking.status)) return booking;
+
+    changed = true;
+    return { ...booking, status: synced };
+  });
+
+  return changed ? next : bookings;
 }

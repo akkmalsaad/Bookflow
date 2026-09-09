@@ -16,6 +16,7 @@ import {
   type InvoiceDesign,
 } from '@/lib/invoice-design';
 import { getInvoiceNumber } from '@/lib/invoice-numbering';
+import type { InvoiceDocumentLabels } from '@/lib/i18n';
 
 function safeFileSegment(value: string) {
   return value.replace(/[^a-zA-Z0-9_-]/g, '-');
@@ -36,6 +37,8 @@ export type InvoicePdfData = {
   /** Current RevenueCat entitlement gate; callers must opt in to custom branding. */
   allowBusinessLogo?: boolean;
   serviceName?: string;
+  /** The document's wording, resolved by the caller from the app language. English if omitted. */
+  labels?: InvoiceDocumentLabels;
   packageDetails?: string;
   eventLocation?: string;
   eventDate?: string;
@@ -63,6 +66,7 @@ export function createInvoicePdfHtml(data: InvoicePdfData) {
 
   return renderInvoiceHtml(
     buildInvoiceRenderData({
+      labels: data.labels,
       invoice: data.invoice,
       customer: data.customer,
       payments: data.payments,

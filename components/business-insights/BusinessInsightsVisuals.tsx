@@ -15,6 +15,8 @@ import { BottomSheetModal } from '@/components/BottomSheetModal';
 import { getSoftTokens } from '@/components/settings/tokens';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 import { INSIGHTS_PERIODS, type InsightsPeriod } from '@/lib/business-insights';
+import type { TranslationKey } from '@/lib/i18n';
+import { useTranslation } from '@/lib/use-translation';
 
 export function ProBadge() {
   const { isDarkMode } = useTheme();
@@ -26,8 +28,9 @@ export function ProBadge() {
 }
 
 export function WalletIllustration({ width = 146, height = 112 }: { width?: number; height?: number }) {
+  const { t } = useTranslation();
   return (
-    <Svg width={width} height={height} viewBox="0 0 180 138" accessibilityLabel="Purple wallet and banknotes">
+    <Svg width={width} height={height} viewBox="0 0 180 138" accessibilityLabel={t('a11y.walletArt')}>
       <Defs>
         <LinearGradient id="walletBody" x1="0" y1="0" x2="1" y2="1">
           <Stop offset="0" stopColor="#B7A5FF" />
@@ -67,9 +70,10 @@ export function WalletIllustration({ width = 146, height = 112 }: { width?: numb
 }
 
 export function GrowthChartIllustration({ width = 112, height = 76 }: { width?: number; height?: number }) {
+  const { t } = useTranslation();
   const bars = [18, 29, 40, 54, 68];
   return (
-    <Svg width={width} height={height} viewBox="0 0 116 78" accessibilityLabel="Rising business chart">
+    <Svg width={width} height={height} viewBox="0 0 116 78" accessibilityLabel={t('a11y.chartArt')}>
       <Defs>
         <LinearGradient id="growthBars" x1="0" y1="1" x2="0" y2="0">
           <Stop offset="0" stopColor="#C4B5FD" stopOpacity={0.55} />
@@ -147,19 +151,25 @@ export function IncomeExpenseDonut({
 }) {
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
+  const { t } = useTranslation();
   const total = Math.max(0, income) + Math.max(0, expenses);
   const expenseShare = total > 0 ? Math.max(0, expenses) / total : 0;
-  const radius = 47;
+  // 148pt across with the ring's original 17pt stroke: the same weight of ring, around a centre
+  // hole 111pt wide rather than 77pt. The old hole was narrower than the text box sitting in it,
+  // which is what put long amounts against the ring.
+  const size = 148;
+  const center = size / 2;
+  const radius = 64;
   const circumference = 2 * Math.PI * radius;
 
   return (
     <View style={styles.donutWrap}>
-      <Svg width={128} height={128} viewBox="0 0 128 128">
-        <Circle cx="64" cy="64" r={radius} fill="none" stroke={incomeColor} strokeWidth="17" />
+      <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <Circle cx={center} cy={center} r={radius} fill="none" stroke={incomeColor} strokeWidth="17" />
         {expenseShare > 0 ? (
           <Circle
-            cx="64"
-            cy="64"
+            cx={center}
+            cy={center}
             r={radius}
             fill="none"
             stroke={expenseColor}
@@ -167,13 +177,20 @@ export function IncomeExpenseDonut({
             strokeDasharray={`${circumference * expenseShare} ${circumference}`}
             strokeLinecap="butt"
             rotation="-90"
-            origin="64, 64"
+            origin={`${center}, ${center}`}
           />
         ) : null}
       </Svg>
       <View pointerEvents="none" style={styles.donutCenter}>
-        <Text style={[styles.donutLabel, { color: palette.muter }]}>Profit</Text>
-        <Text style={[styles.donutValue, { color: palette.text }]} numberOfLines={1} adjustsFontSizeToFit>{profitLabel}</Text>
+        <Text style={[styles.donutLabel, { color: palette.muter }]}>{t('insights.profit')}</Text>
+        <Text
+          style={[styles.donutValue, { color: palette.text }]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          // A very long amount shrinks a little rather than running into the ring.
+          minimumFontScale={0.75}>
+          {profitLabel}
+        </Text>
       </View>
     </View>
   );
@@ -194,10 +211,12 @@ export function InsightsPeriodSelector({
 }) {
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
+  const { t } = useTranslation();
   const soft = getSoftTokens(isDarkMode);
   const [open, setOpen] = useState(false);
   const flat = variant === 'flat';
-  const label = INSIGHTS_PERIODS.find((option) => option.id === value)?.label ?? 'This Month';
+  // The stored period id is unchanged; only its label follows the language.
+  const label = t(`period.${value}` as TranslationKey);
 
   return (
     <>
@@ -218,10 +237,10 @@ export function InsightsPeriodSelector({
       <BottomSheetModal visible={open} onClose={() => setOpen(false)} heightRatio={0.62}>
         <View style={styles.sheetHeader}>
           <View>
-            <Text style={[styles.sheetEyebrow, { color: palette.accent }]}>Analytics period</Text>
-            <Text style={[styles.sheetTitle, { color: palette.text }]}>Choose a date range</Text>
+            <Text style={[styles.sheetEyebrow, { color: palette.accent }]}>{t('insights.period.eyebrow')}</Text>
+            <Text style={[styles.sheetTitle, { color: palette.text }]}>{t('insights.period.title')}</Text>
           </View>
-          <Pressable accessibilityRole="button" accessibilityLabel="Close" hitSlop={8} onPress={() => setOpen(false)}>
+          <Pressable accessibilityRole="button" accessibilityLabel={t('a11y.close')} hitSlop={8} onPress={() => setOpen(false)}>
             <Ionicons name="close" size={23} color={palette.text} />
           </Pressable>
         </View>
@@ -242,7 +261,7 @@ export function InsightsPeriodSelector({
                   { backgroundColor: selected ? soft.accentSoft : soft.surface, borderColor: selected ? palette.accent : soft.border },
                   pressed && styles.pressed,
                 ]}>
-                <Text style={[styles.optionText, { color: selected ? palette.accent : palette.text }]}>{option.label}</Text>
+                <Text style={[styles.optionText, { color: selected ? palette.accent : palette.text }]}>{t(`period.${option.id}` as TranslationKey)}</Text>
                 {selected ? <Ionicons name="checkmark-circle" size={21} color={palette.accent} /> : null}
               </Pressable>
             );
@@ -268,10 +287,12 @@ const styles = StyleSheet.create({
     letterSpacing: 0.45,
   },
   pressed: { opacity: 0.78 },
-  donutWrap: { alignItems: 'center', height: 128, justifyContent: 'center', width: 128 },
-  donutCenter: { alignItems: 'center', left: 23, position: 'absolute', right: 23 },
+  donutWrap: { alignItems: 'center', height: 148, justifyContent: 'center', width: 148 },
+  // 94pt wide inside a 111pt hole, so the two lines clear the ring at their widest point. Left and
+  // right alone keep the block centred: the wrap centres it vertically.
+  donutCenter: { alignItems: 'center', left: 27, position: 'absolute', right: 27 },
   donutLabel: { fontSize: 10.5, fontWeight: '700', marginBottom: 2 },
-  donutValue: { fontSize: 15, fontWeight: '900', maxWidth: 78 },
+  donutValue: { fontSize: 15, fontWeight: '900', maxWidth: 90 },
   periodButton: {
     alignItems: 'center',
     borderRadius: 15,

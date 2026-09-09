@@ -19,6 +19,9 @@ import { getFinancialMetrics, getFinancialPeriodBounds } from '@/lib/financial-m
 import { getNotificationPermissionStatus, syncTodayPriorityNotifications } from '@/lib/notifications';
 import { getInvoiceNumber } from '@/lib/invoice-numbering';
 import { useResponsive } from '@/lib/responsive';
+import { getNextBookingDate } from '@/lib/upcoming-bookings';
+import { useTranslation } from '@/lib/use-translation';
+import type { TranslationKey } from '@/lib/i18n';
 
 function getLocalDateKey(date: Date) {
   const year = date.getFullYear();
@@ -27,14 +30,15 @@ function getLocalDateKey(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
-function formatShortDate(dateKey: string) {
-  return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' }).format(new Date(`${dateKey}T00:00:00`));
+function formatShortDate(dateKey: string, intlLocale: string) {
+  return new Intl.DateTimeFormat(intlLocale, { day: 'numeric', month: 'short' }).format(new Date(`${dateKey}T00:00:00`));
 }
 
 export default function HomeScreen() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
   const { isPro } = useSubscription();
+  const { t, intlLocale } = useTranslation();
   const { bookings, customers, financeEntries, invoices, payments, reminders, notifications, currency, businessProfile, updateBookingStatus } = useAppData();
   const { showSnackbar } = useSnackbar();
   const palette = getThemePalette(isDarkMode);
@@ -53,11 +57,10 @@ export default function HomeScreen() {
     [bookings, todayKey],
   );
   const upcomingBookings = bookings.filter((booking) => booking.date >= todayKey && booking.status !== 'Cancelled');
-  const nextBookingDate = upcomingBookings.reduce<string | null>(
-    (soonest, booking) => (soonest === null || booking.date < soonest ? booking.date : soonest),
-    null,
-  );
-  const upcomingDetail = nextBookingDate ? `Next: ${formatShortDate(nextBookingDate)}` : 'No bookings scheduled';
+  const nextBookingDate = getNextBookingDate(bookings, todayKey);
+  const upcomingDetail = nextBookingDate
+    ? t('home.upcoming.next', { date: formatShortDate(nextBookingDate, intlLocale) })
+    : t('home.upcoming.none');
   const customerMap = new Map(customers.map((customer) => [customer.id, customer]));
 
   const [showJobDone, setShowJobDone] = useState(false);
@@ -76,13 +79,13 @@ export default function HomeScreen() {
       const result = updateBookingStatus(bookingId, 'Completed');
 
       if (!result.ok) {
-        showSnackbar({ message: result.error ?? 'The job could not be completed.', tone: 'danger' });
+        showSnackbar({ message: result.error ?? t('home.jobFailed'), tone: 'danger' });
         return;
       }
 
       setShowJobDone(true);
     },
-    [bookings, showSnackbar, updateBookingStatus],
+    [bookings, showSnackbar, t, updateBookingStatus],
   );
 
   const [showNotificationPrompt, setShowNotificationPrompt] = useState(false);
@@ -155,18 +158,20 @@ export default function HomeScreen() {
                 : require('../../assets/images/bookflow-logo.png')}
               style={styles.logoImage}
               resizeMode="contain"
-              accessibilityLabel={isPro && businessProfile.logoUrl ? `${businessProfile.name || 'Business'} logo` : 'Bookflow logo'}
+              accessibilityLabel={isPro && businessProfile.logoUrl
+                ? t('home.logo.business', { name: businessProfile.name || 'Business' })
+                : t('home.logo.bookflow')}
             />
           </View>
           <View style={styles.headerCopy}>
-            <Text style={[styles.eyebrow, { color: palette.accent }]}>Dashboard</Text>
+            <Text style={[styles.eyebrow, { color: palette.accent }]}>{t('home.eyebrow')}</Text>
             <Text
               adjustsFontSizeToFit
               minimumFontScale={0.65}
               numberOfLines={1}
               style={[styles.title, { color: palette.text }]}
             >
-              Welcome {businessProfile.name}
+              {t('home.welcome', { name: businessProfile.name })}
             </Text>
           </View>
         </View>
@@ -182,7 +187,9 @@ export default function HomeScreen() {
             },
           ]}
           accessibilityRole="button"
-          accessibilityLabel={hasUnreadNotifications ? `Notifications, ${unreadNotificationCount} unread` : 'Notifications'}>
+          accessibilityLabel={hasUnreadNotifications
+            ? t('home.notifications.unread', { count: unreadNotificationCount })
+            : t('home.notifications')}>
           <Ionicons
             name={hasUnreadNotifications ? 'notifications' : 'notifications-outline'}
             size={22}
@@ -208,8 +215,8 @@ export default function HomeScreen() {
         <View style={styles.sectionHeaderWrap}>
           <SectionHeader
             icon="calendar-outline"
-            title="Today’s priority"
-            rightElement={<Text style={[styles.link, { color: palette.accent }]}>View all</Text>}
+            title={t('home.todaysPriority')}
+            rightElement={<Text style={[styles.link, { color: palette.accent }]}>{t('home.viewAll')}</Text>}
           />
         </View>
 
@@ -223,40 +230,40 @@ export default function HomeScreen() {
       </View>
 
       <View style={styles.snapshotHeader}>
-        <SectionHeader icon="bar-chart-outline" title="Business snapshot" />
+        <SectionHeader icon="bar-chart-outline" title={t('home.snapshot')} />
       </View>
 
       <ResponsiveGrid columns={statColumnCount} style={styles.statsGrid}>
         <StatCard
-          label="Revenue"
+          label={t('home.revenue')}
           value={currencyFormatter.format(financialMetrics.revenue)}
-          detail="This month"
+          detail={t('home.revenue.detail')}
           isCurrency
           onPress={() => router.push('/finance')}
-          accessibilityLabel="Open Finance"
+          accessibilityLabel={t('home.revenue.open')}
         />
         <StatCard
-          label="Upcoming"
+          label={t('home.upcoming')}
           value={String(upcomingBookings.length)}
           detail={upcomingDetail}
           onPress={() => router.push('/bookings')}
-          accessibilityLabel="Open upcoming bookings"
+          accessibilityLabel={t('home.upcoming.open')}
         />
         <StatCard
-          label="Net Profit"
+          label={t('home.netProfit')}
           value={currencyFormatter.format(financialMetrics.netProfit)}
-          detail="After expenses"
+          detail={t('home.netProfit.detail')}
           isCurrency
           onPress={() => router.push('/income')}
-          accessibilityLabel="Open net profit breakdown"
+          accessibilityLabel={t('home.netProfit.open')}
         />
         <StatCard
-          label="Expense"
+          label={t('home.expense')}
           value={currencyFormatter.format(financialMetrics.expenses)}
-          detail="This month"
+          detail={t('home.expense.detail')}
           isCurrency
           onPress={() => router.push('/expense')}
-          accessibilityLabel="Open expense breakdown"
+          accessibilityLabel={t('home.expense.open')}
         />
       </ResponsiveGrid>
 
@@ -272,10 +279,10 @@ export default function HomeScreen() {
         <View style={styles.sectionHeaderWrap}>
           <SectionHeader
             icon="notifications-outline"
-            title="Reminder queue"
+            title={t('home.reminders')}
             rightElement={
               <View style={[styles.softCountPill, { backgroundColor: softInset }]}>
-                <Text style={[styles.link, { color: palette.accent }]}>{reminders.length} active</Text>
+                <Text style={[styles.link, { color: palette.accent }]}>{t('home.reminders.active', { count: reminders.length })}</Text>
               </View>
             }
           />
@@ -294,7 +301,10 @@ export default function HomeScreen() {
                     {reminder.dueDate} · {reminder.channel}
                   </Text>
                 </View>
-                <StatusPill label={reminder.status} tone={reminder.status === 'sent' ? 'green' : reminder.status === 'failed' ? 'red' : 'amber'} />
+                <StatusPill
+                  label={t(`status.reminder.${reminder.status}` as TranslationKey)}
+                  tone={reminder.status === 'sent' ? 'green' : reminder.status === 'failed' ? 'red' : 'amber'}
+                />
               </View>
             </View>
           ))}
@@ -313,8 +323,8 @@ export default function HomeScreen() {
         <View style={styles.sectionHeaderWrap}>
           <SectionHeader
             icon="receipt-outline"
-            title="Recent invoices"
-            rightElement={<Text style={[styles.link, { color: palette.accent }]}>Open</Text>}
+            title={t('home.invoices')}
+            rightElement={<Text style={[styles.link, { color: palette.accent }]}>{t('home.invoices.open')}</Text>}
           />
         </View>
 
@@ -333,14 +343,14 @@ export default function HomeScreen() {
                       {getInvoiceNumber(invoice)}
                     </Text>
                     <Text style={[styles.invoiceCustomer, { color: palette.muter }]} numberOfLines={1}>
-                      {customer?.name ?? 'Unknown customer'}
+                      {customer?.name ?? t('home.unknownCustomer')}
                     </Text>
                   </View>
                   <View style={styles.invoiceMeta}>
                     <Text style={[styles.amount, { color: palette.text }]} numberOfLines={1}>
                       {currencyFormatter.format(invoice.amount)}
                     </Text>
-                    <StatusPill label={invoice.status} tone={tone} />
+                    <StatusPill label={t(`status.invoice.${invoice.status}` as TranslationKey)} tone={tone} />
                   </View>
                 </View>
               </View>
@@ -358,7 +368,7 @@ export default function HomeScreen() {
         <View style={styles.successBackdrop}>
           <SuccessFeedback
             visible={showJobDone}
-            title="Job completed"
+            title={t('home.jobCompleted')}
             onComplete={() => setShowJobDone(false)}
           />
         </View>
