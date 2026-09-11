@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { InvoicePreview } from '@/components/invoice-design/InvoicePreview';
 import { TemplateCard } from '@/components/invoice-design/TemplateCard';
+import { ProBadge } from '@/components/ProBadge';
 import { SettingsDetailScreen, settingsDetailStyles } from '@/components/settings/SettingsDetailScreen';
 import { getSoftTokens } from '@/components/settings/tokens';
 import { useAppData, type BusinessProfile } from '@/context/app-data-context';
@@ -440,15 +441,15 @@ export default function InvoiceCustomisationScreen() {
   );
 }
 
+/** The shared Pro badge, with a lock beside it while the field is unavailable. */
 function ProPill({ locked }: { locked: boolean }) {
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
-  const soft = getSoftTokens(isDarkMode);
 
   return (
-    <View style={[styles.proPill, { backgroundColor: soft.accentSoft }]}>
-      {locked ? <Ionicons name="lock-closed-outline" size={11} color={palette.accent} /> : null}
-      <Text style={[styles.proPillText, { color: palette.accent }]}>PRO</Text>
+    <View style={styles.proPill}>
+      <ProBadge />
+      {locked ? <Ionicons name="lock-closed-outline" size={13} color={palette.muter} /> : null}
     </View>
   );
 }
@@ -488,7 +489,8 @@ function ProRow({
       <View style={styles.proCopy}>
         <View style={styles.proTitleRow}>
           <Text style={[styles.proTitle, { color: palette.text }]}>{title}</Text>
-          <ProPill locked={locked} />
+          {/* The row's trailing icon already shows the lock. */}
+          <ProBadge />
         </View>
         <Text style={[styles.toggleHint, { color: palette.muter }]}>{subtitle}</Text>
       </View>
@@ -515,8 +517,7 @@ const styles = StyleSheet.create({
   applyText: { color: '#FFFFFF', fontSize: 13.5, fontWeight: '800' },
 
   proFieldHeader: { alignItems: 'center', flexDirection: 'row', gap: 8, marginBottom: 7 },
-  proPill: { alignItems: 'center', borderRadius: 7, flexDirection: 'row', gap: 3, paddingHorizontal: 6, paddingVertical: 2 },
-  proPillText: { fontSize: 8.5, fontWeight: '900', letterSpacing: 0.4 },
+  proPill: { alignItems: 'center', flexDirection: 'row', gap: 6 },
   sectionHeaderRow: { alignItems: 'center', flexDirection: 'row', gap: 8 },
 
   proRow: { alignItems: 'center', flexDirection: 'row', gap: 12, marginTop: 10 },

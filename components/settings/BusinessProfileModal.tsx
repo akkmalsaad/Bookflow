@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { KeyboardDoneButton } from '@/components/KeyboardDoneButton';
 import { modalScrollProps } from '@/components/modal-keyboard';
+import { ProBadge } from '@/components/ProBadge';
 import { getSoftTokens } from '@/components/settings/tokens';
 import { CURRENCY_OPTIONS, useAppData } from '@/context/app-data-context';
 import { useRequirePro, useSubscription } from '@/context/subscription-context';
@@ -170,10 +171,7 @@ export function BusinessProfileModal({ visible, onClose }: Props) {
                 <View style={styles.logoCopy}>
                   <View style={styles.logoTitleRow}>
                     <Text style={[styles.logoTitle, { color: palette.text }]}>{t('profile.logo')}</Text>
-                    <View style={[styles.proBadge, { backgroundColor: isPro ? (isDarkMode ? '#15392F' : '#E8F7EF') : soft.accentSoft }]}>
-                      <Ionicons name="star" size={10} color={isPro ? palette.success : palette.accent} />
-                      <Text style={[styles.proBadgeText, { color: isPro ? palette.success : palette.accent }]}>PRO</Text>
-                    </View>
+                    <ProBadge />
                   </View>
                   <Text style={[styles.logoDescription, { color: palette.muter }]}>
                     {isPro
@@ -425,19 +423,6 @@ const styles = StyleSheet.create({
   logoTitle: {
     fontSize: 15,
     fontWeight: '800',
-  },
-  proBadge: {
-    alignItems: 'center',
-    borderRadius: 999,
-    flexDirection: 'row',
-    gap: 3,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-  },
-  proBadgeText: {
-    fontSize: 9,
-    fontWeight: '900',
-    letterSpacing: 0.45,
   },
   logoDescription: {
     fontSize: 11,

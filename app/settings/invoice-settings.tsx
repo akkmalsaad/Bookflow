@@ -14,7 +14,7 @@ import { paymentMethods } from '@/components/UpdatePaymentModal';
 import { useAppData } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 import { useSubscription } from '@/context/subscription-context';
-import { getInvoiceTemplate, normalizeBankDetails } from '@/lib/invoice-design';
+import { getInvoiceTemplate } from '@/lib/invoice-design';
 import { formatPaymentTerms, generateInvoiceNumber } from '@/lib/invoice-numbering';
 import { useTranslation } from '@/lib/use-translation';
 
@@ -30,15 +30,6 @@ export default function InvoiceSettingsScreen() {
   const preview = generateInvoiceNumber(invoiceSettings.numberFormat, invoiceSettings.nextInvoiceSequence, new Date());
   const templateName = getInvoiceTemplate(invoiceSettings.design.templateId).name;
   const instructions = invoiceSettings.paymentInstructions.trim();
-
-  // Bank and DuitNow details live on the business profile and are edited on the customisation
-  // screen, which is also what prints them. This row summarises them so Payment is a complete
-  // picture without becoming a second place that owns the values.
-  const bank = normalizeBankDetails(businessProfile.paymentDetails);
-  const bankSummary = [bank.bankName, bank.accountNumber].map((value) => value.trim()).filter(Boolean).join(' · ');
-  const duitNowSummary = bank.duitNowId.trim() ? `DuitNow ${bank.duitNowId.trim()}` : '';
-  const paymentDetailsSubtitle =
-    [bankSummary, duitNowSummary].filter(Boolean).join(' · ') || 'Add your bank or DuitNow details';
 
   return (
     <SettingsDetailScreen
@@ -65,12 +56,6 @@ export default function InvoiceSettingsScreen() {
           subtitle={formatPaymentTerms(invoiceSettings.paymentTermDays)}
           onPress={() => setEditing('paymentTerms')}
         />
-        <SettingsRow
-          icon="document-text-outline"
-          title={t('invset.prefixNotes')}
-          subtitle={t('invset.prefixNotes.subtitle')}
-          onPress={() => router.push('/settings/invoice-customisation')}
-        />
       </SettingsSection>
 
       <SettingsSection title={t('invset.payment')}>
@@ -80,12 +65,6 @@ export default function InvoiceSettingsScreen() {
           subtitle={instructions ? instructions.replace(/\s+/g, ' ') : 'Not set'}
           onPress={() => setEditing('paymentInstructions')}
         />
-        <SettingsRow
-          icon="business-outline"
-          title={t('invset.bankDetails')}
-          subtitle={paymentDetailsSubtitle}
-          onPress={() => router.push('/settings/invoice-customisation')}
-        />
       </SettingsSection>
       <SettingsInfoRow label={t('invset.methods')} value={paymentMethods.join(' · ')} />
 
@@ -94,7 +73,7 @@ export default function InvoiceSettingsScreen() {
           icon="color-palette-outline"
           title={t('invset.customisation')}
           subtitle={`${templateName} template${isPro ? '' : ' · Pro templates available'}`}
-          value="PRO"
+          proBadge
           onPress={() => router.push('/settings/invoice-customisation')}
         />
       </SettingsSection>

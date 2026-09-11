@@ -69,7 +69,7 @@ function AnalyticsProvider({ children }: { children: ReactNode }) {
   return <PostHogProvider client={posthog}>{children}</PostHogProvider>;
 }
 
-function AppShell() {
+function AppShell({ onReadyChange }: { onReadyChange: (ready: boolean) => void }) {
   const { t } = useTranslation();
   const { isDarkMode } = useTheme();
   const { isAuthenticated, isLoaded } = useAuth();
@@ -77,11 +77,11 @@ function AppShell() {
   const palette = getThemePalette(isDarkMode);
   const { isPhone } = useResponsive();
 
-  if (!isLoaded) {
-    return null;
-  }
+  useEffect(() => {
+    onReadyChange(isLoaded && (!isAuthenticated || !isDataLoading));
+  }, [isAuthenticated, isDataLoading, isLoaded, onReadyChange]);
 
-  if (isAuthenticated && isDataLoading) {
+  if (!isLoaded || (isAuthenticated && isDataLoading)) {
     return (
       <View style={[styles.dataGate, { backgroundColor: palette.background }]}>
         <ActivityIndicator color={palette.accent} size="large" />
@@ -216,8 +216,10 @@ const styles = StyleSheet.create({
 export default Sentry.wrap(function RootLayout() {
   const [showSplash, setShowSplash] = useState(true);
 
-  useEffect(() => {
-    SplashScreen.hideAsync().catch(() => {});
+  const [appReady, setAppReady] = useState(false);
+
+  const handleNativeReady = useCallback(async () => {
+    await SplashScreen.hideAsync().catch(() => {});
   }, []);
 
   const handleSplashFinish = useCallback(() => {
@@ -232,6 +234,8 @@ export default Sentry.wrap(function RootLayout() {
           while recording a hook event on this SDK version. Nothing else about Clerk changes. */}
       <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache} telemetry={false}>
         <SafeAreaProvider>
+        <View style={styles.root} pointerEvents={showSplash ? 'none' : 'auto'}
+          accessibilityElementsHidden={showSplash} importantForAccessibility={showSplash ? 'no-hide-descendants' : 'auto'}>
         <AnalyticsProvider>
         <AppThemeProvider>
           <AuthProvider>
@@ -240,14 +244,15 @@ export default Sentry.wrap(function RootLayout() {
               <AppDataProvider>
                 {/* Outside the router so a snackbar survives the navigation that follows it. */}
                 <SnackbarProvider>
-                  <AppShell />
+                  <AppShell onReadyChange={setAppReady} />
                 </SnackbarProvider>
               </AppDataProvider>
             </SubscriptionProvider>
           </AuthProvider>
         </AppThemeProvider>
         </AnalyticsProvider>
-          {showSplash ? <AnimatedSplash onFinish={handleSplashFinish} /> : null}
+        </View>
+          {showSplash ? <AnimatedSplash isReady={appReady} onNativeReady={handleNativeReady} onFinish={handleSplashFinish} /> : null}
         </SafeAreaProvider>
       </ClerkProvider>
     </GestureHandlerRootView>

@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Children, Fragment, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { ProBadge } from '@/components/ProBadge';
 import { getSoftTokens } from '@/components/settings/tokens';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 
@@ -64,6 +65,8 @@ type RowProps = {
   title: string;
   subtitle?: string;
   value?: string;
+  /** Marks a Pro feature with the shared badge, in the value position. */
+  proBadge?: boolean;
   onPress?: () => void;
   /** Rows without a destination still render, dimmed and unpressable. */
   disabled?: boolean;
@@ -76,6 +79,7 @@ export function SettingsRow({
   title,
   subtitle,
   value,
+  proBadge = false,
   onPress,
   disabled = false,
   showChevron = true,
@@ -84,7 +88,7 @@ export function SettingsRow({
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
   const soft = getSoftTokens(isDarkMode);
-  const hint = accessibilityHint ?? ([subtitle, value].filter(Boolean).join(' · ') || undefined);
+  const hint = accessibilityHint ?? ([subtitle, value, proBadge && 'Pro'].filter(Boolean).join(' · ') || undefined);
 
   return (
     <Pressable
@@ -112,6 +116,7 @@ export function SettingsRow({
         ) : null}
       </View>
       {value ? <SettingsValue>{value}</SettingsValue> : null}
+      {proBadge ? <ProBadge style={styles.proBadge} /> : null}
       {showChevron ? <Ionicons name="chevron-forward" size={17} color={palette.muter} style={styles.chevron} /> : null}
     </Pressable>
   );
@@ -225,6 +230,9 @@ const styles = StyleSheet.create({
     marginLeft: 10,
     maxWidth: 150,
     textAlign: 'right',
+  },
+  proBadge: {
+    marginLeft: 10,
   },
   chevron: {
     marginLeft: 6,

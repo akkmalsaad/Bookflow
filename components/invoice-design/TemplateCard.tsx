@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { ProBadge } from '@/components/ProBadge';
 import { getSoftTokens } from '@/components/settings/tokens';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 import { resolveInvoiceTokens, type InvoiceTemplate } from '@/lib/invoice-design';
@@ -149,11 +150,7 @@ export function TemplateCard({
             {template.name}
           </Text>
           {locked ? <Ionicons name="lock-closed-outline" size={14} color={palette.muter} /> : null}
-          {template.pro ? (
-            <View style={[styles.badge, { backgroundColor: soft.accentSoft, borderColor: `${palette.accent}55` }]}>
-              <Text style={[styles.badgeText, { color: palette.accent }]}>PRO</Text>
-            </View>
-          ) : null}
+          {template.pro ? <ProBadge /> : null}
         </View>
         <Text style={[styles.description, { color: palette.muter }]} numberOfLines={2}>
           {template.description}
@@ -199,8 +196,6 @@ const styles = StyleSheet.create({
   copy: { flex: 1, minWidth: 0 },
   titleRow: { alignItems: 'center', flexDirection: 'row', gap: 7 },
   name: { flexShrink: 1, fontSize: 14.5, fontWeight: '800' },
-  badge: { borderRadius: 7, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 1 },
-  badgeText: { fontSize: 8.5, fontWeight: '900', letterSpacing: 0.4 },
   description: { fontSize: 11.5, lineHeight: 16, marginTop: 3 },
   bestFor: { fontSize: 10.5, fontStyle: 'italic', marginTop: 3, opacity: 0.85 },
   check: { marginLeft: 2 },

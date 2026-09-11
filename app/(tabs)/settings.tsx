@@ -142,7 +142,13 @@ export default function SettingsScreen() {
             icon="download-outline"
             title={t('settings.export')}
             subtitle={t('settings.export.subtitle')}
-            onPress={() => router.push('/settings/export')}
+            proBadge={!isLoadingSubscription && !isPro}
+            // Free users go straight to the paywall, which opens the export screen once Pro is active.
+            onPress={() =>
+              isPro
+                ? router.push('/settings/export')
+                : router.push({ pathname: '/paywall', params: { returnTo: '/settings/export' } })
+            }
           />
           <SettingsRow
             icon="server-outline"

@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useMemo, useState } from 'react';
+import { useRouter } from 'expo-router';
+import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { SuccessFeedback } from '@/components/feedback/SuccessFeedback';
@@ -26,8 +27,9 @@ import {
 
 export default function ExportScreen() {
   const { t } = useTranslation();
+  const router = useRouter();
   const { isDarkMode } = useTheme();
-  const { isPro } = useSubscription();
+  const { isLoadingSubscription, isPro } = useSubscription();
   const { businessProfile, financeEntries, bookings, invoices, payments, customers, currency } = useAppData();
   const palette = getThemePalette(isDarkMode);
   const soft = getSoftTokens(isDarkMode);
@@ -71,6 +73,24 @@ export default function ExportScreen() {
       customers,
     ],
   );
+
+  // Export is a Pro feature. The entry rows already route Free users to the paywall; this covers
+  // every other way in, and an entitlement that lapses while the screen is open.
+  useEffect(() => {
+    if (isLoadingSubscription || isPro) return;
+    router.replace({ pathname: '/paywall', params: { returnTo: '/settings/export' } });
+  }, [isLoadingSubscription, isPro, router]);
+
+  if (isLoadingSubscription || !isPro) {
+    return (
+      <SettingsDetailScreen eyebrow={t('settings.section.data')} title={t('export.title')}>
+        <View style={styles.gate}>
+          <ActivityIndicator size="large" color={palette.accent} />
+          <Text style={[styles.gateText, { color: palette.muter }]}>{t('insights.gate.checking')}</Text>
+        </View>
+      </SettingsDetailScreen>
+    );
+  }
 
   // A detail report with nothing to list would be a page of column headings. The complete report
   // still carries a useful summary — revenue, outstanding, invoice counts — so it stays available.
@@ -285,6 +305,15 @@ export default function ExportScreen() {
 }
 
 const styles = StyleSheet.create({
+  gate: {
+    alignItems: 'center',
+    paddingVertical: 48,
+  },
+  gateText: {
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: 13,
+  },
   /** The same dim every other BookFlow success state is presented over. */
   successBackdrop: {
     backgroundColor: 'rgba(15, 23, 42, 0.58)',

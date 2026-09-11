@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
+import { ProBadge } from '@/components/ProBadge';
 import { getSoftTokens } from '@/components/settings/tokens';
 import { getThemePalette, useTheme } from '@/context/theme-context';
-import { ProBadge, WalletIllustration } from './BusinessInsightsVisuals';
+import { WalletIllustration } from './BusinessInsightsVisuals';
 import { useTranslation } from '@/lib/use-translation';
 
 export function BusinessInsightsPromoCard({ onPress }: { onPress: () => void }) {

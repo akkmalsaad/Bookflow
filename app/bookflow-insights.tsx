@@ -5,7 +5,8 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { InsightRow } from '@/components/business-insights/InsightRow';
-import { InsightsPeriodSelector, ProBadge } from '@/components/business-insights/BusinessInsightsVisuals';
+import { InsightsPeriodSelector } from '@/components/business-insights/BusinessInsightsVisuals';
+import { ProBadge } from '@/components/ProBadge';
 import { getSoftTokens } from '@/components/settings/tokens';
 import { getCompactCurrencyFormatter, useAppData } from '@/context/app-data-context';
 import { useSubscription } from '@/context/subscription-context';

@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 import { useCallback, useState, type ComponentProps } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { ProBadge } from '@/components/business-insights/BusinessInsightsVisuals';
+import { ProBadge } from '@/components/ProBadge';
 import { SettingsDetailScreen, settingsDetailStyles } from '@/components/settings/SettingsDetailScreen';
 import { RestoreBackupSheet } from '@/components/settings/RestoreBackupSheet';
 import { getSoftTokens } from '@/components/settings/tokens';
@@ -194,7 +194,11 @@ export default function DataManagementScreen() {
         icon="download-outline"
         title={t('export.title')}
         subtitle={t('data.export.subtitle')}
-        onPress={() => router.push('/settings/export')}
+        onPress={() =>
+          isPro
+            ? router.push('/settings/export')
+            : router.push({ pathname: '/paywall', params: { returnTo: '/settings/export' } })
+        }
         isDarkMode={isDarkMode}
       />
 

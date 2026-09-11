@@ -32,6 +32,7 @@ import { useResponsive } from '@/lib/responsive';
 import { useTranslation } from '@/lib/use-translation';
 import { isInvoiceClosed } from '@/lib/invoice-lifecycle';
 import { getInvoicePaymentSummary } from '@/lib/invoice-payments';
+import { buildInvoiceSearchIndex, matchesInvoiceSearch } from '@/lib/invoice-search';
 import { shareInvoiceOnWhatsApp } from '@/lib/invoice-sharing';
 
 /** The device's own calendar day, so an invoice counts against the month it was really made in. */
@@ -42,7 +43,7 @@ function getLocalDayKey(date = new Date()) {
 export default function InvoicesScreen() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
-  const { customers, invoices, trashedInvoices, packages, payments, addCustomer, addInvoice, checkPlanLimit, confirmWorkspaceSave, createInvoiceShareLink, refreshInvoiceStatuses, invoiceDraft, setInvoiceDraft, updateInvoiceStatus, currency } = useAppData();
+  const { customers, bookings, invoices, trashedInvoices, packages, payments, addCustomer, addInvoice, checkPlanLimit, confirmWorkspaceSave, createInvoiceShareLink, refreshInvoiceStatuses, invoiceDraft, setInvoiceDraft, updateInvoiceStatus, currency } = useAppData();
   const posthog = usePostHog();
   const palette = getThemePalette(isDarkMode);
   // Invoice rows are dense text, so they stay one column inside the narrower reading width.
@@ -50,6 +51,7 @@ export default function InvoicesScreen() {
   const { t } = useTranslation();
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const customerMap = new Map(customers.map((customer) => [customer.id, customer]));
+  const [searchTerm, setSearchTerm] = useState('');
   const [showComposer, setShowComposer] = useState(Boolean(invoiceDraft));
   const [showSuccess, setShowSuccess] = useState(false);
   const successActive = useRef(false);
@@ -105,6 +107,25 @@ export default function InvoicesScreen() {
   const managePaymentSummary = activeManagedInvoice
     ? getInvoicePaymentSummary(activeManagedInvoice, payments)
     : lastManagedInvoice.current?.summary ?? null;
+
+  // Built once per data change rather than per keystroke, so typing stays light on long lists.
+  const invoiceSearchIndex = useMemo(() => {
+    const customerNames = new Map(customers.map((customer) => [customer.id, customer.name]));
+    const bookingsById = new Map(bookings.map((booking) => [booking.id, booking]));
+    return new Map(
+      invoices.map((invoice) => [
+        invoice.id,
+        buildInvoiceSearchIndex(invoice, customerNames.get(invoice.customerId) ?? '', bookingsById.get(invoice.bookingId)),
+      ]),
+    );
+  }, [bookings, customers, invoices]);
+  const visibleInvoices = useMemo(
+    () => invoices.filter((invoice) => {
+      const index = invoiceSearchIndex.get(invoice.id);
+      return index ? matchesInvoiceSearch(index, searchTerm) : true;
+    }),
+    [invoiceSearchIndex, invoices, searchTerm],
+  );
 
   const selectedPackage = packages.find((item) => item.id === selectedPackageId) ?? null;
   // Same rule as the booking composer: the finish time follows the package's own duration until it
@@ -364,10 +385,46 @@ export default function InvoicesScreen() {
         </View>
       </View>
 
+      <View style={[styles.searchRow, readingStyle]}>
+        <View style={[styles.searchField, { backgroundColor: softInset, borderColor: softBorder }]}>
+          <Ionicons name="search" size={17} color={palette.muter} />
+          <TextInput
+            value={searchTerm}
+            onChangeText={setSearchTerm}
+            style={[styles.searchFieldInput, { color: palette.text }]}
+            placeholder={t('invoices.search')}
+            placeholderTextColor={palette.muter}
+            autoCorrect={false}
+            autoCapitalize="none"
+            returnKeyType="search"
+            accessibilityLabel={t('invoices.search.label')}
+          />
+          {searchTerm.length > 0 && (
+            <Pressable
+              onPress={() => setSearchTerm('')}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={t('invoices.search.clear')}>
+              <Ionicons name="close-circle" size={17} color={palette.muter} />
+            </Pressable>
+          )}
+        </View>
+      </View>
+
       <FlatList
-        data={invoices}
+        data={visibleInvoices}
         keyExtractor={(item) => item.id}
         contentContainerStyle={[styles.list, readingStyle]}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        ListEmptyComponent={searchTerm.trim() ? (
+          <View style={[styles.emptyState, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
+            <Ionicons name="search-outline" size={22} color={palette.muter} />
+            <Text style={[styles.emptyText, { color: palette.muter }]}>
+              {t('invoices.empty.search', { term: searchTerm.trim() })}
+            </Text>
+          </View>
+        ) : null}
         renderItem={({ item }) => {
           const customer = customerMap.get(item.customerId);
           const summary = getInvoicePaymentSummary(item, payments);
@@ -733,7 +790,43 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: 16,
+  },
+  /** Mirrors the Customers search field. */
+  searchRow: {
+    marginBottom: 14,
+  },
+  searchField: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    height: 44,
+  },
+  searchFieldInput: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
+    padding: 0,
+  },
+  emptyState: {
+    alignItems: 'center',
+    borderRadius: 22,
+    borderWidth: 1,
+    gap: 10,
+    paddingHorizontal: 20,
+    paddingVertical: 28,
+    shadowOpacity: 0.16,
+    shadowRadius: 18,
+    shadowOffset: { width: 8, height: 10 },
+    elevation: 5,
+  },
+  emptyText: {
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   headerTitleGroup: {
     flexDirection: 'row',

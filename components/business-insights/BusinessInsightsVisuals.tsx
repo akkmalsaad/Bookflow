@@ -18,15 +18,6 @@ import { INSIGHTS_PERIODS, type InsightsPeriod } from '@/lib/business-insights';
 import type { TranslationKey } from '@/lib/i18n';
 import { useTranslation } from '@/lib/use-translation';
 
-export function ProBadge() {
-  const { isDarkMode } = useTheme();
-  return (
-    <View style={[styles.proBadge, { backgroundColor: isDarkMode ? '#31245D' : '#EEE9FF' }]}>
-      <Text style={[styles.proBadgeText, { color: isDarkMode ? '#C4B5FD' : '#6D28D9' }]}>PRO</Text>
-    </View>
-  );
-}
-
 export function WalletIllustration({ width = 146, height = 112 }: { width?: number; height?: number }) {
   const { t } = useTranslation();
   return (
@@ -274,18 +265,6 @@ export function InsightsPeriodSelector({
 }
 
 const styles = StyleSheet.create({
-  proBadge: {
-    alignItems: 'center',
-    borderRadius: 8,
-    justifyContent: 'center',
-    paddingHorizontal: 7,
-    paddingVertical: 4,
-  },
-  proBadgeText: {
-    fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 0.45,
-  },
   pressed: { opacity: 0.78 },
   donutWrap: { alignItems: 'center', height: 148, justifyContent: 'center', width: 148 },
   // 94pt wide inside a 111pt hole, so the two lines clear the ring at their widest point. Left and
