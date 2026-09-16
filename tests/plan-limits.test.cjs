@@ -34,9 +34,9 @@ const customers = (count) => Array.from({ length: count }, (_, index) => ({ id: 
 const booking = (id, createdAt) => ({ id, createdAt, status: 'Confirmed' });
 const invoice = (id, sentAt, over = {}) => ({ id, sentAt, ...over });
 
-test('the Free plan is 5 clients and 3 of each per month; Pro is unlimited', () => {
-  assert.deepEqual({ ...FREE_LIMITS }, { customers: 5, bookingsPerMonth: 3, invoicesPerMonth: 3 });
-  assert.deepEqual({ ...getPlanLimits(false) }, { customers: 5, bookingsPerMonth: 3, invoicesPerMonth: 3 });
+test('the Free plan is 5 clients, 5 bookings and 3 invoices per month; Pro is unlimited', () => {
+  assert.deepEqual({ ...FREE_LIMITS }, { customers: 5, bookingsPerMonth: 5, invoicesPerMonth: 3 });
+  assert.deepEqual({ ...getPlanLimits(false) }, { customers: 5, bookingsPerMonth: 5, invoicesPerMonth: 3 });
   assert.deepEqual({ ...getPlanLimits(true) }, { customers: null, bookingsPerMonth: null, invoicesPerMonth: null });
 });
 
@@ -47,10 +47,10 @@ test('Free customers: the fifth is allowed, the sixth is not', () => {
   assert.deepEqual({ kind: blocked.kind, used: blocked.used, limit: blocked.limit }, { kind: 'customers', used: 5, limit: 5 });
 });
 
-test('Free bookings: the third is allowed, the fourth is not', () => {
+test('Free bookings: the fifth is allowed, the sixth is not', () => {
   const made = (count) => Array.from({ length: count }, (_, index) => booking(`bk-${index}`, '2026-09-04'));
-  assert.equal(canCreateBooking(false, made(2), NOW).allowed, true);
-  assert.equal(canCreateBooking(false, made(3), NOW).allowed, false);
+  assert.equal(canCreateBooking(false, made(4), NOW).allowed, true);
+  assert.equal(canCreateBooking(false, made(5), NOW).allowed, false);
 });
 
 test('Free invoices: the third is allowed, the fourth is not', () => {
@@ -90,8 +90,14 @@ test('month boundaries are read in local time, not UTC', () => {
 });
 
 test('a cancelled booking still counts, so cancelling cannot buy another', () => {
-  const made = [booking('bk-1', '2026-09-02'), { ...booking('bk-2', '2026-09-03'), status: 'Cancelled' }, booking('bk-3', '2026-09-04')];
-  assert.equal(getMonthlyBookingUsage(made, NOW), 3);
+  const made = [
+    booking('bk-1', '2026-09-02'),
+    { ...booking('bk-2', '2026-09-03'), status: 'Cancelled' },
+    booking('bk-3', '2026-09-04'),
+    booking('bk-4', '2026-09-05'),
+    booking('bk-5', '2026-09-06'),
+  ];
+  assert.equal(getMonthlyBookingUsage(made, NOW), 5);
   assert.equal(canCreateBooking(false, made, NOW).allowed, false);
 });
 
@@ -126,7 +132,7 @@ test('deleting a customer frees the allowance, and existing records are never hi
 
 test('the upgrade copy names the real limits', () => {
   assert.match(LIMIT_COPY.customers.body, /limit of 5 clients/);
-  assert.match(LIMIT_COPY.bookings.body, /your 3 Free bookings this month/);
+  assert.match(LIMIT_COPY.bookings.body, /your 5 Free bookings this month/);
   assert.match(LIMIT_COPY.invoices.body, /your 3 Free invoices this month/);
   assert.equal(LIMIT_COPY.customers.title, 'Ready for more clients?');
   assert.equal(LIMIT_COPY.bookings.title, 'Your business is growing');

@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useMemo, useState } from 'react';
-import { useColorScheme } from 'react-native';
+import * as SecureStore from 'expo-secure-store';
+import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import { Platform, useColorScheme } from 'react-native';
 
 /** 'system' follows the device appearance; the other two pin it regardless of the device. */
 export type ThemePreference = 'system' | 'light' | 'dark';
@@ -29,6 +30,34 @@ type ThemeContextValue = {
 };
 
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
+
+const THEME_PREFERENCE_KEY = 'bookflow.themePreference';
+
+function isThemePreference(value: unknown): value is ThemePreference {
+  return value === 'system' || value === 'light' || value === 'dark';
+}
+
+/**
+ * The saved choice, read synchronously so the first frame already uses it — no light-to-dark flash
+ * on launch. Uses expo-secure-store, which the app already ships for Clerk's token cache. Web (the
+ * public invoice page) and any storage failure fall back to Light, the app's long-standing default.
+ */
+function readStoredPreference(): ThemePreference {
+  if (Platform.OS === 'web') return 'light';
+  try {
+    const stored = SecureStore.getItem(THEME_PREFERENCE_KEY);
+    return isThemePreference(stored) ? stored : 'light';
+  } catch {
+    return 'light';
+  }
+}
+
+function storePreference(preference: ThemePreference) {
+  if (Platform.OS === 'web') return;
+  SecureStore.setItemAsync(THEME_PREFERENCE_KEY, preference).catch((error) => {
+    if (__DEV__) console.warn('[theme] could not save the appearance preference', error);
+  });
+}
 
 export function getThemePalette(isDarkMode: boolean): AppPalette {
   return isDarkMode
@@ -66,9 +95,12 @@ export function getThemePalette(isDarkMode: boolean): AppPalette {
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const systemScheme = useColorScheme();
-  // Defaults to Light, which is how the app has always started. Choosing System is opt-in, and the
-  // preference lives for the session only — nothing about the theme is persisted yet.
-  const [themePreference, setThemePreference] = useState<ThemePreference>('light');
+  // Light until the person chooses otherwise; their choice is saved on this device.
+  const [themePreference, setThemePreferenceState] = useState<ThemePreference>(readStoredPreference);
+  const setThemePreference = useCallback((preference: ThemePreference) => {
+    setThemePreferenceState(preference);
+    storePreference(preference);
+  }, []);
   const isDarkMode = themePreference === 'system' ? systemScheme === 'dark' : themePreference === 'dark';
 
   const value = useMemo<ThemeContextValue>(
@@ -79,7 +111,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       themePreference,
       setThemePreference,
     }),
-    [isDarkMode, themePreference],
+    [isDarkMode, setThemePreference, themePreference],
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

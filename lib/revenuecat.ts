@@ -178,7 +178,7 @@ export function logCustomerInfo(context: string, customerInfo: CustomerInfo): vo
   const purchasedProducts = customerInfo.allPurchasedProductIdentifiers ?? [];
 
   console.log(`[RevenueCat] ${context} — active entitlements:`, activeEntitlements);
-  console.log(`[RevenueCat] ${context} — Bookflow resolved:`, hasProAccess(customerInfo) ? 'Pro' : 'Free');
+  console.log(`[RevenueCat] ${context} — BookFlow resolved:`, hasProAccess(customerInfo) ? 'Pro' : 'Free');
 
   if (hasProAccess(customerInfo)) return;
 
@@ -188,7 +188,7 @@ export function logCustomerInfo(context: string, customerInfo: CustomerInfo): vo
 
   if (misnamed && misnamed !== PRO_ENTITLEMENT_ID) {
     console.warn(
-      `[RevenueCat] Entitlement id mismatch: the dashboard has "${misnamed}" but Bookflow expects ` +
+      `[RevenueCat] Entitlement id mismatch: the dashboard has "${misnamed}" but BookFlow expects ` +
         `"${PRO_ENTITLEMENT_ID}". Rename it in RevenueCat, or change PRO_ENTITLEMENT_ID in lib/revenuecat.ts. ` +
         'Entitlement ids are case-sensitive.',
     );
@@ -218,6 +218,24 @@ export function logCustomerInfo(context: string, customerInfo: CustomerInfo): vo
  * "already configured" must outlive any React remount (fast refresh, provider re-mount).
  */
 let configured = false;
+
+// The native identity is global. Serialize transitions across effects/remounts so a slow login
+// cannot finish after a newer logout (or another account's login).
+let identitySync: Promise<unknown> = Promise.resolve();
+
+export function syncPurchasesIdentity(userId: string | null): Promise<CustomerInfo> {
+  const next = identitySync.then(async () => {
+    if (userId === null) {
+      if (!(await Purchases.isAnonymous())) return Purchases.logOut();
+    } else if ((await Purchases.getAppUserID()) !== userId) {
+      return (await Purchases.logIn(userId)).customerInfo;
+    }
+    return Purchases.getCustomerInfo();
+  });
+  // Keep subsequent transitions possible after a failure; the caller still receives the error.
+  identitySync = next.catch(() => {});
+  return next;
+}
 
 let activeEnvironment: RevenueCatEnvironment = 'unsupported';
 
@@ -334,8 +352,12 @@ export function describePackage(pkg: PurchasesPackage | null): string {
 }
 
 /**
- * Localised monthly equivalent of a yearly plan ("RM16.58"). The SDK computes and formats this
- * for us; the manual fallback covers older store payloads where `pricePerMonthString` is null.
+ * Localised monthly equivalent of a yearly plan ("RM16.58"), in the store's own currency.
+ *
+ * The store already formats this for the subscription's period, so its string is used as-is. The
+ * fallback divides the yearly price by twelve and formats it with the product's currency code —
+ * never a symbol chosen by the app. Anything missing or unusable returns null, and the caller
+ * leaves the sentence out rather than showing a price in the wrong currency.
  */
 export function describeMonthlyEquivalent(pkg: PurchasesPackage | null): string | null {
   if (!pkg) return null;
@@ -343,8 +365,8 @@ export function describeMonthlyEquivalent(pkg: PurchasesPackage | null): string 
   const { pricePerMonthString, pricePerMonth, price, currencyCode } = pkg.product;
   if (pricePerMonthString) return pricePerMonthString;
 
-  const perMonth = pricePerMonth ?? (price > 0 ? price / 12 : null);
-  if (!perMonth) return null;
+  const perMonth = isUsablePrice(pricePerMonth) ? pricePerMonth : isUsablePrice(price) ? price / 12 : null;
+  if (perMonth === null || !currencyCode) return null;
 
   try {
     return new Intl.NumberFormat(undefined, { style: 'currency', currency: currencyCode }).format(perMonth);
@@ -354,20 +376,29 @@ export function describeMonthlyEquivalent(pkg: PurchasesPackage | null): string 
   }
 }
 
+/** A price the store actually quoted: a positive, finite number. */
+function isUsablePrice(value: number | null | undefined): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0;
+}
+
 /**
- * Percentage saved by paying yearly instead of monthly, or null when either package is missing.
- * Both prices come from the store in the same currency, so the comparison is safe.
+ * Percentage saved by paying yearly instead of twelve monthly payments, from the numeric store
+ * prices — never the formatted strings. Null whenever the comparison cannot be made honestly:
+ * a missing package, a price the store did not quote, or a year that costs the same or more.
+ * A saving that rounds down to 0% is dropped too, so no badge ever reads "SAVE 0%".
  */
 export function yearlySavingsPercent(
   monthly: PurchasesPackage | null,
   yearly: PurchasesPackage | null,
 ): number | null {
-  if (!monthly || !yearly || monthly.product.price <= 0) return null;
+  if (!monthly || !yearly) return null;
+  if (!isUsablePrice(monthly.product.price) || !isUsablePrice(yearly.product.price)) return null;
 
   const yearlyCostOfMonthly = monthly.product.price * 12;
   if (yearly.product.price >= yearlyCostOfMonthly) return null;
 
-  return Math.round((1 - yearly.product.price / yearlyCostOfMonthly) * 100);
+  const percent = Math.round((1 - yearly.product.price / yearlyCostOfMonthly) * 100);
+  return percent > 0 ? percent : null;
 }
 
 function isPurchasesError(error: unknown): error is PurchasesError {
@@ -425,9 +456,9 @@ export function describePurchasesError(
       return 'You already own this subscription. Try restoring your purchases.';
     case PURCHASES_ERROR_CODE.RECEIPT_ALREADY_IN_USE_ERROR:
     case PURCHASES_ERROR_CODE.RECEIPT_IN_USE_BY_OTHER_SUBSCRIBER_ERROR:
-      return 'This subscription is already attached to a different Bookflow account.';
+      return 'This subscription is already attached to a different BookFlow account.';
     case PURCHASES_ERROR_CODE.PAYMENT_PENDING_ERROR:
-      return 'Your payment is pending approval. Bookflow Pro unlocks as soon as it clears.';
+      return 'Your payment is pending approval. BookFlow Pro unlocks as soon as it clears.';
     case PURCHASES_ERROR_CODE.PRODUCT_NOT_AVAILABLE_FOR_PURCHASE_ERROR:
       return 'That plan is not available in your region yet.';
     case PURCHASES_ERROR_CODE.INELIGIBLE_ERROR:

@@ -66,6 +66,52 @@ export type Database = {
           },
         ];
       };
+      support_requests: {
+        Row: {
+          app_version: string | null;
+          created_at: string;
+          id: string;
+          message: string;
+          os_version: string | null;
+          platform: string | null;
+          status: 'new' | 'in_progress' | 'resolved' | 'closed';
+          topic: string;
+          updated_at: string;
+          user_id: string;
+        };
+        // Mirrors the column-level grant: owner, status and timestamps are always server defaults.
+        Insert: {
+          app_version?: string | null;
+          id?: string;
+          message: string;
+          os_version?: string | null;
+          platform?: string | null;
+          topic: string;
+        };
+        Update: Record<never, never>;
+        Relationships: [];
+      };
+      user_feedback: {
+        Row: {
+          app_version: string | null;
+          category: string;
+          created_at: string;
+          id: string;
+          message: string;
+          platform: string | null;
+          status: 'new' | 'reviewed' | 'planned' | 'closed';
+          user_id: string;
+        };
+        Insert: {
+          app_version?: string | null;
+          category: string;
+          id?: string;
+          message: string;
+          platform?: string | null;
+        };
+        Update: Record<never, never>;
+        Relationships: [];
+      };
     };
     Views: Record<never, never>;
     Functions: Record<never, never>;

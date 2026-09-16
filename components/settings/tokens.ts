@@ -2,6 +2,9 @@
  * The Soft UI surface tokens the BookFlow screens already inline everywhere. Collected here so the
  * settings screens all reach for the same values instead of re-deriving them per file.
  */
+export const SETTINGS_ICON_BACKGROUND_COLOR = '#E9EDE6';
+export const SETTINGS_ICON_STROKE_COLOR = '#142A3A';
+
 export function getSoftTokens(isDarkMode: boolean) {
   return {
     surface: isDarkMode ? '#172033' : '#F7F9FD',

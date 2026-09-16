@@ -1,17 +1,23 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useState, type ComponentProps, type ReactNode } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { SectionHeader } from '@/components/SectionHeader';
+import BookFlowLoading from '@/components/feedback/BookFlowLoading';
+import { useLoadingTransition } from '@/components/feedback/useLoadingTransition';
 import {
   IncomeExpenseDonut,
   InsightsPeriodSelector,
   Sparkline,
 } from '@/components/business-insights/BusinessInsightsVisuals';
 import { InsightRow } from '@/components/business-insights/InsightRow';
-import { getSoftTokens } from '@/components/settings/tokens';
+import {
+  getSoftTokens,
+  SETTINGS_ICON_BACKGROUND_COLOR,
+  SETTINGS_ICON_STROKE_COLOR,
+} from '@/components/settings/tokens';
 import { getCompactCurrencyFormatter, useAppData } from '@/context/app-data-context';
 import { useSubscription } from '@/context/subscription-context';
 import { getThemePalette, useTheme, type AppPalette } from '@/context/theme-context';
@@ -59,6 +65,8 @@ export default function BusinessInsightsScreen() {
     currency,
   } = useAppData();
   const [period, setPeriod] = useState<InsightsPeriod>('this-month');
+  const loading = isLoadingSubscription || !isPro || isLoading;
+  const loadingTransition = useLoadingTransition(loading);
   const currencyFormatter = useMemo(() => getCompactCurrencyFormatter(currency), [currency]);
   const metrics = useMemo(
     () =>
@@ -79,13 +87,8 @@ export default function BusinessInsightsScreen() {
     router.replace({ pathname: '/paywall', params: { returnTo: '/business-insights' } });
   }, [isLoadingSubscription, isPro, router]);
 
-  if (isLoadingSubscription || !isPro) {
-    return (
-      <SafeAreaView style={[styles.gate, { backgroundColor: palette.background }]}>
-        <ActivityIndicator size="large" color={palette.accent} />
-        <Text style={[styles.gateText, { color: palette.muter }]}>{t('insights.gate.checking')}</Text>
-      </SafeAreaView>
-    );
+  if (loadingTransition.visible) {
+    return <BookFlowLoading key={loadingTransition.cycle} loading={loading} />;
   }
 
   const goBack = () => (router.canGoBack() ? router.back() : router.replace('/(tabs)/finance'));
@@ -109,10 +112,10 @@ export default function BusinessInsightsScreen() {
           onPress={goBack}
           style={({ pressed }) => [
             styles.backButton,
-            { backgroundColor: soft.surface, borderColor: soft.border, shadowColor: soft.shadow },
+            { backgroundColor: SETTINGS_ICON_BACKGROUND_COLOR, borderColor: soft.border, shadowColor: soft.shadow },
             pressed && styles.pressed,
           ]}>
-          <Ionicons name="arrow-back" size={22} color={palette.text} />
+          <Ionicons name="arrow-back" size={22} color={SETTINGS_ICON_STROKE_COLOR} />
         </Pressable>
         <View style={styles.headerCopy}>
           <Text style={[styles.title, { color: palette.text }]}>{t('insights.card.title')}</Text>
@@ -121,17 +124,17 @@ export default function BusinessInsightsScreen() {
       </View>
 
       <View style={[styles.periodRow, contentStyle]}>
-        <InsightsPeriodSelector value={period} onChange={setPeriod} variant="flat" />
+        <InsightsPeriodSelector
+          value={period}
+          onChange={setPeriod}
+          variant="flat"
+          iconColor={SETTINGS_ICON_STROKE_COLOR}
+        />
       </View>
 
-      {isLoading ? (
-        <View style={styles.loadingBody}>
-          <ActivityIndicator size="large" color={palette.accent} />
-          <Text style={[styles.loadingText, { color: palette.muter }]}>{t('insights.preparing')}</Text>
-        </View>
-      ) : loadError ? (
+      {loadError ? (
         <View style={[styles.errorCard, { backgroundColor: soft.surface, borderColor: soft.border }]}>
-          <Ionicons name="cloud-offline-outline" size={26} color={palette.muter} />
+          <Ionicons name="cloud-offline-outline" size={26} color={SETTINGS_ICON_STROKE_COLOR} />
           <Text style={[styles.errorTitle, { color: palette.text }]}>{t('insights.loadFailed')}</Text>
           <Pressable
             accessibilityRole="button"
@@ -384,6 +387,7 @@ function SectionCard({
       <View style={styles.sectionHeader}>
         <SectionHeader
           icon={icon}
+          iconColor={SETTINGS_ICON_STROKE_COLOR}
           title={title}
           subtitle={subtitle}
           tone={tone}
@@ -424,8 +428,8 @@ function HealthMetric({
       accessible
       accessibilityLabel={`${label}, ${value}, ${footer}`}
       style={[styles.metricCard, { backgroundColor: soft.inset, borderColor: soft.border }]}>
-      <View style={[styles.metricIcon, { backgroundColor: soft.accentSoft }]}>
-        <Ionicons name={icon} size={19} color={palette.accent} />
+      <View style={[styles.metricIcon, { backgroundColor: SETTINGS_ICON_BACKGROUND_COLOR }]}>
+        <Ionicons name={icon} size={19} color={SETTINGS_ICON_STROKE_COLOR} />
       </View>
       <Text style={[styles.metricLabel, { color: palette.muter }]} numberOfLines={1}>
         {label}
@@ -527,6 +531,7 @@ function InsightsCard({
       <View style={styles.sectionHeader}>
         <SectionHeader
           icon="sparkles-outline"
+          iconColor={SETTINGS_ICON_STROKE_COLOR}
           title={t('insights.promo.title')}
           subtitle={t('insights.promo.subtitle')}
           tone="accent"
@@ -538,7 +543,7 @@ function InsightsCard({
               onPress={onViewAll}
               style={({ pressed }) => [styles.viewAll, pressed && styles.pressed]}>
               <Text style={[styles.viewAllText, { color: palette.accent }]}>{t('insights.viewAllShort')}</Text>
-              <Ionicons name="chevron-forward" size={15} color={palette.accent} />
+              <Ionicons name="chevron-forward" size={15} color={SETTINGS_ICON_STROKE_COLOR} />
             </Pressable>
           }
         />
@@ -552,12 +557,14 @@ function InsightsCard({
             last={index === visibleInsights.length - 1}
             onPress={onViewAll}
             variant="quiet"
+            iconBackgroundColor={SETTINGS_ICON_BACKGROUND_COLOR}
+            iconColor={SETTINGS_ICON_STROKE_COLOR}
           />
         ))
       ) : (
         <View style={styles.insightEmpty}>
-          <View style={[styles.insightEmptyIcon, { backgroundColor: soft.accentSoft }]}>
-            <Ionicons name="sparkles-outline" size={19} color={palette.accent} />
+          <View style={[styles.insightEmptyIcon, { backgroundColor: SETTINGS_ICON_BACKGROUND_COLOR }]}>
+            <Ionicons name="sparkles-outline" size={19} color={SETTINGS_ICON_STROKE_COLOR} />
           </View>
           <View style={styles.insightEmptyCopy}>
             <Text style={[styles.insightEmptyTitle, { color: palette.text }]}>{t('insights.empty')}</Text>
@@ -585,7 +592,6 @@ function ExpenseCategoryRow({
   isDarkMode: boolean;
 }) {
   const palette = getThemePalette(isDarkMode);
-  const soft = getSoftTokens(isDarkMode);
   const icon: IconName = /transport|travel|fuel|car/i.test(category)
     ? 'car-outline'
     : /equipment|gear|camera/i.test(category)
@@ -599,8 +605,8 @@ function ExpenseCategoryRow({
       accessible
       accessibilityLabel={`${category}, ${amount}, ${Math.round(share)} percent of expenses`}
       style={[styles.categoryRow, last && styles.categoryRowLast]}>
-      <View style={[styles.rowIcon, { backgroundColor: soft.inset }]}>
-        <Ionicons name={icon} size={18} color={palette.muter} />
+      <View style={[styles.rowIcon, { backgroundColor: SETTINGS_ICON_BACKGROUND_COLOR }]}>
+        <Ionicons name={icon} size={18} color={SETTINGS_ICON_STROKE_COLOR} />
       </View>
       <View style={styles.categoryMain}>
         <View style={styles.categoryCopy}>
@@ -647,8 +653,8 @@ function SimpleMetric({
       accessible
       accessibilityLabel={`${label}, ${value}, ${footer}`}
       style={[styles.metricCard, { backgroundColor: soft.inset, borderColor: soft.border }]}>
-      <View style={[styles.metricIcon, { backgroundColor: soft.accentSoft }]}>
-        <Ionicons name={icon} size={19} color={palette.accent} />
+      <View style={[styles.metricIcon, { backgroundColor: SETTINGS_ICON_BACKGROUND_COLOR }]}>
+        <Ionicons name={icon} size={19} color={SETTINGS_ICON_STROKE_COLOR} />
       </View>
       <Text style={[styles.metricLabel, { color: palette.muter }]} numberOfLines={2}>
         {label}
@@ -686,8 +692,8 @@ function HighlightRow({
       accessible
       accessibilityLabel={[label, value, supporting].filter(Boolean).join(', ')}
       style={[styles.highlightRow, !last && { borderBottomColor: soft.divider, borderBottomWidth: 1 }]}>
-      <View style={[styles.rowIcon, { backgroundColor: soft.inset }]}>
-        <Ionicons name={icon} size={19} color={palette.muter} />
+      <View style={[styles.rowIcon, { backgroundColor: SETTINGS_ICON_BACKGROUND_COLOR }]}>
+        <Ionicons name={icon} size={19} color={SETTINGS_ICON_STROKE_COLOR} />
       </View>
       <View style={styles.highlightCopy}>
         <Text style={[styles.highlightLabel, { color: palette.muter }]}>{label}</Text>
@@ -705,7 +711,7 @@ function SmallEmpty({ label, isDarkMode }: { label: string; isDarkMode: boolean 
 
   return (
     <View style={styles.smallEmpty}>
-      <Ionicons name="analytics-outline" size={20} color={palette.muter} />
+      <Ionicons name="analytics-outline" size={20} color={SETTINGS_ICON_STROKE_COLOR} />
       <Text style={[styles.smallEmptyText, { color: palette.muter }]}>{label}</Text>
     </View>
   );
@@ -743,8 +749,6 @@ function changeLabel(change: number | null | undefined) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  gate: { alignItems: 'center', flex: 1, justifyContent: 'center' },
-  gateText: { fontSize: 13, fontWeight: '600', marginTop: 13 },
 
   header: { alignItems: 'center', flexDirection: 'row', paddingHorizontal: 20, paddingTop: 12 },
   backButton: {
@@ -767,8 +771,6 @@ const styles = StyleSheet.create({
   pressed: { opacity: 0.7 },
 
   content: { alignSelf: 'center', paddingBottom: 40, paddingHorizontal: 20, paddingTop: 20, width: '100%' },
-  loadingBody: { alignItems: 'center', flex: 1, justifyContent: 'center' },
-  loadingText: { fontSize: 13, fontWeight: '600', marginTop: 12 },
   errorCard: {
     alignItems: 'center',
     alignSelf: 'center',

@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import type { ReactNode } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import type { ReactNode, RefObject } from 'react';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { getSoftTokens } from '@/components/settings/tokens';
@@ -17,13 +17,21 @@ type Props = {
   children: ReactNode;
   /** Pinned under the scroll area, for a screen with one primary action. */
   footer?: ReactNode;
+  /**
+   * For a screen with text fields: the scroll area and the pinned footer rise with the keyboard so
+   * the focused field and the primary action stay reachable. Off by default, so every existing
+   * settings screen lays out exactly as before.
+   */
+  avoidKeyboard?: boolean;
+  /** Lets a form scroll its own content, e.g. to bring a focused field clear of the keyboard. */
+  scrollRef?: RefObject<ScrollView | null>;
 };
 
 /**
  * Shared scaffold for every screen behind a settings row: back button, the same header rhythm as
  * the settings hub, and a scroll area that respects the safe areas on both platforms.
  */
-export function SettingsDetailScreen({ eyebrow, title, description, children, footer }: Props) {
+export function SettingsDetailScreen({ eyebrow, title, description, children, footer, avoidKeyboard = false, scrollRef }: Props) {
   const { t } = useTranslation();
   const router = useRouter();
   const { isDarkMode } = useTheme();
@@ -49,33 +57,47 @@ export function SettingsDetailScreen({ eyebrow, title, description, children, fo
           <Ionicons name="chevron-back" size={21} color={palette.text} />
         </Pressable>
         <View style={styles.headerCopy}>
-          {eyebrow ? <Text style={[styles.eyebrow, { color: palette.accent }]}>{eyebrow}</Text> : null}
+          {eyebrow ? <Text style={[styles.eyebrow, { color: '#142A3A' }]}>{eyebrow}</Text> : null}
           <Text style={[styles.title, { color: palette.text }]}>{title}</Text>
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={[styles.content, readingStyle]} showsVerticalScrollIndicator={false}>
-        {description ? <Text style={[styles.description, { color: palette.muter }]}>{description}</Text> : null}
-        {children}
-      </ScrollView>
+      <KeyboardBody enabled={avoidKeyboard}>
+        <ScrollView
+          ref={scrollRef}
+          contentContainerStyle={[styles.content, readingStyle]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps={avoidKeyboard ? 'handled' : undefined}
+          keyboardDismissMode={avoidKeyboard ? (Platform.OS === 'ios' ? 'interactive' : 'on-drag') : undefined}>
+          {description ? <Text style={[styles.description, { color: palette.muter }]}>{description}</Text> : null}
+          {children}
+        </ScrollView>
 
-      {footer ? (
-        <SafeAreaView
-          edges={['bottom']}
-          // The band's own inset moves onto the inner column on tablets, so the two do not stack.
-          style={[styles.footer, !isPhone && styles.footerBleed, { borderTopColor: soft.divider }]}>
-          {/* The hairline stays edge to edge; only the control inside it follows the column. */}
-          <View style={readingStyle}>{footer}</View>
-        </SafeAreaView>
-      ) : null}
+        {footer ? (
+          <SafeAreaView
+            edges={['bottom']}
+            // The band's own inset moves onto the inner column on tablets, so the two do not stack.
+            style={[styles.footer, !isPhone && styles.footerBleed, { borderTopColor: soft.divider }]}>
+            {/* The hairline stays edge to edge; only the control inside it follows the column. */}
+            <View style={readingStyle}>{footer}</View>
+          </SafeAreaView>
+        ) : null}
+      </KeyboardBody>
     </SafeAreaView>
   );
 }
 
-/**
- * Says plainly that a setting has no behaviour behind it yet. Used instead of controls that would
- * look saved without saving anything.
- */
+/** Same keyboard behaviour as the sign-in screens (AuthUI), only when a screen opts in. */
+function KeyboardBody({ enabled, children }: { enabled: boolean; children: ReactNode }) {
+  if (!enabled) return <>{children}</>;
+  return (
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboardBody}>
+      {children}
+    </KeyboardAvoidingView>
+  );
+}
+
+/** A short informational note explaining how a setting or screen works. */
 export function SettingsNotice({ title, body, items }: { title: string; body: string; items?: string[] }) {
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
@@ -84,7 +106,7 @@ export function SettingsNotice({ title, body, items }: { title: string; body: st
   return (
     <View style={[styles.notice, { backgroundColor: soft.surface, borderColor: soft.border }]}>
       <View style={styles.noticeHeader}>
-        <Ionicons name="construct-outline" size={17} color={palette.warning} />
+        <Ionicons name="information-circle-outline" size={18} color={palette.accent} />
         <Text style={[styles.noticeTitle, { color: palette.text }]}>{title}</Text>
       </View>
       <Text style={[styles.noticeBody, { color: palette.muter }]}>{body}</Text>
@@ -192,6 +214,9 @@ export const settingsDetailStyles = StyleSheet.create({
 
 const styles = StyleSheet.create({
   screen: {
+    flex: 1,
+  },
+  keyboardBody: {
     flex: 1,
   },
   header: {

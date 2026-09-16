@@ -1,28 +1,6 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
-type InvoiceStatus = 'Sent' | 'Accepted' | 'Declined' | 'Paid' | 'Cancelled' | 'Void';
-
-type InvoicePayload = {
-  invoice: {
-    id: string;
-    invoiceNumber?: string;
-    amount: number;
-    depositPaid?: number;
-    dueDate: string;
-    sentAt: string;
-    status: InvoiceStatus;
-    terms?: string;
-  };
-  customer: { name: string; email: string; phone: string };
-  businessProfile: { name: string; ssmRegistrationNo?: string; phone: string; email: string; address: string; logoUrl?: string };
-  currency: 'MYR' | 'IDR' | 'USD';
-  serviceName?: string;
-  packageDetails?: string;
-  eventLocation?: string;
-  eventDate?: string;
-  eventStartTime?: string;
-  eventEndTime?: string;
-};
+import { publicInvoiceResponse } from './payload.ts';
 
 const corsHeaders = {
   'access-control-allow-origin': '*',
@@ -90,7 +68,7 @@ Deno.serve(async (request) => {
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   if (!supabaseUrl || !serviceRoleKey) {
-    return jsonResponse({ error: 'The invoice service is not configured.' }, 500);
+    return jsonResponse({ error: 'Unable to load this invoice. Please try again later.' }, 500);
   }
 
   const admin = createClient(supabaseUrl, serviceRoleKey, {
@@ -119,23 +97,14 @@ Deno.serve(async (request) => {
     if (error?.message?.includes('no longer active')) {
       return jsonResponse({ error: 'This invoice is no longer active.' }, 409);
     }
-    if (error || !data) {
-      return jsonResponse({ error: 'This invoice link is invalid or has expired.' }, 404);
-    }
+    if (error?.code === 'P0002' || (!error && !data)) return jsonResponse({ error: 'This invoice link is invalid or has expired.' }, 404);
+    if (error) return jsonResponse({ error: 'Unable to load this invoice. Please try again later.' }, 503);
 
-    const result = data as { payload: InvoicePayload; status: InvoiceStatus };
-    return jsonResponse({ payload: result.payload, status: result.status });
+    return jsonResponse(publicInvoiceResponse(data));
   }
 
-  const { data, error } = await admin
-    .from('public_invoice_links')
-    .select('payload,status,expires_at')
-    .eq('token', token)
-    .maybeSingle();
-
-  if (error || !data || new Date(data.expires_at).getTime() <= Date.now()) {
-    return jsonResponse({ error: 'This invoice link is invalid or has expired.' }, 404);
-  }
-
-  return jsonResponse({ payload: data.payload as InvoicePayload, status: data.status as InvoiceStatus });
+  const { data, error } = await admin.rpc('read_public_invoice_state', { p_token: token });
+  if (error) return jsonResponse({ error: 'Unable to load this invoice. Please try again later.' }, 503);
+  if (!data) return jsonResponse({ error: 'This invoice link is invalid or has expired.' }, 404);
+  return jsonResponse(publicInvoiceResponse(data));
 });

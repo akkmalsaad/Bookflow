@@ -87,12 +87,8 @@ export function BusinessProfileModal({ visible, onClose }: Props) {
         setIsLogoRemoved(false);
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      setSaveError(
-        message.includes('ExponentImagePicker')
-          ? t('profile.error.rebuild')
-          : message || t('profile.error.library'),
-      );
+      if (__DEV__) console.warn('[profile] photo library failed', error);
+      setSaveError(t('profile.error.library'));
     }
   };
 
@@ -131,7 +127,8 @@ export function BusinessProfileModal({ visible, onClose }: Props) {
       updateCurrency(profileCurrency);
       onClose();
     } catch (error) {
-      setSaveError(error instanceof Error ? error.message : t('profile.error.save'));
+      if (__DEV__) console.warn('[profile] save failed', error);
+      setSaveError(selectedLogo ? t('profile.error.logoUpload') : t('profile.error.save'));
     } finally {
       setIsSaving(false);
     }

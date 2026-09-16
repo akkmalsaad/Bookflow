@@ -1,3 +1,4 @@
+import { createPublicInvoiceUrl } from '@/lib/public-invoice-url';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, Platform } from 'react-native';
 
@@ -5,7 +6,6 @@ import { useAuth, type AuthUser } from '@/context/auth-context';
 import { useSubscription } from '@/context/subscription-context';
 import {
   createClerkSupabaseClient,
-  getSupabaseFunctionUrl,
   isSupabaseConfigured,
   type Json,
 } from '@/lib/supabase';
@@ -22,7 +22,7 @@ import {
   type PlanUsage,
 } from '@/lib/plan-limits';
 import { onNotificationReceived } from '@/lib/notifications';
-import { DEFAULT_LOCALE, getInvoiceDocumentLabels, isLocale, type Locale } from '@/lib/i18n';
+import { DEFAULT_LOCALE, getInvoiceDocumentLabels, isLocale, translate, type Locale, type TranslationKey } from '@/lib/i18n';
 import { fromCents, resolveInvoiceStatus, sumPaymentsInCents, toCents } from '@/lib/invoice-payments';
 import { DEFAULT_INVOICE_NUMBER_FORMAT, getInvoiceNumber, nextAvailableInvoiceNumber } from '@/lib/invoice-numbering';
 import { getExpiredDustbinInvoiceIds } from '@/lib/invoice-lifecycle';
@@ -422,7 +422,13 @@ type AppDataContextValue = {
   markReminderSent: (reminderId: string) => void;
   markNotificationOpened: (notificationId: string) => void;
   markAllNotificationsOpened: () => void;
-  deleteWorkspace: () => Promise<void>;
+  /**
+   * Stops workspace saves and waits for any in-flight save to finish, so nothing can write the
+   * workspace back while the server deletes the account. `resumeWorkspaceSync` undoes it when the
+   * deletion fails.
+   */
+  suspendWorkspaceSync: () => Promise<void>;
+  resumeWorkspaceSync: () => void;
   deleteAllData: () => void;
   /** Everything a Workspace Backup carries, Dustbin included, straight from the live workspace. */
   readWorkspaceSnapshot: () => WorkspaceSnapshot;
@@ -527,19 +533,15 @@ function normalizeBookingCreationDates(bookings: Booking[]) {
  * invoice. Turn that total into one payment record so no money disappears from the ledger.
  */
 /**
- * Turns a Supabase Storage failure into something the user can act on.
- *
- * "Bucket not found" in particular means the business-logo migration has not been applied to the
- * project yet, which is a setup step rather than anything the user did wrong — saying so beats
- * surfacing the raw driver message.
+ * Turns a Supabase Storage failure into something the user can act on. Setup problems (such as a
+ * missing bucket) are logged for developers only; the person saving just sees that it failed.
  */
 function describeStorageError(error: { message?: string }) {
   const message = error?.message ?? '';
 
   if (/bucket not found/i.test(message)) {
-    return new Error(
-      'Logo storage is not set up on this Supabase project yet. Apply the business-logo storage migration, then try again.',
-    );
+    if (__DEV__) console.warn('[logo] the business-logos storage bucket is missing; apply the storage migration');
+    return new Error('The logo could not be saved. Please try again.');
   }
   if (/mime type|content type/i.test(message)) {
     return new Error('That image type is not supported. Choose a JPG, PNG, or WebP logo.');
@@ -551,7 +553,8 @@ function describeStorageError(error: { message?: string }) {
     return new Error('Your account is not allowed to change this logo. Sign out and back in, then try again.');
   }
 
-  return new Error(message || 'The logo could not be saved. Check your connection and try again.');
+  if (__DEV__ && message) console.warn('[logo] storage error', message);
+  return new Error('The logo could not be saved. Check your connection and try again.');
 }
 
 const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -931,6 +934,11 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   });
   const [currency, setCurrency] = useState<CurrencyCode>('MYR');
   const [language, setLanguage] = useState<Locale>(DEFAULT_LOCALE);
+  // Error messages thrown to screens are written in the person's language. Read through a ref so the
+  // callbacks that throw them keep their existing dependencies.
+  const languageRef = useRef(language);
+  languageRef.current = language;
+  const userMessage = useCallback((key: TranslationKey) => translate(languageRef.current, key), []);
   const [invoiceSettings, setInvoiceSettings] = useState<InvoiceSettings>({ ...DEFAULT_INVOICE_SETTINGS });
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -946,13 +954,13 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const saveWaitersRef = useRef<{ revision: number; resolve: () => void; reject: (error: Error) => void }[]>([]);
   const confirmWorkspaceSave = useCallback(() => new Promise<void>((resolve, reject) => {
     if (!canSaveRef.current || !supabase || !user) {
-      reject(new Error('Your Supabase workspace is not connected.'));
+      reject(new Error(userMessage('app.error.connection')));
       return;
     }
     const revision = ++requestedRevisionRef.current;
     saveWaitersRef.current.push({ revision, resolve, reject });
     setConfirmationRevision(revision);
-  }), [supabase, user]);
+  }), [supabase, user, userMessage]);
   const bookingsRef = useRef<Booking[]>([]);
   // Invoices whose public link is mid-write. The status poll must not read the old remote value
   // back over the local one while a trash, restore or void is still landing.
@@ -1045,10 +1053,12 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
     if (!supabase) {
       setIsLoading(false);
-      setLoadError(
-        'Supabase is not configured. Add EXPO_PUBLIC_SUPABASE_URL and ' +
-          'EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY to .env.local, then restart Expo.',
-      );
+      if (__DEV__) {
+        console.warn(
+          '[workspace] Supabase is not configured. Add EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY, then restart Expo.',
+        );
+      }
+      setLoadError(translate(languageRef.current, 'app.loadFailed.body'));
       return () => {
         isCancelled = true;
       };
@@ -1125,7 +1135,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
     loadWorkspace().catch((error: unknown) => {
       if (isCancelled) return;
-      const message = error instanceof Error ? error.message : 'Bookflow could not load your Supabase workspace.';
+      if (__DEV__) console.warn('[workspace] load failed', error);
+      const message = translate(languageRef.current, 'app.loadFailed.body');
       if (isInitialLoad) {
         setIsLoading(false);
         setLoadError(message);
@@ -1187,7 +1198,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           setSyncError(null);
           waiters.forEach(({ resolve }) => resolve());
         } catch (error) {
-          const failure = error instanceof Error ? error : new Error('Bookflow could not sync changes to Supabase.');
+          if (__DEV__) console.warn('[workspace] save failed', error);
+          // Screens show this to the person saving, so it never carries the backend's own message.
+          const failure = new Error(translate(languageRef.current, 'app.error.save'));
           setSyncError(failure.message);
           waiters.forEach(({ reject }) => reject(failure));
         }
@@ -1310,6 +1323,37 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     [customers],
   );
 
+  /** A snapshot of the business details and invoice settings in force right now. */
+  const snapshotCurrentInvoiceSettings = useCallback((): InvoiceSnapshot => {
+    // The design is frozen alongside the business details, and gated at the moment of stamping: a
+    // workspace that is not Pro records the Standard template whatever is selected, so a lapsed
+    // subscription can never leave premium branding on newly issued invoices.
+    const design: InvoiceDesign = {
+      ...invoiceSettings.design,
+      templateId: resolveTemplateForEntitlement(invoiceSettings.design.templateId, isPro),
+      accentColor: isPro ? invoiceSettings.design.accentColor : DEFAULT_INVOICE_DESIGN.accentColor,
+      thankYouMessage: isPro ? invoiceSettings.design.thankYouMessage : '',
+      visibility: isPro
+        ? { ...invoiceSettings.design.visibility }
+        : { ...DEFAULT_INVOICE_DESIGN.visibility },
+    };
+
+    return {
+      businessName: businessProfile.name,
+      businessRegistrationNumber: businessProfile.ssmRegistrationNo,
+      businessPhone: businessProfile.phone,
+      businessEmail: businessProfile.email,
+      businessAddress: businessProfile.address,
+      businessWebsite: businessProfile.website ?? '',
+      businessLogoUrl: isPro ? businessProfile.logoUrl ?? null : null,
+      paymentTermDays: invoiceSettings.paymentTermDays,
+      paymentInstructions: invoiceSettings.paymentInstructions,
+      paymentDetails: normalizeBankDetails(businessProfile.paymentDetails),
+      termsAndConditions: invoiceSettings.termsAndConditions,
+      design,
+    };
+  }, [businessProfile, invoiceSettings, isPro]);
+
   /**
    * Stamps a new invoice with its number and a snapshot of the settings in force right now. Later
    * edits to the business profile or invoice defaults leave the stamped invoice untouched.
@@ -1327,33 +1371,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         taken,
       );
 
-      // The design is frozen here alongside the business details, and gated at the moment of
-      // stamping: a workspace that is not Pro records the Standard template whatever is selected,
-      // so a lapsed subscription can never leave premium branding on newly issued invoices.
-      const design: InvoiceDesign = {
-        ...invoiceSettings.design,
-        templateId: resolveTemplateForEntitlement(invoiceSettings.design.templateId, isPro),
-        accentColor: isPro ? invoiceSettings.design.accentColor : DEFAULT_INVOICE_DESIGN.accentColor,
-        thankYouMessage: isPro ? invoiceSettings.design.thankYouMessage : '',
-        visibility: isPro
-          ? { ...invoiceSettings.design.visibility }
-          : { ...DEFAULT_INVOICE_DESIGN.visibility },
-      };
-
-      const snapshot: InvoiceSnapshot = {
-        businessName: businessProfile.name,
-        businessRegistrationNumber: businessProfile.ssmRegistrationNo,
-        businessPhone: businessProfile.phone,
-        businessEmail: businessProfile.email,
-        businessAddress: businessProfile.address,
-        businessWebsite: businessProfile.website ?? '',
-        businessLogoUrl: isPro ? businessProfile.logoUrl ?? null : null,
-        paymentTermDays: invoiceSettings.paymentTermDays,
-        paymentInstructions: invoiceSettings.paymentInstructions,
-        paymentDetails: normalizeBankDetails(businessProfile.paymentDetails),
-        termsAndConditions: invoiceSettings.termsAndConditions,
-        design,
-      };
+      const snapshot = snapshotCurrentInvoiceSettings();
 
       // The counter only moves forward, so a deleted invoice can never free its number for reuse.
       setInvoiceSettings((current) => ({
@@ -1363,7 +1381,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
       return { invoiceNumber, snapshot };
     },
-    [businessProfile, invoiceSettings, isPro],
+    [invoiceSettings, isPro, snapshotCurrentInvoiceSettings],
   );
 
   /** Writes one link row's status and mirrors it into the frozen payload the public page renders. */
@@ -1587,10 +1605,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const uploadBusinessLogo = useCallback(
     async (image: BusinessLogoUpload) => {
       if (!isPro) {
-        throw new Error('Bookflow Pro is required to upload a business logo.');
+        throw new Error('BookFlow Pro is required to upload a business logo.');
       }
       if (!supabase || !user) {
-        throw new Error('Your Supabase workspace is not connected.');
+        throw new Error(userMessage('app.error.connection'));
       }
 
       const normalizedMimeType = image.mimeType?.toLowerCase() ?? '';
@@ -1656,18 +1674,18 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         logoUrl: `${data.publicUrl}?v=${Date.now()}`,
       };
     },
-    [isPro, supabase, user],
+    [isPro, supabase, user, userMessage],
   );
 
   const removeBusinessLogo = useCallback(async () => {
     if (!supabase || !user) {
-      throw new Error('Your Supabase workspace is not connected.');
+      throw new Error(userMessage('app.error.connection'));
     }
 
     const logoPath = businessProfile.logoPath ?? `${user.id}/business-logo`;
     const { error } = await supabase.storage.from('business-logos').remove([logoPath]);
     if (error) throw describeStorageError(error);
-  }, [businessProfile.logoPath, supabase, user]);
+  }, [businessProfile.logoPath, supabase, user, userMessage]);
 
   const value = useMemo<AppDataContextValue>(
     () => ({
@@ -2024,17 +2042,23 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       },
       createInvoiceShareLink: async (invoiceId: string) => {
         if (!supabase || !user) {
-          throw new Error('Your Supabase workspace is not connected.');
+          throw new Error(translate(languageRef.current, 'app.error.connection'));
         }
 
-        const invoice = allInvoices.find((item) => item.id === invoiceId);
-        const customer = invoice ? customers.find((item) => item.id === invoice.customerId) : undefined;
-        if (!invoice || !customer) {
+        const storedInvoice = allInvoices.find((item) => item.id === invoiceId);
+        const customer = storedInvoice ? customers.find((item) => item.id === storedInvoice.customerId) : undefined;
+        if (!storedInvoice || !customer) {
           throw new Error('The invoice or customer could not be found.');
         }
-        if (invoice.deletedAt || invoice.status === 'Void') {
+        if (storedInvoice.deletedAt || storedInvoice.status === 'Void') {
           throw new Error('This invoice is no longer active and cannot be sent.');
         }
+        // A draft follows the live settings until it is sent (that is how the app previews it), so
+        // sending one freezes the settings in force now rather than those from when it was created.
+        const isSendingDraft = storedInvoice.status === 'Draft';
+        const invoice: Invoice = isSendingDraft
+          ? { ...storedInvoice, snapshot: snapshotCurrentInvoiceSettings() }
+          : storedInvoice;
 
         const booking = bookings.find((item) => item.id === invoice.bookingId);
         const serviceName = invoice.serviceName ?? booking?.packageName;
@@ -2144,15 +2168,22 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           .select('token')
           .single();
 
-        if (error) throw error;
+        if (error) {
+          if (__DEV__) console.warn('[invoice-link] could not create the link', error);
+          throw new Error(translate(languageRef.current, 'app.error.connection'));
+        }
 
-        if (invoice.status === 'Draft' || invoice.status === 'Overdue') {
+        if (isSendingDraft || invoice.status === 'Overdue') {
           setInvoices((current) =>
-            current.map((item) => (item.id === invoice.id ? { ...item, status: 'Sent' } : item)),
+            current.map((item) =>
+              item.id === invoice.id
+                ? { ...item, status: 'Sent', ...(isSendingDraft ? { snapshot: invoice.snapshot } : {}) }
+                : item,
+            ),
           );
         }
 
-        return `${getSupabaseFunctionUrl('invoice-public')}?token=${encodeURIComponent(data.token)}`;
+        return createPublicInvoiceUrl(data.token);
       },
       refreshInvoiceStatuses,
       setInvoiceDraft: (draft: InvoiceDraftPrefill | null) => {
@@ -2333,27 +2364,13 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       markAllNotificationsOpened: () => {
         setNotifications((current) => current.map((item) => ({ ...item, isOpened: true })));
       },
-      deleteWorkspace: async () => {
-        if (!supabase || !user) {
-          throw new Error('Your Supabase workspace is not connected.');
-        }
-
+      suspendWorkspaceSync: async () => {
         canSaveRef.current = false;
         await saveQueueRef.current.catch(() => {});
-
-        if (businessProfile.logoPath) {
-          const { error: logoError } = await supabase.storage.from('business-logos').remove([businessProfile.logoPath]);
-          if (logoError) {
-            canSaveRef.current = true;
-            throw logoError;
-          }
-        }
-
-        const { error } = await supabase.from('bookflow_workspaces').delete().eq('user_id', user.id);
-        if (error) {
-          canSaveRef.current = true;
-          throw error;
-        }
+      },
+      resumeWorkspaceSync: () => {
+        // Only a workspace that finished loading for this user may save again.
+        if (user && loadedUserIdRef.current === user.id) canSaveRef.current = true;
       },
       /**
        * The backup reads `allInvoices`, `allPayments` and `allFinanceEntries` rather than the
@@ -2442,6 +2459,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       invoiceSettings,
       language,
       stampNewInvoice,
+      snapshotCurrentInvoiceSettings,
       activeFinanceEntries,
       allFinanceEntries,
       checkPlanLimit,

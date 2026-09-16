@@ -1,2 +1,10 @@
 [functions.invoice-public]
 verify_jwt = false
+
+[functions.support-request-notify]
+# Called only by the Database Webhook, which authenticates with x-webhook-secret instead of a user JWT.
+verify_jwt = false
+
+[functions.delete-account]
+# The gateway cannot verify Clerk session tokens; the function verifies them itself against Clerk JWKS.
+verify_jwt = false

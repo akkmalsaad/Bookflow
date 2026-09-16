@@ -25,6 +25,7 @@ import {
   logRevenueCatDebug,
   logPurchasesError,
   readPackages,
+  syncPurchasesIdentity,
   type RevenueCatEnvironment,
 } from '@/lib/revenuecat';
 
@@ -83,8 +84,19 @@ const SubscriptionContext = createContext<SubscriptionContextValue | undefined>(
 export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated, isLoaded: isAuthLoaded, user } = useAuth();
 
+  // A new scope also distinguishes A -> signed out -> A from the original A session.
+  const identity = useMemo(() => ({
+    userId: !isAuthLoaded ? undefined : isAuthenticated ? user?.id : null,
+  }), [isAuthLoaded, isAuthenticated, user?.id]);
+  const currentIdentity = useRef(identity);
+  currentIdentity.current = identity;
+  const readyIdentity = useRef<typeof identity | null>(null);
+
   const [isLoadingSubscription, setIsLoadingSubscription] = useState(true);
-  const [customerInfo, setCustomerInfo] = useState<CustomerInfo | null>(null);
+  const [customer, setCustomer] = useState<{ identity: typeof identity; info: CustomerInfo } | null>(null);
+  // Hide the previous account's entitlements during the render that observes an auth change,
+  // before the asynchronous identity effect has had a chance to run.
+  const customerInfo = identity.userId && customer?.identity === identity ? customer.info : null;
   const [offering, setOffering] = useState<PurchasesOffering | null>(null);
   const [isLoadingOfferings, setIsLoadingOfferings] = useState(true);
   const [offeringError, setOfferingError] = useState<string | null>(null);
@@ -98,10 +110,15 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const isMounted = useRef(true);
   const appState = useRef(AppState.currentState);
 
+  const isIdentityReady = useCallback(() => (
+    isMounted.current && currentIdentity.current === identity && readyIdentity.current === identity
+  ), [identity]);
+
   const syncCustomerInfo = useCallback((context: string, info: CustomerInfo) => {
+    if (!isIdentityReady()) return;
     logCustomerInfo(context, info);
-    if (isMounted.current) setCustomerInfo(info);
-  }, []);
+    setCustomer({ identity, info });
+  }, [identity, isIdentityReady]);
 
   useEffect(() => {
     isMounted.current = true;
@@ -154,10 +171,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Configure once (the guard lives in lib/revenuecat, keyed to the native singleton), then keep
-  // customer info fresh via the SDK's own listener. The listener fires on purchases, renewals,
-  // restores and cross-device changes, so nothing else needs to poll. It is re-registered on every
-  // mount because the cleanup below removes it.
+  // Configure once; customer info is loaded only after Clerk identity synchronization below.
   useEffect(() => {
     const result = configurePurchases();
     if (!result.ok) {
@@ -169,68 +183,60 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     isConfigured.current = true;
     setEnvironment(getActiveEnvironment());
 
-    const listener = (info: CustomerInfo) => {
-      syncCustomerInfo('CustomerInfo listener update', info);
-    };
-    Purchases.addCustomerInfoUpdateListener(listener);
-
-    (async () => {
-      try {
-        const info = await Purchases.getCustomerInfo();
-        logRevenueCatDebug('App User ID', { appUserId: await Purchases.getAppUserID() });
-        syncCustomerInfo('Initial customer info', info);
-      } catch (initialError) {
-        logPurchasesError('getCustomerInfo', initialError);
-        if (isMounted.current) setError(describePurchasesError(initialError, 'Could not load your subscription.'));
-      } finally {
-        if (isMounted.current) setIsLoadingSubscription(false);
-      }
-      await reloadOfferings();
-    })();
-
-    return () => {
-      Purchases.removeCustomerInfoUpdateListener(listener);
-    };
-  }, [reloadOfferings, syncCustomerInfo]);
+    void reloadOfferings();
+  }, [reloadOfferings]);
 
   // Keep the RevenueCat app user id aligned with the signed-in Clerk user. Configuring anonymously
-  // and aliasing on sign-in (rather than blocking configure on auth) means a purchase started
-  // before Clerk resolves still lands on the right customer. Clerk's own flow is untouched.
+  // and identifying on sign-in leaves Clerk's own flow untouched. Billing waits for identity.
   useEffect(() => {
-    if (!isConfigured.current || !isAuthLoaded) return;
+    if (!isConfigured.current || identity.userId === undefined) return;
+    const userId = identity.userId;
 
     let cancelled = false;
+    let listener: (() => void) | undefined;
+    readyIdentity.current = null;
+    setCustomer(null);
+    setIsLoadingSubscription(true);
+    setError(null);
 
     (async () => {
       try {
-        if (isAuthenticated && user?.id) {
-          const currentId = await Purchases.getAppUserID();
-          if (currentId === user.id) return;
+        const info = await syncPurchasesIdentity(userId);
+        if (cancelled || currentIdentity.current !== identity) return;
+        readyIdentity.current = identity;
+        syncCustomerInfo('Clerk identity synchronized', info);
 
-          const { customerInfo: info } = await Purchases.logIn(user.id);
-          if (!cancelled) syncCustomerInfo('Clerk user linked', info);
-        } else if (!isAuthenticated) {
-          const info = await Purchases.logOut();
-          if (!cancelled) syncCustomerInfo('RevenueCat user logged out', info);
-        }
+        // Re-read current SDK state rather than trusting a notification payload that could have
+        // originated from an operation started under a previous account.
+        listener = () => {
+          if (!isIdentityReady()) return;
+          void Purchases.getCustomerInfo().then((updated) => {
+            if (!cancelled) syncCustomerInfo('CustomerInfo listener update', updated);
+          }).catch((listenerError) => logPurchasesError('customer info listener', listenerError));
+        };
+        Purchases.addCustomerInfoUpdateListener(listener);
         await reloadOfferings();
       } catch (identityError) {
-        // Logging out an already-anonymous user throws; that is a no-op, not a failure worth
-        // surfacing. Anything else means entitlements may be attached to the wrong id.
         logPurchasesError('identity sync', identityError);
-        if (!cancelled && isMounted.current && isAuthenticated) {
+        if (!cancelled && isMounted.current && currentIdentity.current === identity) {
           setError(describePurchasesError(identityError, 'Could not sync your subscription to this account.'));
+        }
+      } finally {
+        if (!cancelled && isMounted.current && currentIdentity.current === identity) {
+          setIsLoadingSubscription(false);
         }
       }
     })();
 
     return () => {
       cancelled = true;
+      readyIdentity.current = null;
+      if (listener) Purchases.removeCustomerInfoUpdateListener(listener);
     };
-  }, [isAuthLoaded, isAuthenticated, reloadOfferings, syncCustomerInfo, user?.id]);
+  }, [identity, isIdentityReady, reloadOfferings, syncCustomerInfo]);
 
   const refreshSubscription = useCallback(async (reason = 'Customer info refresh') => {
-    if (!isConfigured.current) return;
+    if (!isConfigured.current || !isIdentityReady()) return;
 
     setError(null);
     try {
@@ -238,9 +244,9 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       syncCustomerInfo(reason, info);
     } catch (refreshError) {
       logPurchasesError('refresh customer info', refreshError);
-      if (isMounted.current) setError(describePurchasesError(refreshError, 'Could not refresh your subscription.'));
+      if (isIdentityReady()) setError(describePurchasesError(refreshError, 'Could not refresh your subscription.'));
     }
-  }, [syncCustomerInfo]);
+  }, [isIdentityReady, syncCustomerInfo]);
 
   // StoreKit state can change while Bookflow is backgrounded (sandbox renewal, cancellation,
   // billing retry, or a purchase managed in the App Store). Re-read CustomerInfo on foreground so
@@ -261,11 +267,15 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     if (!isConfigured.current) {
       return { status: 'error', message: 'Billing is unavailable on this device.' };
     }
+    if (!identity.userId || !isIdentityReady()) {
+      return { status: 'error', message: 'Please wait for your account subscription to sync.' };
+    }
 
     setIsPurchasing(true);
     try {
       logRevenueCatDebug('Purchase started', { package: pkg.identifier });
       const { customerInfo: purchaseInfo } = await Purchases.purchasePackage(pkg);
+      if (!isIdentityReady()) return { status: 'error', message: 'Your account changed during the purchase.' };
       syncCustomerInfo('Purchase result', purchaseInfo);
 
       // A correctly attached product normally returns the active entitlement immediately. If it
@@ -280,6 +290,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
           logPurchasesError('purchase verification refresh', verificationError);
         }
       }
+      if (!isIdentityReady()) return { status: 'error', message: 'Your account changed during the purchase.' };
       // The entitlement on the freshly returned customer info is the source of truth — the caller
       // never assumes a completed transaction means access was granted.
       if (hasProAccess(verifiedInfo)) {
@@ -305,7 +316,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     } finally {
       if (isMounted.current) setIsPurchasing(false);
     }
-  }, [syncCustomerInfo]);
+  }, [identity, isIdentityReady, syncCustomerInfo]);
 
   /**
    * Required by both stores: a customer who reinstalls, or signs in on a second device, must be
@@ -315,10 +326,14 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     if (!isConfigured.current) {
       return { status: 'error', message: 'Billing is unavailable on this device.' };
     }
+    if (!identity.userId || !isIdentityReady()) {
+      return { status: 'error', message: 'Please wait for your account subscription to sync.' };
+    }
 
     setIsRestoring(true);
     try {
       const info = await Purchases.restorePurchases();
+      if (!isIdentityReady()) return { status: 'error', message: 'Your account changed during the restore.' };
       logRevenueCatDebug('Restore completed', { pro: hasProAccess(info) });
       syncCustomerInfo('Restore result', info);
       return { status: 'purchased', customerInfo: info, isPro: hasProAccess(info) };
@@ -331,10 +346,10 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     } finally {
       if (isMounted.current) setIsRestoring(false);
     }
-  }, [syncCustomerInfo]);
+  }, [identity, isIdentityReady, syncCustomerInfo]);
 
   const openCustomerCenter = useCallback(async () => {
-    if (!isConfigured.current) return;
+    if (!isConfigured.current || !identity.userId || !isIdentityReady()) return;
 
     try {
       await RevenueCatUI.presentCustomerCenter({
@@ -364,7 +379,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       logPurchasesError('presentCustomerCenter', centerError);
       if (isMounted.current) setError(describePurchasesError(centerError, 'Could not open subscription management.'));
     }
-  }, [refreshSubscription, syncCustomerInfo]);
+  }, [identity, isIdentityReady, refreshSubscription, syncCustomerInfo]);
 
   const { monthly, yearly } = useMemo(() => readPackages(offering), [offering]);
   // The one and only answer to "is this user Pro", in every build: the RevenueCat entitlement.
@@ -373,10 +388,10 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<SubscriptionContextValue>(
     () => ({
-      isLoadingSubscription,
+      isLoadingSubscription: isLoadingSubscription || (environment !== 'unsupported' && customer?.identity !== identity && !error),
       environment,
       // Expo Go's Preview API mocks the SDK, so a purchase there is never real regardless of key.
-      canPurchase: environment !== 'unsupported' && !isExpoGo,
+      canPurchase: environment !== 'unsupported' && !isExpoGo && Boolean(identity.userId) && isIdentityReady(),
       isPro: effectiveIsPro,
       entitlement: getProEntitlement(customerInfo),
       customerInfo,
@@ -396,6 +411,9 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       openCustomerCenter,
     }),
     [
+      customer,
+      identity,
+      isIdentityReady,
       customerInfo,
       effectiveIsPro,
       environment,

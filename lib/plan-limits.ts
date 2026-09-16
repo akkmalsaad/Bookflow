@@ -6,7 +6,7 @@ import type { Booking, Customer, Invoice } from '@/context/app-data-context';
  */
 export const FREE_LIMITS = {
   customers: 5,
-  bookingsPerMonth: 3,
+  bookingsPerMonth: 5,
   invoicesPerMonth: 3,
 } as const;
 

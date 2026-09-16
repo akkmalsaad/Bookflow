@@ -37,11 +37,11 @@ export async function shareInvoiceOnWhatsApp({
     const message = [
       `Hi ${customer.name},`,
       '',
-      `Here is invoice ${getInvoiceNumber(invoice)} for ${currencyFormatter.format(invoice.amount)}.`,
-      `Due date: ${invoice.dueDate}`,
+      `Invoice ${getInvoiceNumber(invoice)} · ${currencyFormatter.format(invoice.amount)}`,
+      `Due: ${invoice.dueDate}`,
       '',
-      `Review and respond to your invoice: ${invoiceUrl}`,
-      'The secure link is valid for 30 days.',
+      `View invoice: ${invoiceUrl}`,
+      'Link expires in 30 days.',
     ].join('\n');
     const encodedMessage = encodeURIComponent(message);
     const whatsappAppUrl = `whatsapp://send?phone=${phoneNumber}&text=${encodedMessage}`;
@@ -55,8 +55,11 @@ export async function shareInvoiceOnWhatsApp({
 
     return true;
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'The public invoice link could not be created.';
-    Alert.alert('Unable to send invoice', message);
+    if (__DEV__) console.warn('[invoice-sharing] could not share the invoice', error);
+    Alert.alert(
+      'Unable to send invoice',
+      error instanceof Error && error.message ? error.message : 'The invoice link could not be created. Please try again.',
+    );
     return false;
   }
 }

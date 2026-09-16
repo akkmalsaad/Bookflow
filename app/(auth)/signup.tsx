@@ -1,8 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Linking from 'expo-linking';
 import { Link } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { usePostHog } from 'posthog-react-native';
 
 import {
   AuthDivider,
@@ -14,19 +14,30 @@ import {
   PrimaryAuthButton,
   SocialButtons,
 } from '@/components/AuthUI';
+import { LegalDocumentView } from '@/components/legal/LegalDocumentView';
 import { MIN_PASSWORD_LENGTH } from '@/constants/auth';
 import { type SocialProvider, useAuth } from '@/context/auth-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 import { useTranslation } from '@/lib/use-translation';
+import { captureEvent } from '@/lib/analytics';
+import { SUPPORT_EMAIL } from '@/lib/legal/contact';
+import { getPrivacyPolicy } from '@/lib/legal/privacy-policy';
+import { getTermsOfService } from '@/lib/legal/terms-of-service';
+import type { LegalAction } from '@/lib/legal/types';
 
-type LegalDocument = 'privacy' | 'terms';
+type LegalDocumentKind = 'privacy' | 'terms';
+
+/**
+ * Before sign-in only the legal documents themselves and email are reachable, so in-document links
+ * to signed-in screens (Security & privacy, Export) are left out rather than shown as dead links.
+ */
+const PRE_AUTH_ACTIONS: LegalAction[] = ['privacyPolicy', 'termsOfService', 'contactSupport'];
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function SignupScreen() {
   const { signInWithSocial, signUp, verifyEmail } = useAuth();
-  const posthog = usePostHog();
-  const { t } = useTranslation();
+  const { t, locale, intlLocale } = useTranslation();
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
 
@@ -40,32 +51,22 @@ export default function SignupScreen() {
   const [verificationError, setVerificationError] = useState('');
   const [showVerification, setShowVerification] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [legalDocument, setLegalDocument] = useState<LegalDocument | null>(null);
+  const [legalDocument, setLegalDocument] = useState<LegalDocumentKind | null>(null);
   const [socialProvider, setSocialProvider] = useState<SocialProvider | null>(null);
 
-  const legalCopy = useMemo(
-    () =>
-      legalDocument === 'privacy'
-        ? {
-            title: 'Privacy notice',
-            subtitle: 'How Bookflow handles your account and business information.',
-            paragraphs: [
-              'Bookflow stores the account details and business records you provide so the app can deliver its booking, invoicing, customer, and finance features.',
-              'Identity credentials are handled by Clerk. Business records are stored in Supabase and isolated per account with row-level security. Bookflow never stores raw Apple or Google passwords.',
-              'Before production launch, replace this placeholder with your final privacy policy, retention rules, contact details, and jurisdiction-specific disclosures.',
-            ],
-          }
-        : {
-            title: 'Terms of service',
-            subtitle: 'The basic rules for using Bookflow.',
-            paragraphs: [
-              'You are responsible for the accuracy of the customer, booking, invoice, and finance records entered into your workspace.',
-              'Bookflow is currently a prototype and should not be treated as a final accounting, tax, payment, or identity service until the relevant production integrations are complete.',
-              'Before launch, replace this placeholder with your final business terms, acceptable-use policy, billing terms, and governing law.',
-            ],
-          },
-    [legalDocument],
-  );
+  // The same production documents Settings shows — one source of truth for each.
+  const legalContent = legalDocument === 'privacy' ? getPrivacyPolicy(locale) : getTermsOfService(locale);
+  const legalLastUpdated = new Date(`${legalContent.lastUpdated}T00:00:00`).toLocaleDateString(intlLocale, {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+
+  const handleLegalAction = (action: LegalAction) => {
+    if (action === 'privacyPolicy') setLegalDocument('privacy');
+    else if (action === 'termsOfService') setLegalDocument('terms');
+    else if (action === 'contactSupport') void Linking.openURL(`mailto:${SUPPORT_EMAIL}`).catch(() => {});
+  };
 
   const handleCreateAccount = async () => {
     const safeEmail = email.trim().toLowerCase();
@@ -113,7 +114,7 @@ export default function SignupScreen() {
     setIsSubmitting(true);
     try {
       await verifyEmail(verificationCode);
-      posthog.capture('account_created', { method: 'password' });
+      captureEvent('account_created', { method: 'password' });
       setShowVerification(false);
     } catch (error) {
       setVerificationError(error instanceof Error ? error.message : t('auth.error.verify'));
@@ -204,7 +205,7 @@ export default function SignupScreen() {
         <Pressable onPress={() => setLegalDocument('terms')}>
           <Text style={[styles.legalLink, { color: palette.accent }]}>{t('auth.terms')}</Text>
         </Pressable>
-        <Text style={[styles.termsCopy, { color: palette.muter }]}> and </Text>
+        <Text style={[styles.termsCopy, { color: palette.muter }]}>{t('auth.and')}</Text>
         <Pressable onPress={() => setLegalDocument('privacy')}>
           <Text style={[styles.legalLink, { color: palette.accent }]}>{t('auth.privacy')}</Text>
         </Pressable>
@@ -263,14 +264,13 @@ export default function SignupScreen() {
       <AuthModal
         icon={legalDocument === 'privacy' ? 'shield-checkmark-outline' : 'document-text-outline'}
         onClose={() => setLegalDocument(null)}
-        subtitle={legalCopy.subtitle}
-        title={legalCopy.title}
+        subtitle={t('legal.lastUpdated', { date: legalLastUpdated })}
+        title={legalDocument === 'privacy' ? t('sub.privacy.title') : t('sub.terms.title')}
         visible={legalDocument !== null}>
-        {legalCopy.paragraphs.map((paragraph) => (
-          <Text key={paragraph} style={[styles.legalParagraph, { color: palette.muter }]}>
-            {paragraph}
-          </Text>
-        ))}
+        {legalContent.language !== locale ? (
+          <Text style={[styles.legalNote, { color: palette.muter }]}>{t('legal.englishOnly')}</Text>
+        ) : null}
+        <LegalDocumentView document={legalContent} onAction={handleLegalAction} availableActions={PRE_AUTH_ACTIONS} />
         <ModalActions primaryLabel="Done" primaryOnPress={() => setLegalDocument(null)} />
       </AuthModal>
 
@@ -299,5 +299,5 @@ const styles = StyleSheet.create({
   footerRow: { alignItems: 'center', flexDirection: 'row', gap: 6, justifyContent: 'center', marginTop: 22 },
   footerText: { fontSize: 13, fontWeight: '600' },
   footerLink: { fontSize: 13, fontWeight: '900' },
-  legalParagraph: { fontSize: 14, fontWeight: '500', lineHeight: 21, marginBottom: 13 },
+  legalNote: { fontSize: 13.5, fontStyle: 'italic', fontWeight: '500', lineHeight: 20, marginBottom: 6 },
 });

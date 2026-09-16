@@ -25,7 +25,7 @@ export type PickedBackupFile = { name: string; text: string };
 export async function pickBackupFile(): Promise<PickedBackupFile | null> {
   if (Platform.OS !== 'web' && !requireOptionalNativeModule('ExpoDocumentPicker')) {
     throw new BackupFileError(
-      'Choosing a backup file needs a new development build. Rebuild and reinstall BookFlow, then try again. Creating a backup works on this build.',
+      'Backup files can’t be opened on this device right now. Please try again later.',
     );
   }
 

@@ -1,10 +1,22 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import {
+  Keyboard,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  type KeyboardEvent,
+} from 'react-native';
+import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BottomSheetModal } from '@/components/BottomSheetModal';
 import { modalScrollProps } from '@/components/modal-keyboard';
+import { EASE_OUT } from '@/components/modal-transition';
 import { getSoftTokens } from '@/components/settings/tokens';
 import type { InvoiceSettings } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
@@ -25,6 +37,10 @@ type Props = {
   settings: InvoiceSettings;
   onClose: () => void;
   onSave: (updates: Partial<InvoiceSettings>) => void;
+  /** Defaults to `field !== null`. Pass it to keep the editor's content on screen while it slides away. */
+  visible?: boolean;
+  /** Fires once the sheet has finished sliding away, for handing off to a follow-up modal. */
+  onClosed?: () => void;
 };
 
 const TITLES: Record<InvoiceSettingField, { title: string; description: string }> = {
@@ -42,8 +58,71 @@ const TITLES: Record<InvoiceSettingField, { title: string; description: string }
   },
 };
 
+// Room kept between the footer buttons and the keyboard for the modal's floating checkmark
+// (40pt tall, 16pt above the keyboard) plus a small gap, so it never lands on top of Save.
+const DONE_BUTTON_CLEARANCE = 16 + 40 + 8;
+// Approximates the curve iOS animates the keyboard with, so the sheet rides along with it.
+const IOS_KEYBOARD_EASING = Easing.bezier(0.17, 0.59, 0.4, 0.77);
+
+/**
+ * Lifts the footer of a bottom-anchored sheet above the keyboard by growing a spacer under it. The
+ * sheet keeps its shape and anchor; it just gets taller, and its scroll area shrinks (and scrolls)
+ * once the sheet reaches its max height.
+ *
+ * The overlap is measured against the keyboard's real top edge rather than assumed, so it adapts
+ * to any screen, keyboard height and safe-area inset — and comes out as zero on an Android window
+ * that already resized itself for the keyboard.
+ */
+function useKeyboardLift(enabled: boolean, footerPaddingBottom: number) {
+  const reduced = useReducedMotion();
+  const anchorRef = useRef<View>(null);
+  const lift = useSharedValue(0);
+
+  useEffect(() => {
+    if (!enabled) return;
+
+    const animateTo = (target: number, event?: KeyboardEvent) => {
+      if (reduced) {
+        lift.set(target);
+        return;
+      }
+      const ios = Platform.OS === 'ios';
+      lift.set(
+        withTiming(target, {
+          duration: ios && event?.duration ? event.duration : 220,
+          easing: ios ? IOS_KEYBOARD_EASING : EASE_OUT,
+        }),
+      );
+    };
+
+    const handleShow = (event: KeyboardEvent) => {
+      const keyboardTop = event.endCoordinates.screenY;
+      // The anchor sits at the very bottom of the sheet, which never moves off the screen bottom.
+      anchorRef.current?.measureInWindow((_x, sheetBottom) => {
+        const overlap = Math.max(0, sheetBottom - keyboardTop);
+        // The footer's own safe-area padding already covers part of the distance.
+        animateTo(Math.max(0, overlap + DONE_BUTTON_CLEARANCE - footerPaddingBottom), event);
+      });
+    };
+
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, handleShow);
+    const hideSub = Keyboard.addListener(hideEvent, (event) => animateTo(0, event));
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [enabled, footerPaddingBottom, lift, reduced]);
+
+  const spacerStyle = useAnimatedStyle(() => ({ height: lift.get() }));
+
+  return { anchorRef, spacerStyle };
+}
+
 /** Editors for the invoice defaults, in the app's standard bottom sheet. */
-export function InvoiceSettingSheet({ field, settings, onClose, onSave }: Props) {
+export function InvoiceSettingSheet({ field, settings, onClose, onSave, visible = field !== null, onClosed }: Props) {
   const insets = useSafeAreaInsets();
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
@@ -62,6 +141,10 @@ export function InvoiceSettingSheet({ field, settings, onClose, onSave }: Props)
   );
   const [instructions, setInstructions] = useState(settings.paymentInstructions);
   const [error, setError] = useState('');
+
+  const footerPaddingBottom = Math.max(insets.bottom, 16);
+  const liftsForKeyboard = field === 'paymentInstructions';
+  const { anchorRef, spacerStyle } = useKeyboardLift(liftsForKeyboard, footerPaddingBottom);
 
   const copy = field ? TITLES[field] : null;
   const inputStyle = [styles.input, { backgroundColor: soft.inset, borderColor: soft.border, color: palette.text }];
@@ -98,7 +181,7 @@ export function InvoiceSettingSheet({ field, settings, onClose, onSave }: Props)
   const formatError = field === 'numberFormat' ? validateInvoiceNumberFormat(format) : null;
 
   return (
-    <BottomSheetModal visible={field !== null} onClose={onClose}>
+    <BottomSheetModal visible={visible} onClose={onClose} onClosed={onClosed}>
       <View style={styles.header}>
         <View style={styles.headerCopy}>
           <Text style={[styles.eyebrow, { color: palette.accent }]}>{t('invset.sheet.eyebrow')}</Text>
@@ -114,7 +197,13 @@ export function InvoiceSettingSheet({ field, settings, onClose, onSave }: Props)
         </Pressable>
       </View>
 
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} {...modalScrollProps}>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        {...modalScrollProps}
+        // The lifted sheet already clears the keyboard; iOS's automatic inset would be measured
+        // before the lift and leave stale blank space at the bottom of the scroll area.
+        automaticallyAdjustKeyboardInsets={!liftsForKeyboard}>
         <Text style={[styles.description, { color: palette.muter }]}>{copy?.description ?? ''}</Text>
 
         {field === 'numberFormat' ? (
@@ -237,7 +326,7 @@ export function InvoiceSettingSheet({ field, settings, onClose, onSave }: Props)
         ) : null}
       </ScrollView>
 
-      <View style={[styles.footer, { borderTopColor: soft.divider, paddingBottom: Math.max(insets.bottom, 16) }]}>
+      <View style={[styles.footer, { borderTopColor: soft.divider, paddingBottom: footerPaddingBottom }]}>
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <View style={styles.actions}>
           <Pressable
@@ -258,6 +347,13 @@ export function InvoiceSettingSheet({ field, settings, onClose, onSave }: Props)
           </Pressable>
         </View>
       </View>
+
+      {liftsForKeyboard ? (
+        <>
+          <Animated.View style={spacerStyle} />
+          <View ref={anchorRef} collapsable={false} />
+        </>
+      ) : null}
     </BottomSheetModal>
   );
 }

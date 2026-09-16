@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { usePostHog } from 'posthog-react-native';
 
 import { SuccessFeedback } from '@/components/feedback/SuccessFeedback';
 import { useConfirmedSave } from '@/components/feedback/useConfirmedSave';
@@ -17,6 +16,7 @@ import { getThemePalette, useTheme } from '@/context/theme-context';
 import type { TranslationKey } from '@/lib/i18n';
 import { useTranslation } from '@/lib/use-translation';
 import { fromCents, getInvoicePaymentSummary, parseAmountInput, toCents } from '@/lib/invoice-payments';
+import { captureEvent } from '@/lib/analytics';
 
 export const paymentMethods = ['Cash', 'Bank transfer', 'Card', 'E-wallet'];
 
@@ -35,7 +35,6 @@ function todayKey() {
 export function UpdatePaymentModal({ invoiceId, onClose, onSaved }: Props) {
   const { isDarkMode } = useTheme();
   const { invoices, payments, customers, currency, recordInvoicePayment } = useAppData();
-  const posthog = usePostHog();
   const { t } = useTranslation();
   const palette = getThemePalette(isDarkMode);
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
@@ -112,7 +111,7 @@ export function UpdatePaymentModal({ invoiceId, onClose, onSaved }: Props) {
       return false;
     }
 
-    posthog.capture('payment_recorded', { method });
+    captureEvent('payment_recorded', { method });
     savedAmount.current = parsed;
     return true;
   });

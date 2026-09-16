@@ -1,7 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import BookFlowLoading from '@/components/feedback/BookFlowLoading';
+import { useLoadingTransition } from '@/components/feedback/useLoadingTransition';
 import type { Store } from 'react-native-purchases';
 
 import {
@@ -13,7 +15,7 @@ import {
 import { getSoftTokens } from '@/components/settings/tokens';
 import { useSubscription } from '@/context/subscription-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
-import { describePackage, isExpoGo, yearlySavingsPercent } from '@/lib/revenuecat';
+import { describePackage, isExpoGo, isPurchasesSupported, yearlySavingsPercent } from '@/lib/revenuecat';
 import { useTranslation } from '@/lib/use-translation';
 
 /** Store ids are for logs; customers recognise the brand name they were charged by. */
@@ -59,6 +61,7 @@ export default function PlanScreen() {
     restore,
     yearlyPackage,
   } = useSubscription();
+  const loadingTransition = useLoadingTransition(isLoadingSubscription);
 
   const handleRestore = useCallback(async () => {
     const outcome = await restore();
@@ -90,23 +93,24 @@ export default function PlanScreen() {
       <SettingsDetailScreen eyebrow={t('sub.account')} title={t('plan.title')} description={t('plan.description')}>
         <SettingsInfoRow label={t('plan.current')} value={isPro ? t('plan.pro') : t('plan.free')} />
         <SettingsNotice
-          title={t('plan.needsApp')}
+          title={!isExpoGo && isPurchasesSupported ? t('billing.unavailable.title') : t('plan.needsApp')}
           body={
             isExpoGo
               ? t('plan.expoGo')
-              : t('plan.storeOnly')
+              : isPurchasesSupported
+                ? t('billing.unavailable')
+                : t('plan.storeOnly')
           }
         />
       </SettingsDetailScreen>
     );
   }
 
-  if (isLoadingSubscription) {
+  if (loadingTransition.visible) {
     return (
       <SettingsDetailScreen eyebrow={t('sub.account')} title={t('plan.title')}>
         <View style={styles.loading}>
-          <ActivityIndicator color={palette.accent} />
-          <Text style={[styles.loadingText, { color: palette.muter }]}>{t('plan.checking')}</Text>
+          <BookFlowLoading key={loadingTransition.cycle} loading={isLoadingSubscription} />
         </View>
       </SettingsDetailScreen>
     );
@@ -234,13 +238,7 @@ export default function PlanScreen() {
 
 const styles = StyleSheet.create({
   loading: {
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 48,
-  },
-  loadingText: {
-    fontSize: 13.5,
-    fontWeight: '600',
+    height: 360,
   },
   priceCard: {
     borderRadius: 20,

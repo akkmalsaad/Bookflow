@@ -1,5 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import BookFlowLoading from '@/components/feedback/BookFlowLoading';
+import { useLoadingTransition } from '@/components/feedback/useLoadingTransition';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
@@ -30,6 +32,8 @@ export default function ExportScreen() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
   const { isLoadingSubscription, isPro } = useSubscription();
+  const loading = isLoadingSubscription || !isPro;
+  const loadingTransition = useLoadingTransition(loading);
   const { businessProfile, financeEntries, bookings, invoices, payments, customers, currency } = useAppData();
   const palette = getThemePalette(isDarkMode);
   const soft = getSoftTokens(isDarkMode);
@@ -81,12 +85,11 @@ export default function ExportScreen() {
     router.replace({ pathname: '/paywall', params: { returnTo: '/settings/export' } });
   }, [isLoadingSubscription, isPro, router]);
 
-  if (isLoadingSubscription || !isPro) {
+  if (loadingTransition.visible) {
     return (
       <SettingsDetailScreen eyebrow={t('settings.section.data')} title={t('export.title')}>
         <View style={styles.gate}>
-          <ActivityIndicator size="large" color={palette.accent} />
-          <Text style={[styles.gateText, { color: palette.muter }]}>{t('insights.gate.checking')}</Text>
+          <BookFlowLoading key={loadingTransition.cycle} loading={loading} />
         </View>
       </SettingsDetailScreen>
     );
@@ -128,7 +131,7 @@ export default function ExportScreen() {
       // Native module and availability failures carry a sentence worth showing; anything else is a
       // stack trace the person exporting a report cannot act on.
       const message =
-        error instanceof Error && /rebuild|not available|pop-ups/i.test(error.message)
+        error instanceof Error && /right now|not available|pop-ups/i.test(error.message)
           ? error.message
           : t('export.failed.body');
       Alert.alert(t('export.failed'), message);
@@ -306,13 +309,7 @@ export default function ExportScreen() {
 
 const styles = StyleSheet.create({
   gate: {
-    alignItems: 'center',
-    paddingVertical: 48,
-  },
-  gateText: {
-    fontSize: 13,
-    fontWeight: '600',
-    marginTop: 13,
+    height: 360,
   },
   /** The same dim every other BookFlow success state is presented over. */
   successBackdrop: {

@@ -44,7 +44,7 @@ export async function shareWorkspaceBackup(backup: BookflowBackup): Promise<{ fi
 
   if (!['ExpoSharing', 'FileSystem'].every((moduleName) => requireOptionalNativeModule(moduleName))) {
     throw new BackupFileError(
-      'Backups need one native app rebuild. Rebuild and reinstall BookFlow, then try again.',
+      'Backups can’t be created on this device right now. Please try again later.',
     );
   }
 

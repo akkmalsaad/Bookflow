@@ -4,7 +4,6 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { usePostHog } from 'posthog-react-native';
 
 import { ProBadge } from '@/components/ProBadge';
 import { getSoftTokens } from '@/components/settings/tokens';
@@ -13,20 +12,16 @@ import { getThemePalette, useTheme } from '@/context/theme-context';
 import { FREE_LIMITS, isLimitKind, LIMIT_COPY } from '@/lib/plan-limits';
 import type { Translate } from '@/lib/i18n';
 import { useTranslation } from '@/lib/use-translation';
-import {
-  describeMonthlyEquivalent,
-  describePackage,
-  isExpoGo,
-  yearlySavingsPercent,
-} from '@/lib/revenuecat';
+import { describeMonthlyEquivalent, describePackage, isExpoGo, isPurchasesSupported, yearlySavingsPercent } from '@/lib/revenuecat';
+import { captureEvent } from '@/lib/analytics';
 
 type PlanId = 'monthly' | 'yearly';
 
 /**
  * The Bookflow Pro paywall. Custom-built rather than a RevenueCat-hosted template so it inherits
- * the app's Soft UI surfaces, palette and type scale — but every price on screen still comes from
- * the store via RevenueCat, and access is always decided by the `pro` entitlement, never by this
- * screen.
+ * the app's Soft UI surfaces, palette and type scale. Every price, saving and monthly equivalent
+ * shown here comes from the store product RevenueCat returns, so what the customer sees is what
+ * Apple or Google will charge, in their own currency. Nothing is shown until those products load.
  */
 export default function PaywallScreen() {
   const router = useRouter();
@@ -39,7 +34,6 @@ export default function PaywallScreen() {
   const [viewportHeight, setViewportHeight] = useState(height);
   const styles = useMemo(() => createStyles(viewportHeight), [viewportHeight]);
   const stackPlans = fontScale > 1.2;
-  const posthog = usePostHog();
   const soft = getSoftTokens(isDarkMode);
   const { t } = useTranslation();
 
@@ -88,8 +82,9 @@ export default function PaywallScreen() {
     }
   }, [close, isPro, proDestination, router]);
 
-  const savings = useMemo(() => yearlySavingsPercent(monthlyPackage, yearlyPackage), [monthlyPackage, yearlyPackage]);
-  const monthlyEquivalent = useMemo(() => describeMonthlyEquivalent(yearlyPackage), [yearlyPackage]);
+  // Null unless yearly is genuinely cheaper than twelve monthly payments; a 0% rounds away too.
+  const savings = yearlySavingsPercent(monthlyPackage, yearlyPackage);
+  const monthlyEquivalent = describeMonthlyEquivalent(yearlyPackage);
 
   const selectedPackage = selectedPlan === 'yearly' ? yearlyPackage : monthlyPackage;
   const isBusy = isPurchasing || isRestoring;
@@ -109,7 +104,7 @@ export default function PaywallScreen() {
     }
 
     if (outcome.status === 'purchased') {
-      posthog.capture('subscription_purchased', {
+      captureEvent('subscription_purchased', {
         plan: selectedPlan,
         entitlement_granted: outcome.isPro,
       });
@@ -128,7 +123,7 @@ export default function PaywallScreen() {
       await refreshSubscription();
     }
     // The `isPro` effect above closes the screen once the entitlement lands.
-  }, [isBusy, posthog, purchase, refreshSubscription, selectedPackage, selectedPlan, t]);
+  }, [isBusy, purchase, refreshSubscription, selectedPackage, selectedPlan, t]);
 
   const handleRestore = useCallback(async () => {
     if (isBusy) return;
@@ -140,7 +135,7 @@ export default function PaywallScreen() {
       return;
     }
     if (outcome.status === 'purchased') {
-      posthog.capture('subscription_restored', { entitlement_granted: outcome.isPro });
+      captureEvent('subscription_restored', { entitlement_granted: outcome.isPro });
     }
     if (outcome.status === 'purchased' && !outcome.isPro) {
       Alert.alert(
@@ -148,7 +143,7 @@ export default function PaywallScreen() {
         t('paywall.nothingToRestore.body'),
       );
     }
-  }, [isBusy, posthog, restore, t]);
+  }, [isBusy, restore, t]);
 
   // `canPurchase` comes from the subscription context, which knows which store is configured —
   // App Store, Play Store or the development Test Store. A development build purchases normally on
@@ -222,7 +217,8 @@ export default function PaywallScreen() {
           ) : null}
 
           {!canPurchase ? <Text style={[styles.envNotice, { color: palette.muter }]}>
-            {isExpoGo ? t('paywall.expoGo') : t('paywall.storeOnly')}
+            {/* A native build without billing is a configuration or store outage, not a platform limit. */}
+            {isExpoGo ? t('paywall.expoGo') : isPurchasesSupported ? t('billing.unavailable') : t('paywall.storeOnly')}
           </Text> : null}
           {__DEV__ && environment === 'test-store' ? <Text style={[styles.envNotice, { color: palette.muter }]}>
             RevenueCat Test Store — this purchase is simulated and costs nothing.

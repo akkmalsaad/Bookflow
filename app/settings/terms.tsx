@@ -1,18 +1,17 @@
-import { SettingsDetailScreen, SettingsNotice } from '@/components/settings/SettingsDetailScreen';
+import { LegalDocumentScreen } from '@/components/legal/LegalDocumentScreen';
+import { getTermsOfService } from '@/lib/legal/terms-of-service';
 import { useTranslation } from '@/lib/use-translation';
 
+/** The one Terms of Service screen. Settings, Security & privacy and the paywall all open this route. */
 export default function TermsScreen() {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
 
   return (
-    <SettingsDetailScreen
-      eyebrow={t('sub.about')}
+    <LegalDocumentScreen
+      document={getTermsOfService(locale)}
       title={t('sub.terms.title')}
-      description={t('sub.terms.description')}>
-      <SettingsNotice
-        title={t('sub.terms.notice.title')}
-        body={t('sub.terms.notice.body')}
-      />
-    </SettingsDetailScreen>
+      description={t('sub.terms.description')}
+      openedEvent="terms_of_service_opened"
+    />
   );
 }

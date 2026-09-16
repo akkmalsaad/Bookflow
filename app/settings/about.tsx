@@ -15,7 +15,6 @@ export default function AboutScreen() {
       title={t('sub.about.title')}
       description={t('sub.about.description')}>
       <SettingsInfoRow label={t('sub.about.version')} value={buildNumber ? `${appVersion} (${buildNumber})` : String(appVersion)} />
-      <SettingsInfoRow label={t('sub.about.runtime')} value={`Expo SDK ${Constants.expoConfig?.sdkVersion ?? t('sub.unknown')}`} />
     </SettingsDetailScreen>
   );
 }

@@ -19,6 +19,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { type AppPalette, getThemePalette, useTheme } from '@/context/theme-context';
 import { useResponsive } from '@/lib/responsive';
 import { useTranslation } from '@/lib/use-translation';
+import { useSplashTarget } from '@/context/splash-target-context';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
 
@@ -33,6 +34,7 @@ export function AuthScreen({
   subtitle: string;
   title: string;
 }) {
+  const splashTarget = useSplashTarget();
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
 
@@ -57,9 +59,11 @@ export function AuthScreen({
                     shadowColor: isDarkMode ? '#020617' : '#94A3B8',
                   },
                 ]}>
-                <Image source={require('@/assets/images/bookflow-logo.png')} style={styles.logo} resizeMode="contain" />
+                <View {...splashTarget}>
+                  <Image source={require('@/assets/images/bookflow-logo.png')} style={styles.logo} resizeMode="contain" />
+                </View>
               </View>
-              <Text style={[styles.wordmark, { color: palette.text }]}>Bookflow</Text>
+              <Text style={[styles.wordmark, { color: palette.text }]}>BookFlow</Text>
             </View>
 
             <View style={styles.heading}>

@@ -56,20 +56,6 @@ export default function NotificationSettingsScreen() {
         title={t('notifset.booking.notice')}
         body={t('notifset.booking.body')}
       />
-
-      <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter }]}>{t('notifset.payment')}</Text>
-      <SettingsNotice
-        title={t('notifset.notAvailable')}
-        body={t('notifset.payment.body')}
-        items={[t('notifset.payment.item1'), t('notifset.payment.item2')]}
-      />
-
-      <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter }]}>{t('notifset.invoice')}</Text>
-      <SettingsNotice
-        title={t('notifset.notAvailable')}
-        body={t('notifset.invoice.body')}
-        items={[t('notifset.invoice.item1'), t('notifset.invoice.item2'), t('notifset.invoice.item3')]}
-      />
     </SettingsDetailScreen>
   );
 }

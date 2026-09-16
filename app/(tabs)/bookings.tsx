@@ -1,9 +1,22 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { Animated, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import type { StyleProp, ViewStyle } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { usePostHog } from 'posthog-react-native';
+// Aliased: this screen already imports React Native's own `Animated` for the package dropdown.
+import Reanimated, {
+  Easing,
+  interpolateColor,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withDelay,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
+import { scheduleOnRN } from 'react-native-worklets';
 
 import { SuccessFeedback } from '@/components/feedback/SuccessFeedback';
 import { useConfirmedSave } from '@/components/feedback/useConfirmedSave';
@@ -11,6 +24,10 @@ import { Booking, getCurrencyFormatter, useAppData } from '@/context/app-data-co
 import { SectionHeader } from '@/components/SectionHeader';
 import { JobStatusPill } from '@/components/booking/JobStatusPill';
 import { JobStatusSheet } from '@/components/booking/JobStatusSheet';
+import {
+  SETTINGS_ICON_BACKGROUND_COLOR,
+  SETTINGS_ICON_STROKE_COLOR,
+} from '@/components/settings/tokens';
 import {
   formatTime,
   getSuggestedEndTime,
@@ -33,10 +50,105 @@ import {
   parsePackageDurationMinutes,
 } from '@/lib/booking-conflicts';
 import { getServiceDepositDefault, resolveServiceDepositAmount } from '@/lib/service-defaults';
+import { usePressScale } from '@/components/use-press-scale';
 import { useResponsive } from '@/lib/responsive';
 import { useTranslation } from '@/lib/use-translation';
+import { captureEvent } from '@/lib/analytics';
 
 const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+const AnimatedPressable = Reanimated.createAnimatedComponent(Pressable);
+const TAP_EASING = Easing.out(Easing.cubic);
+/** Peak ripple size, as a multiple of the day cell. Just past its own edges, never into its neighbours. */
+const RIPPLE_MAX_SCALE = 1.2;
+
+/**
+ * The calendar day cell, with tap feedback only: a scale pulse, a ripple ring that expands from the
+ * tapped day, and the selected fill easing in instead of snapping. Selection itself is untouched —
+ * `onPress` still does exactly what it did, and the cell keeps the styles passed to it.
+ */
+function CalendarDayCell({
+  style,
+  fillColor,
+  rippleColor,
+  isSelected,
+  onPress,
+  children,
+}: {
+  style: StyleProp<ViewStyle>;
+  /** The selected-state fill, faded in on tap. */
+  fillColor: string;
+  rippleColor: string;
+  isSelected: boolean;
+  onPress: () => void;
+  children: React.ReactNode;
+}) {
+  const reduced = useReducedMotion();
+  const pressScale = useSharedValue(1);
+  const ringScale = useSharedValue(1);
+  const ringOpacity = useSharedValue(0);
+  const fill = useSharedValue(isSelected ? 1 : 0);
+  const [isRingVisible, setIsRingVisible] = useState(false);
+
+  useEffect(() => {
+    if (reduced) {
+      fill.set(isSelected ? 1 : 0);
+      return;
+    }
+    // The existing selected colour, faded in 80ms after the tap rather than applied instantly.
+    fill.set(isSelected ? withDelay(80, withTiming(1, { duration: 320 })) : withTiming(0, { duration: 320 }));
+  }, [fill, isSelected, reduced]);
+
+  const handlePress = () => {
+    // Alongside the pulse and ripple, and silent where the device or platform has no haptics.
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    if (!reduced) {
+      pressScale.set(
+        withSequence(
+          withTiming(1.18, { duration: 140, easing: TAP_EASING }),
+          withTiming(1, { duration: 180, easing: TAP_EASING }),
+        ),
+      );
+      // A tap during another day's ripple simply starts its own; this one restarts from the top.
+      setIsRingVisible(true);
+      ringScale.set(1);
+      ringOpacity.set(0.75);
+      ringScale.set(withTiming(RIPPLE_MAX_SCALE, { duration: 550, easing: TAP_EASING }));
+      ringOpacity.set(
+        withTiming(0, { duration: 550, easing: TAP_EASING }, (finished) => {
+          'worklet';
+          // Interrupted by a fresh tap: that run owns the ring and will remove it instead.
+          if (finished) scheduleOnRN(setIsRingVisible, false);
+        }),
+      );
+    }
+    onPress();
+  };
+
+  const cellStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pressScale.get() }],
+    // From the same colour at zero alpha, so an unselected cell shows no box at all.
+    backgroundColor: interpolateColor(fill.get(), [0, 1], [`${fillColor}00`, fillColor]),
+  }));
+
+  const ringStyle = useAnimatedStyle(() => ({
+    opacity: ringOpacity.get(),
+    // Divided by the pulse so the ring reaches exactly RIPPLE_MAX_SCALE, not that much of a scaling cell.
+    transform: [{ scale: ringScale.get() / Math.max(pressScale.get(), 0.001) }],
+  }));
+
+  return (
+    <AnimatedPressable style={[style, cellStyle]} onPress={handlePress}>
+      {isRingVisible ? (
+        <Reanimated.View
+          pointerEvents="none"
+          style={[styles.dayRipple, { borderColor: rippleColor }, ringStyle]}
+        />
+      ) : null}
+      {children}
+    </AnimatedPressable>
+  );
+}
 type ActiveTimePicker = 'start' | 'finish' | null;
 
 function toIsoDate(date: Date) {
@@ -68,13 +180,13 @@ export default function BookingsScreen() {
   const handledDeepLinkRef = useRef('');
   const { isDarkMode } = useTheme();
   const { packages, bookings, customers, checkPlanLimit, createBooking, updateBookingStatus, currency } = useAppData();
-  const posthog = usePostHog();
   const { t } = useTranslation();
   const { showSnackbar } = useSnackbar();
   const palette = getThemePalette(isDarkMode);
   // The schedule is a single column of text-heavy cards, so it uses the narrower reading column;
   // the month grid is capped tighter still so a day cell never turns into a letterbox.
   const { readingStyle, calendarStyle, sheetStyle, dayCellHeight } = useResponsive();
+  const addButtonPress = usePressScale();
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const customerMap = new Map(customers.map((customer) => [customer.id, customer]));
   const [showComposer, setShowComposer] = useState(false);
@@ -248,7 +360,7 @@ export default function BookingsScreen() {
       return;
     }
 
-    posthog.capture('booking_status_updated', { status });
+    captureEvent('booking_status_updated', { status });
   };
 
   /** Hands the finish time back to the package after it has been overridden. */
@@ -374,7 +486,7 @@ export default function BookingsScreen() {
       return false;
     }
 
-    posthog.capture('booking_created', {
+    captureEvent('booking_created', {
       customer_source: customerMode,
       has_deposit: numericDeposit > 0,
     });
@@ -415,18 +527,24 @@ export default function BookingsScreen() {
           <>
             <View style={styles.headerRow}>
               <View style={styles.headerTitleGroup}>
-                <View style={[styles.headerIcon, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
-                  <Ionicons name="calendar-outline" size={23} color={palette.accent} />
+                <View style={[styles.headerIcon, { backgroundColor: SETTINGS_ICON_BACKGROUND_COLOR, borderColor: softBorder, shadowColor: softShadow }]}>
+                  <Ionicons name="calendar-outline" size={23} color={SETTINGS_ICON_STROKE_COLOR} />
                 </View>
                 <View>
-                  <Text style={[styles.eyebrow, { color: palette.accent }]}>{t('bookings.eyebrow')}</Text>
+                  <Text style={[styles.eyebrow, { color: '#142A3A' }]}>{t('bookings.eyebrow')}</Text>
                   <Text style={[styles.title, { color: palette.text }]}>{t('bookings.title')}</Text>
                 </View>
               </View>
-              <Pressable style={[styles.primaryButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]} onPress={openComposer}>
-                <Ionicons name="add" size={18} color="#fff" />
-                <Text style={styles.primaryButtonText}>{t('bookings.add')}</Text>
-              </Pressable>
+              <Reanimated.View style={addButtonPress.scaleStyle}>
+                <Pressable
+                  style={[styles.primaryButton, { backgroundColor: '#142A3A', shadowColor: palette.accent }]}
+                  onPressIn={addButtonPress.onPressIn}
+                  onPressOut={addButtonPress.onPressOut}
+                  onPress={openComposer}>
+                  <Ionicons name="add" size={18} color="#fff" />
+                  <Text style={styles.primaryButtonText}>{t('bookings.add')}</Text>
+                </Pressable>
+              </Reanimated.View>
             </View>
 
             <View style={[styles.calendarCard, calendarStyle, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
@@ -465,21 +583,24 @@ export default function BookingsScreen() {
                   const hasEvent = bookings.some((booking) => booking.date === cell.dateKey);
 
                   return (
-                    <Pressable
+                    <CalendarDayCell
                       key={`${cell.dateKey}-cell`}
                       style={[
                         styles.dayCell,
                         { height: dayCellHeight },
-                        cell.isCurrentMonth ? { backgroundColor: softSurface } : { backgroundColor: softInset, opacity: 0.52 },
-                        isSelected && { backgroundColor: palette.accent, shadowColor: palette.accent, shadowOpacity: 0.22, elevation: 3 },
-                        isToday && { borderWidth: 2, borderColor: isSelected ? '#FFFFFF' : palette.accent },
+                        cell.isCurrentMonth ? null : { opacity: 0.52 },
+                        isSelected && { shadowColor: palette.accent, shadowOpacity: 0.22, elevation: 3 },
+                        isToday && { borderWidth: 2, borderColor: '#142A3A' },
                       ]}
+                      fillColor="#142A3A"
+                      rippleColor="#142A3A"
+                      isSelected={isSelected}
                       onPress={() => setSelectedDate(cell.dateKey)}>
                       <Text style={[styles.dayNumber, { color: isSelected ? '#FFFFFF' : palette.text }]}>
                         {cell.date.getDate()}
                       </Text>
                       {hasEvent && <View style={[styles.dot, { backgroundColor: isSelected ? '#FFFFFF' : palette.accent }]} />}
-                    </Pressable>
+                    </CalendarDayCell>
                   );
                 })}
               </View>
@@ -615,7 +736,7 @@ export default function BookingsScreen() {
 
             {showPackageDropdown && (
               <View style={[styles.packageDropdownPanel, { backgroundColor: softInset, borderColor: softBorder }]}>
-                <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" style={styles.packageDropdownScroll}>
+                <ScrollView showsVerticalScrollIndicator={false} nestedScrollEnabled keyboardShouldPersistTaps="handled" style={styles.packageDropdownScroll}>
                   {packages.map((item) => (
                     <Pressable
                       key={item.id}
@@ -705,6 +826,7 @@ export default function BookingsScreen() {
                       that the panel simply clipped, so every drag fell through to the form behind
                       it and moved the whole modal instead. Mirrors the package dropdown above. */}
                   <ScrollView
+                    showsVerticalScrollIndicator={false}
                     nestedScrollEnabled
                     keyboardShouldPersistTaps="handled"
                     style={styles.dropdownScroll}
@@ -1037,6 +1159,12 @@ const styles = StyleSheet.create({
     shadowRadius: 7,
     shadowOffset: { width: 2, height: 4 },
     elevation: 0,
+  },
+  dayRipple: {
+    // Inset to the cell's own bounds, so the ring is the cell's square — same radius as selected.
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 15,
+    borderWidth: 2,
   },
   dayNumber: {
     fontSize: 14,

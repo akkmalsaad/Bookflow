@@ -54,32 +54,84 @@ npx expo export --platform web
 
 For an isolation check, sign in as two different Clerk users. Each account should see a separate workspace even though both rows are visible to project administrators in the Supabase dashboard.
 
-## Temporary iPhone development with a free Apple Personal Team
+## Build variants and bundle identifiers
 
-This checkout currently uses `com.akkmal.bookflow.dev` for iOS, matching the existing
-Xcode target. Automatic Signing and the selected Personal Team are unchanged.
-`ios.usesAppleSignIn` and Clerk's `appleSignIn` plugin option are disabled. The first
-`withPersonalTeamSigning` plugin removes only the push and native Apple Sign In
-entitlements, including when Expo regenerates native configuration. Keep it first: Expo entitlement mods execute in reverse registration order.
-The existing native entitlements file has also been updated directly.
+iOS ships as two separate apps. `app.config.js` picks which one it is building from the
+`APP_VARIANT` environment variable, which `eas.json` sets per build profile — no file is edited
+before a build, and nothing has to be remembered at the command line.
 
-Face ID, Android configuration, notification implementation, and all packages are
-preserved. Remote APNs push and native Apple Sign In are unavailable in this free
-build. The existing Apple button uses Clerk browser OAuth, so it remains available;
-it does not invoke native Apple authentication.
+| Profile | `APP_VARIANT` | iOS bundle identifier | Home-screen name | Signing |
+| --- | --- | --- | --- | --- |
+| `development` | `development` | `my.bookflow.app.dev` | Bookflow Dev | free Apple Personal Team |
+| `preview` | `preview` | `my.bookflow.app` | Bookflow | paid team, ad hoc |
+| `production` | `production` | `my.bookflow.app` | Bookflow | paid team, App Store |
 
-To install on the connected, trusted iPhone:
+A bare `npx expo start` or `npx expo run:ios` sets no variable, so local work falls back to the
+`development` variant. Because the two variants use different bundle identifiers, the dev app and
+the App Store app install side by side on the same device.
+
+Inspect what any variant resolves to without building:
 
 ```bash
-cd /Users/akkmal/Desktop/Bookflow
+APP_VARIANT=production npx expo config --type public
+```
+
+The Android package (`com.akkmal.Bookflow`) is deliberately shared by every variant — only the iOS
+side has been split.
+
+### Deep links
+
+Production keeps the single `bookflow` scheme it has always used. The development variant declares
+`["bookflow", "bookflow.dev"]`: `bookflow` still resolves exactly as before, and `bookflow.dev`
+gives an unambiguous target once both apps are installed, since iOS picks an arbitrary winner when
+two installed apps claim the same scheme.
+
+### Push notifications
+
+Today the app only schedules **local** notifications (`lib/notifications.ts`,
+`lib/booking-reminders.ts`); nothing requests an APNs token. Local notifications need no
+entitlement, which is why development can run on a free Personal Team.
+
+The `withPersonalTeamSigning` plugin deletes the `aps-environment` and Apple Sign In entitlements,
+because a Personal Team is not allowed to sign them. `app.config.js` now applies that plugin **only
+to the development variant**, so `preview` and `production` keep the `aps-environment` entitlement
+that `expo-notifications` adds. Those builds are therefore push-capable as soon as an APNs key is
+attached in EAS credentials, without any further config change.
+
+## iPhone development with a free Apple Personal Team
+
+Development still signs with a free Personal Team, so no paid Apple Developer account is needed to
+run BookFlow on a trusted device. `ios.usesAppleSignIn` and Clerk's `appleSignIn` option stay
+disabled; the app uses email/password auth and never invokes native Apple authentication, so
+nothing depends on them.
+
+Install on the connected iPhone:
+
+```bash
+npx expo prebuild --platform ios
 npx expo run:ios --device
 ```
 
-Before production with a paid Apple Developer account, remove
-`./plugins/withPersonalTeamSigning` from `app.json`, enable `ios.usesAppleSignIn`
-and Clerk's `appleSignIn` option, and select the production bundle ID and paid team
-in both Expo config and Xcode. The previous Expo iOS bundle ID was
-`com.akkmal.Bookflow`. Restore Push Notifications and Sign in with Apple in the
-native target/entitlements (or regenerate iOS without `--clean`), then regenerate
-provisioning profiles with the paid team. This local workaround must not be used
-for the production build.
+Face ID, Android configuration, notifications and all packages are unaffected. Remote APNs push is
+unavailable in a Personal Team build, which does not matter while every notification is local.
+
+### Moving to the paid team
+
+The paid-team switch is now the `production` build profile rather than a manual edit — the plugin
+removal, bundle identifier and entitlements all follow `APP_VARIANT`. Nothing in `app.json` or the
+Xcode target needs changing by hand.
+
+```bash
+eas build --profile development --platform ios   # my.bookflow.app.dev
+eas build --profile production  --platform ios   # my.bookflow.app, TestFlight
+```
+
+The iOS bundle identifier history for this project is `com.akkmal.Bookflow`, then
+`com.akkmal.bookflow.dev`, and now `my.bookflow.app.dev` for development alongside
+`my.bookflow.app` for the App Store.
+
+## Short invoice links
+
+New invoice shares use `https://bookflow.expo.app/i?t=<22-character-token>` by default. No custom domain or extra environment variable is required. Restart development clients or rebuild installed apps to pick up this change.
+
+The static `/i` route opens independently of Clerk and workspace loading. Tokens retain every bit of the original UUID, and the backend continues to enforce the 30-day expiry and allowed invoice actions. Existing UUID links remain supported. An optional `EXPO_PUBLIC_INVOICE_WEB_URL` overrides the domain only after the same web routes are deployed there.

@@ -46,7 +46,8 @@ export function useConfirmedSave(visible: boolean) {
       // Keep the synchronous submission lock until this presentation closes.
     } catch (failure) {
       if (attempt !== generation.current) return;
-      setError(`${failure instanceof Error ? failure.message : 'Could not save changes.'} Retry to sync the existing record.`);
+      // The workspace rejects with a message already written for the person saving.
+      setError(failure instanceof Error ? failure.message : 'Could not save changes.');
     } finally {
       if (attempt === generation.current) {
         setSaving(false);

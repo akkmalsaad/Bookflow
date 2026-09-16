@@ -29,7 +29,7 @@ export function NotificationPermissionPrompt({ visible, onAllow, onDismiss }: Pr
           </View>
           <Text style={[styles.title, { color: palette.text }]}>{t('notifPrompt.title')}</Text>
           <Text style={[styles.copy, { color: palette.muter }]}>
-            Bookflow would like to send you reminders for today&apos;s priority bookings so you never miss an appointment.
+            BookFlow would like to send you reminders for today&apos;s priority bookings so you never miss an appointment.
           </Text>
           <View style={styles.actions}>
             <Pressable

@@ -1,3 +1,6 @@
+import BookFlowLoading from '@/components/feedback/BookFlowLoading';
+import { useLoadingTransition } from '@/components/feedback/useLoadingTransition';
+import { decodeInvoiceToken } from '@/lib/public-invoice-url';
 import { Redirect, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -14,28 +17,60 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/context/auth-context';
-import { renderInvoiceBody, type InvoiceRenderData } from '@/lib/invoice-design';
+import { renderInvoiceHtml, type InvoiceRenderData } from '@/lib/invoice-design';
 import { DEFAULT_LOCALE, isLocale, translate, type Locale, type TranslationKey } from '@/lib/i18n';
 import { getSupabaseFunctionUrl } from '@/lib/supabase';
 
 /**
  * Renders the invoice exactly as the PDF does.
  *
- * `renderInvoiceBody` is the same function `lib/invoice-pdf` calls, so the document the customer
+ * `renderInvoiceHtml` is the same function `lib/invoice-pdf` calls, so the document the customer
  * scrolls through and the file the business downloads come from one renderer rather than from two
- * layouts that would drift apart. This route only ever runs on web — native redirects above — so a
- * DOM node here is the intended target, not an escape hatch.
+ * layouts that would drift apart. The full document — template and accent CSS included — goes into
+ * an iframe: the body alone carries no styling, and the template's `body` rules would otherwise leak
+ * onto this page. This route only ever runs on web — native redirects above — so a DOM node here is
+ * the intended target, not an escape hatch.
  */
 function TemplatedInvoiceDocument({ data }: { data: InvoiceRenderData }) {
-  return React.createElement('div', {
-    style: { width: '100%' },
+  const [frame, setFrame] = useState<HTMLIFrameElement | null>(null);
+  const [height, setHeight] = useState(900);
+  const html = useMemo(() => renderInvoiceHtml(data), [data]);
+
+  useEffect(() => {
+    if (!frame) return;
+    let observer: ResizeObserver | undefined;
+    // The frame is sized to its content so the page scrolls as one document, not a box within a box.
+    // Measured from the body: the root element never reports less than the frame's own height.
+    const fit = () => {
+      const body = frame.contentDocument?.body;
+      if (!body) return;
+      const measure = () => setHeight(Math.ceil(body.getBoundingClientRect().height));
+      measure();
+      observer?.disconnect();
+      observer = new ResizeObserver(measure);
+      observer.observe(body);
+    };
+    fit();
+    frame.addEventListener('load', fit);
+    return () => {
+      frame.removeEventListener('load', fit);
+      observer?.disconnect();
+    };
+  }, [frame, html]);
+
+  return React.createElement('iframe', {
+    ref: setFrame,
+    title: `Invoice ${data.invoice.number}`,
     // The markup is built by BookFlow from the invoice's own frozen snapshot; every value inside it
-    // is HTML-escaped by the renderer, and no customer-supplied content reaches it unescaped.
-    dangerouslySetInnerHTML: { __html: renderInvoiceBody(data) },
+    // is HTML-escaped by the renderer. Scripts stay disabled; same-origin only lets us measure height.
+    sandbox: 'allow-same-origin',
+    srcDoc: html,
+    scrolling: 'no',
+    style: { display: 'block', width: '100%', height, border: 0 },
   });
 }
 
-type InvoiceStatus = 'Sent' | 'Accepted' | 'Declined' | 'Paid' | 'Cancelled' | 'Void';
+type InvoiceStatus = 'Sent' | 'Partially Paid' | 'Accepted' | 'Declined' | 'Paid' | 'Cancelled' | 'Void';
 
 type InvoicePayload = {
   /** The interface language the sender's app was in when the link was made. */
@@ -46,7 +81,7 @@ type InvoicePayload = {
    */
   render?: InvoiceRenderData;
   invoice: {
-    id: string;
+    id?: string;
     invoiceNumber?: string;
     amount: number;
     depositPaid?: number;
@@ -100,8 +135,9 @@ function PartyCard({ label, name, lines, fallback }: { label: string; name: stri
 
 function NativeInvoiceRedirect() {
   const { isAuthenticated, isLoaded } = useAuth();
+  const loadingTransition = useLoadingTransition(!isLoaded);
 
-  if (!isLoaded) return null;
+  if (loadingTransition.visible) return <BookFlowLoading key={loadingTransition.cycle} loading={!isLoaded} />;
 
   return <Redirect href={isAuthenticated ? '/(tabs)' : '/(auth)/login'} />;
 }
@@ -123,12 +159,14 @@ function PublicInvoiceScreen() {
   const [documentLocale, setDocumentLocale] = useState<Locale>(DEFAULT_LOCALE);
   const t = useCallback((key: TranslationKey) => translate(documentLocale, key), [documentLocale]);
 
-  const params = useLocalSearchParams<{ token?: string | string[] }>();
-  const token = Array.isArray(params.token) ? params.token[0] : params.token;
+  const params = useLocalSearchParams<{ token?: string | string[]; t?: string | string[] }>();
+  const rawToken = params.token ?? params.t;
+  const token = decodeInvoiceToken(Array.isArray(rawToken) ? rawToken[0] : rawToken);
   const { width } = useWindowDimensions();
   const [result, setResult] = useState<InvoiceResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const loadingTransition = useLoadingTransition(isLoading);
   const [pendingAction, setPendingAction] = useState<'Accepted' | 'Declined' | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -149,12 +187,17 @@ function PublicInvoiceScreen() {
     try {
       const response = await fetch(apiUrl, { headers: { accept: 'application/json' } });
       const body = await response.json();
-      if (!response.ok) throw new Error(body?.error ?? t('public.loadFailed'));
+      if (!response.ok) {
+        setError(response.status === 404 ? t('public.linkIncomplete') : t('public.loadFailed'));
+        setResult(null);
+        return;
+      }
       const loaded = body as InvoiceResult;
       setDocumentLocale(isLocale(loaded.payload?.locale) ? loaded.payload.locale : DEFAULT_LOCALE);
       setResult(loaded);
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : t('public.loadFailed'));
+    } catch {
+      setResult(null);
+      setError(t('public.loadFailed'));
     } finally {
       setIsLoading(false);
     }
@@ -175,25 +218,24 @@ function PublicInvoiceScreen() {
         body: JSON.stringify({ action }),
       });
       const body = await response.json();
-      if (!response.ok) throw new Error(body?.error ?? t('public.responseFailed'));
+      if (!response.ok) {
+        if (response.status === 409) await loadInvoice();
+        setError(t('public.responseFailed'));
+        return;
+      }
       const loaded = body as InvoiceResult;
       setDocumentLocale(isLocale(loaded.payload?.locale) ? loaded.payload.locale : DEFAULT_LOCALE);
       setResult(loaded);
       setNotice(action === 'Accepted' ? t('public.accepted') : t('public.declined'));
-    } catch (responseError) {
-      setError(responseError instanceof Error ? responseError.message : t('public.responseFailed'));
+    } catch {
+      setError(t('public.responseFailed'));
     } finally {
       setPendingAction(null);
     }
   };
 
-  if (isLoading) {
-    return (
-      <SafeAreaView style={styles.centeredPage}>
-        <ActivityIndicator color="#4F46E5" size="large" />
-        <Text style={styles.loadingText}>{t('public.loading')}</Text>
-      </SafeAreaView>
-    );
+  if (loadingTransition.visible) {
+    return <BookFlowLoading key={loadingTransition.cycle} loading={isLoading} />;
   }
 
   if (!result) {
@@ -225,7 +267,7 @@ function PublicInvoiceScreen() {
 
   return (
     <SafeAreaView style={styles.page}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         <View style={styles.container}>
           {payload.render ? (
             <View style={styles.templatedCard}>
@@ -302,7 +344,7 @@ function PublicInvoiceScreen() {
                 <PartyCard
                   fallback={t('public.notSpecified')}
                   label={t('doc.from')}
-                  name={payload.businessProfile.name || 'Bookflow business'}
+                  name={payload.businessProfile.name || 'BookFlow business'}
                   lines={[
                     payload.businessProfile.ssmRegistrationNo ? `SSM: ${payload.businessProfile.ssmRegistrationNo}` : '',
                     payload.businessProfile.phone,
@@ -382,7 +424,6 @@ const styles = StyleSheet.create({
   centeredPage: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, backgroundColor: '#F4F6FB' },
   scrollContent: { flexGrow: 1, paddingHorizontal: 14, paddingVertical: 28 },
   container: { width: '100%', maxWidth: 760, alignSelf: 'center' },
-  loadingText: { marginTop: 14, color: '#667085', fontSize: 15, fontWeight: '600' },
   brand: { marginBottom: 18, color: '#4F46E5', fontSize: 13, fontWeight: '800', letterSpacing: 1.8 },
   businessLogo: { width: 148, height: 62, marginBottom: 18 },
   card: { overflow: 'hidden', backgroundColor: '#FFFFFF', borderColor: '#E4E7EC', borderWidth: 1, borderRadius: 24 },

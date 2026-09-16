@@ -1,7 +1,8 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Text } from 'react-native';
+import { Modal, StyleSheet, Text, View } from 'react-native';
 
+import { SuccessFeedback } from '@/components/feedback/SuccessFeedback';
 import {
   SettingsDetailScreen,
   SettingsInfoRow,
@@ -22,10 +23,20 @@ export default function InvoiceSettingsScreen() {
   const { t } = useTranslation();
   const router = useRouter();
   const { isDarkMode } = useTheme();
-  const { businessProfile, invoiceSettings, trashedInvoices, updateInvoiceSettings } = useAppData();
+  const { businessProfile, confirmWorkspaceSave, invoiceSettings, trashedInvoices, updateInvoiceSettings } = useAppData();
   const { isPro } = useSubscription();
   const palette = getThemePalette(isDarkMode);
+  // The field stays set while the sheet slides away so its content doesn't blank mid-exit.
   const [editing, setEditing] = useState<InvoiceSettingField | null>(null);
+  const [sheetVisible, setSheetVisible] = useState(false);
+  // Held while the sheet slides away, then confirmed — see the sheet's onClosed hand-off.
+  const [instructionsSaved, setInstructionsSaved] = useState(false);
+  const [showInstructionsSuccess, setShowInstructionsSuccess] = useState(false);
+
+  const openEditor = (field: InvoiceSettingField) => {
+    setEditing(field);
+    setSheetVisible(true);
+  };
 
   const preview = generateInvoiceNumber(invoiceSettings.numberFormat, invoiceSettings.nextInvoiceSequence, new Date());
   const templateName = getInvoiceTemplate(invoiceSettings.design.templateId).name;
@@ -48,13 +59,13 @@ export default function InvoiceSettingsScreen() {
           icon="pricetag-outline"
           title={t('invset.numberFormat')}
           subtitle={t('invset.preview', { format: invoiceSettings.numberFormat, preview })}
-          onPress={() => setEditing('numberFormat')}
+          onPress={() => openEditor('numberFormat')}
         />
         <SettingsRow
           icon="calendar-outline"
           title={t('invset.paymentTerms')}
           subtitle={formatPaymentTerms(invoiceSettings.paymentTermDays)}
-          onPress={() => setEditing('paymentTerms')}
+          onPress={() => openEditor('paymentTerms')}
         />
       </SettingsSection>
 
@@ -63,7 +74,7 @@ export default function InvoiceSettingsScreen() {
           icon="card-outline"
           title={t('invset.paymentInstructions')}
           subtitle={instructions ? instructions.replace(/\s+/g, ' ') : 'Not set'}
-          onPress={() => setEditing('paymentInstructions')}
+          onPress={() => openEditor('paymentInstructions')}
         />
       </SettingsSection>
       <SettingsInfoRow label={t('invset.methods')} value={paymentMethods.join(' · ')} />
@@ -97,13 +108,42 @@ export default function InvoiceSettingsScreen() {
         // Remount per field so each editor opens seeded from the saved value.
         key={editing ?? 'closed'}
         field={editing}
+        visible={sheetVisible}
         settings={invoiceSettings}
-        onClose={() => setEditing(null)}
+        onClose={() => setSheetVisible(false)}
+        onClosed={() => {
+          setEditing(null);
+          if (!instructionsSaved) return;
+          setInstructionsSaved(false);
+          // Confirmation only after the workspace save is acknowledged. A failed sync surfaces
+          // through the existing sync banner and simply never shows the success card.
+          void confirmWorkspaceSave().then(() => setShowInstructionsSuccess(true)).catch(() => {});
+        }}
         onSave={(updates) => {
           updateInvoiceSettings(updates);
-          setEditing(null);
+          if (updates.paymentInstructions) setInstructionsSaved(true);
+          setSheetVisible(false);
         }}
       />
+
+      <Modal visible={showInstructionsSuccess} transparent animationType="fade" onRequestClose={() => {}}>
+        <View style={styles.successBackdrop}>
+          <SuccessFeedback
+            visible={showInstructionsSuccess}
+            title={t('invset.instructionsAdded.title')}
+            message={t('invset.instructionsAdded.body')}
+            onComplete={() => setShowInstructionsSuccess(false)}
+          />
+        </View>
+      </Modal>
     </SettingsDetailScreen>
   );
 }
+
+const styles = StyleSheet.create({
+  /** The same dim every other BookFlow success state is presented over. */
+  successBackdrop: {
+    backgroundColor: 'rgba(15, 23, 42, 0.58)',
+    flex: 1,
+  },
+});

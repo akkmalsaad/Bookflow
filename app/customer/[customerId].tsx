@@ -438,7 +438,7 @@ export default function CustomerProfileScreen() {
             style={styles.avatar}
           />
           <View style={styles.headerCopy}>
-            <Text style={[styles.eyebrow, { color: palette.accent }]}>{t('customer.eyebrow')}</Text>
+            <Text style={[styles.eyebrow, { color: '#142A3A' }]}>{t('customer.eyebrow')}</Text>
             <Text style={[styles.title, { color: palette.text }]}>{customer.name}</Text>
           </View>
           <Pressable

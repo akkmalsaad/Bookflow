@@ -3,11 +3,16 @@ import { SuccessFeedback } from '@/components/feedback/SuccessFeedback';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { FlatList, Keyboard, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import Reanimated from 'react-native-reanimated';
 import { useMemo, useRef, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { usePostHog } from 'posthog-react-native';
 
 import { InitialsAvatar } from '@/components/InitialsAvatar';
+import { usePressScale } from '@/components/use-press-scale';
+import {
+  SETTINGS_ICON_BACKGROUND_COLOR,
+  SETTINGS_ICON_STROKE_COLOR,
+} from '@/components/settings/tokens';
 import { KeyboardDoneButton } from '@/components/KeyboardDoneButton';
 import { modalScrollProps } from '@/components/modal-keyboard';
 import { getCompactCurrencyFormatter, useAppData } from '@/context/app-data-context';
@@ -23,17 +28,18 @@ import {
   sortCustomers,
   type CustomerSortKey,
 } from '@/lib/customer-metrics';
+import { captureEvent } from '@/lib/analytics';
 
 export default function CustomersScreen() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
   const { customers, bookings, invoices, payments, addCustomer, checkPlanLimit, currency } = useAppData();
-  const posthog = usePostHog();
   const { showSnackbar } = useSnackbar();
   const palette = getThemePalette(isDarkMode);
   // Customer cards are compact, so they pair up from tablet width. The screen's own 20pt inset
   // steps aside there and the centred column owns the edge spacing instead.
   const { contentStyle, gridCellStyle, gridRowStyle, isPhone, listColumnCount, sheetStyle } = useResponsive();
+  const addButtonPress = usePressScale();
   const { t } = useTranslation();
   const [showComposer, setShowComposer] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
@@ -94,7 +100,7 @@ export default function CustomersScreen() {
       return;
     }
 
-    posthog.capture('customer_created');
+    captureEvent('customer_created');
     successActive.current = true;
     setShowSuccess(true);
     Keyboard.dismiss();
@@ -111,20 +117,26 @@ export default function CustomersScreen() {
     <SafeAreaView style={[styles.screen, !isPhone && styles.screenBleed, { backgroundColor: palette.background }]}>
       <View style={[styles.headerRow, contentStyle]}>
         <View style={styles.headerTitleGroup}>
-          <View style={[styles.headerIcon, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
-            <Ionicons name="people-outline" size={23} color={palette.accent} />
+          <View style={[styles.headerIcon, { backgroundColor: SETTINGS_ICON_BACKGROUND_COLOR, borderColor: softBorder, shadowColor: softShadow }]}>
+            <Ionicons name="people-outline" size={23} color={SETTINGS_ICON_STROKE_COLOR} />
           </View>
           <View style={styles.headerCopy}>
-            <Text style={[styles.eyebrow, { color: palette.accent }]}>{t('customers.eyebrow')}</Text>
+            <Text style={[styles.eyebrow, { color: '#142A3A' }]}>{t('customers.eyebrow')}</Text>
             <Text style={[styles.title, { color: palette.text }]} numberOfLines={1}>
               {customers.length === 1 ? t('customers.count.one') : t('customers.count', { count: customers.length })}
             </Text>
           </View>
         </View>
-        <Pressable style={[styles.primaryButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]} onPress={() => setShowComposer(true)}>
-          <Ionicons name="add" size={18} color="#fff" />
-          <Text style={styles.primaryButtonText}>{t('customers.add')}</Text>
-        </Pressable>
+        <Reanimated.View style={addButtonPress.scaleStyle}>
+          <Pressable
+            style={[styles.primaryButton, { backgroundColor: '#142A3A', shadowColor: palette.accent }]}
+            onPressIn={addButtonPress.onPressIn}
+            onPressOut={addButtonPress.onPressOut}
+            onPress={() => setShowComposer(true)}>
+            <Ionicons name="add" size={18} color="#fff" />
+            <Text style={styles.primaryButtonText}>{t('customers.add')}</Text>
+          </Pressable>
+        </Reanimated.View>
       </View>
 
       <View style={[styles.searchRow, contentStyle]}>
@@ -216,8 +228,8 @@ export default function CustomersScreen() {
                 <InitialsAvatar
                   name={item.name}
                   size={44}
-                  backgroundColor={accentSoft}
-                  color={palette.accent}
+                  backgroundColor="#E9EDE6"
+                  color="#142A3A"
                   style={styles.avatar}
                 />
                 <View style={styles.profileCopy}>

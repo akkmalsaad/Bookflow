@@ -124,7 +124,7 @@ export async function exportReport({ data, format }: ExportOptions): Promise<Exp
   const required = extension === 'pdf' ? ['ExpoPrint', 'ExpoSharing', 'FileSystem'] : ['ExpoSharing', 'FileSystem'];
 
   if (!required.every((moduleName) => requireOptionalNativeModule(moduleName))) {
-    throw new Error('Exporting requires one native app rebuild. Rebuild and reinstall BookFlow, then try again.');
+    throw new Error('Reports can’t be exported on this device right now. Please try again later.');
   }
 
   const [{ File, Paths }, Sharing] = await Promise.all([import('expo-file-system'), import('expo-sharing')]);

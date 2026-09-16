@@ -280,7 +280,7 @@ export default function IncomeScreen() {
         </Pressable>
 
         <View style={styles.headerCopy}>
-          <Text style={[styles.eyebrow, { color: palette.accent }]}>{t('breakdown.eyebrow')}</Text>
+          <Text style={[styles.eyebrow, { color: '#142A3A' }]}>{t('breakdown.eyebrow')}</Text>
           <Text style={[styles.title, { color: palette.text }]}>{t('breakdown.income.title')}</Text>
         </View>
       </View>

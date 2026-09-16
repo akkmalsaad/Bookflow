@@ -21,6 +21,7 @@ import { getInvoiceNumber } from '@/lib/invoice-numbering';
 import { useResponsive } from '@/lib/responsive';
 import { getNextBookingDate } from '@/lib/upcoming-bookings';
 import { useTranslation } from '@/lib/use-translation';
+import { useSplashTarget } from '@/context/splash-target-context';
 import type { TranslationKey } from '@/lib/i18n';
 
 function getLocalDateKey(date: Date) {
@@ -35,6 +36,7 @@ function formatShortDate(dateKey: string, intlLocale: string) {
 }
 
 export default function HomeScreen() {
+  const splashTarget = useSplashTarget();
   const router = useRouter();
   const { isDarkMode } = useTheme();
   const { isPro } = useSubscription();
@@ -140,7 +142,7 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]}>
-      <ScrollView style={styles.screenScroll} contentContainerStyle={[styles.content, contentStyle]}>
+      <ScrollView showsVerticalScrollIndicator={false} style={styles.screenScroll} contentContainerStyle={[styles.content, contentStyle]}>
       <View style={styles.topHeader}>
         <View style={styles.headerLeft}>
           <View
@@ -152,6 +154,7 @@ export default function HomeScreen() {
                 shadowColor: softShadow,
               },
             ]}>
+            <View {...splashTarget}>
             <Image
               source={isPro && businessProfile.logoUrl
                 ? { uri: businessProfile.logoUrl }
@@ -162,9 +165,10 @@ export default function HomeScreen() {
                 ? t('home.logo.business', { name: businessProfile.name || 'Business' })
                 : t('home.logo.bookflow')}
             />
+            </View>
           </View>
           <View style={styles.headerCopy}>
-            <Text style={[styles.eyebrow, { color: palette.accent }]}>{t('home.eyebrow')}</Text>
+            <Text style={[styles.eyebrow, { color: '#142A3A' }]}>{t('home.eyebrow')}</Text>
             <Text
               adjustsFontSizeToFit
               minimumFontScale={0.65}
@@ -193,7 +197,7 @@ export default function HomeScreen() {
           <Ionicons
             name={hasUnreadNotifications ? 'notifications' : 'notifications-outline'}
             size={22}
-            color={hasUnreadNotifications ? palette.danger : palette.text}
+            color={hasUnreadNotifications ? palette.danger : '#142A3A'}
           />
           {hasUnreadNotifications ? (
             <View style={[styles.notificationBadge, { backgroundColor: palette.danger, borderColor: softSurface }]}>
@@ -216,7 +220,6 @@ export default function HomeScreen() {
           <SectionHeader
             icon="calendar-outline"
             title={t('home.todaysPriority')}
-            rightElement={<Text style={[styles.link, { color: palette.accent }]}>{t('home.viewAll')}</Text>}
           />
         </View>
 

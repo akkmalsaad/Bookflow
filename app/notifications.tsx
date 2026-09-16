@@ -50,7 +50,7 @@ export default function NotificationsScreen() {
         </Pressable>
 
         <View style={styles.headerCopy}>
-          <Text style={[styles.eyebrow, { color: palette.accent }]}>{t('notifications.eyebrow')}</Text>
+          <Text style={[styles.eyebrow, { color: '#142A3A' }]}>{t('notifications.eyebrow')}</Text>
           <Text style={[styles.title, { color: palette.text }]}>{t('notifications.title')}</Text>
         </View>
 
@@ -76,6 +76,7 @@ export default function NotificationsScreen() {
       </View>
 
       <FlatList
+        showsVerticalScrollIndicator={false}
         data={notifications}
         keyExtractor={(item) => item.id}
         contentContainerStyle={[styles.list, readingStyle]}

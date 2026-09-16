@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Keyboard, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { usePostHog } from 'posthog-react-native';
 
 import { DatePickerField } from '@/components/DatePickerField';
 import {
@@ -19,6 +18,7 @@ import { getThemePalette, useTheme } from '@/context/theme-context';
 import type { TranslationKey } from '@/lib/i18n';
 import { useTranslation } from '@/lib/use-translation';
 import { fromCents, getInvoicePayments, parseAmountInput, sumPaymentsInCents, toCents } from '@/lib/invoice-payments';
+import { captureEvent } from '@/lib/analytics';
 
 type Props = {
   invoiceId: string | null;
@@ -41,7 +41,6 @@ function todayKey() {
 export function RecordDepositModal({ invoiceId, onClose }: Props) {
   const { isDarkMode } = useTheme();
   const { invoices, payments, currency, updateInvoiceDeposit } = useAppData();
-  const posthog = usePostHog();
   const { t } = useTranslation();
   const palette = getThemePalette(isDarkMode);
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
@@ -97,9 +96,9 @@ export function RecordDepositModal({ invoiceId, onClose }: Props) {
     }
 
     if (updateInvoiceDeposit(invoice.id, parsed, { method, date, notes })) {
-      posthog.capture('deposit_recorded', { method });
+      captureEvent('deposit_recorded', { method });
       successActive.current = true;
-      setSuccessMessage(t('deposit.saved', { amount: currencyFormatter.format(parsed) }));
+      setSuccessMessage(t('deposit.saved'));
       Keyboard.dismiss();
       onClose();
       return;

@@ -2,14 +2,20 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import Reanimated from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AddTransactionModal } from '@/components/AddTransactionModal';
 import { SectionHeader } from '@/components/SectionHeader';
 import { BusinessInsightsPromoCard } from '@/components/business-insights/BusinessInsightsPromoCard';
+import {
+  SETTINGS_ICON_BACKGROUND_COLOR,
+  SETTINGS_ICON_STROKE_COLOR,
+} from '@/components/settings/tokens';
 import { getCurrencyFormatter, useAppData } from '@/context/app-data-context';
 import { useRequirePro } from '@/context/subscription-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { usePressScale } from '@/components/use-press-scale';
 import { useResponsive } from '@/lib/responsive';
 import { useTranslation } from '@/lib/use-translation';
 import { getFinancialMetrics } from '@/lib/financial-metrics';
@@ -22,6 +28,7 @@ export default function FinanceScreen() {
   const { financeEntries, invoices, payments, currency } = useAppData();
   const palette = getThemePalette(isDarkMode);
   const { readingStyle, isPhone } = useResponsive();
+  const addButtonPress = usePressScale();
   const { t } = useTranslation();
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const [showComposer, setShowComposer] = useState(false);
@@ -40,20 +47,24 @@ export default function FinanceScreen() {
     <SafeAreaView style={[styles.screen, !isPhone && styles.screenBleed, { backgroundColor: palette.background }]}>
       <View style={[styles.headerRow, readingStyle]}>
         <View style={styles.headerTitleGroup}>
-          <View style={[styles.headerIcon, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
-            <Ionicons name="wallet-outline" size={23} color={palette.accent} />
+          <View style={[styles.headerIcon, { backgroundColor: SETTINGS_ICON_BACKGROUND_COLOR, borderColor: softBorder, shadowColor: softShadow }]}>
+            <Ionicons name="wallet-outline" size={23} color={SETTINGS_ICON_STROKE_COLOR} />
           </View>
           <View style={styles.headerCopy}>
-            <Text style={[styles.eyebrow, { color: palette.accent }]}>{t('finance.eyebrow')}</Text>
+            <Text style={[styles.eyebrow, { color: '#142A3A' }]}>{t('finance.eyebrow')}</Text>
             <Text style={[styles.title, { color: palette.text }]}>{t('finance.title')}</Text>
           </View>
         </View>
-        <Pressable
-          style={[styles.primaryButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]}
-          onPress={() => setShowComposer(true)}>
-          <Ionicons name="add" size={18} color="#fff" />
-          <Text style={styles.primaryButtonText}>{t('finance.add')}</Text>
-        </Pressable>
+        <Reanimated.View style={addButtonPress.scaleStyle}>
+          <Pressable
+            style={[styles.primaryButton, { backgroundColor: '#142A3A', shadowColor: palette.accent }]}
+            onPressIn={addButtonPress.onPressIn}
+            onPressOut={addButtonPress.onPressOut}
+            onPress={() => setShowComposer(true)}>
+            <Ionicons name="add" size={18} color="#fff" />
+            <Text style={styles.primaryButtonText}>{t('finance.add')}</Text>
+          </Pressable>
+        </Reanimated.View>
       </View>
 
       <View style={[styles.statsRow, readingStyle]}>
@@ -108,6 +119,7 @@ export default function FinanceScreen() {
       </View>
 
       <FlatList
+        showsVerticalScrollIndicator={false}
         data={financeEntries}
         keyExtractor={(item) => item.id}
         contentContainerStyle={[styles.list, readingStyle]}

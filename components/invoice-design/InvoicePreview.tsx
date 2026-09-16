@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
 
 import { DEFAULT_INVOICE_DOCUMENT_LABELS } from '@/lib/i18n';
@@ -17,9 +18,9 @@ function has(value?: string | null): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
-function Line({ value, color }: { value?: string; color: string }) {
+function Line({ value, color, centered = false }: { value?: string; color: string; centered?: boolean }) {
   if (!has(value)) return null;
-  return <Text style={[styles.line, { color }]}>{value.trim()}</Text>;
+  return <Text style={[styles.line, { color }, centered && styles.centeredText]}>{value.trim()}</Text>;
 }
 
 function Row({ label, value, data }: { label: string; value?: string; data: InvoiceRenderData }) {
@@ -27,7 +28,7 @@ function Row({ label, value, data }: { label: string; value?: string; data: Invo
   return (
     <View style={[styles.row, { borderBottomColor: data.tokens.border }]}>
       <Text style={[styles.rowLabel, { color: data.tokens.muted }]}>{label}</Text>
-      <Text style={[styles.rowValue, { color: data.tokens.text }]}>{value.trim()}</Text>
+      <Text style={[styles.rowValue, data.design.templateId !== 'standard' && styles.proRowValue, { color: data.tokens.text }]}>{value.trim()}</Text>
     </View>
   );
 }
@@ -64,78 +65,76 @@ function StatusBadge({ data }: { data: InvoiceRenderData }) {
   );
 }
 
-function Header({ data }: { data: InvoiceRenderData }) {
+function BusinessIdentity({ data, centered = false }: { data: InvoiceRenderData; centered?: boolean }) {
+  const { business, tokens, design } = data;
+  const L = data.labels ?? DEFAULT_INVOICE_DOCUMENT_LABELS;
+  return (
+    <View style={centered && styles.centeredIdentity}>
+      <Text style={[styles.partyName, { color: tokens.text }, centered && styles.centeredText,
+        design.templateId === 'elegant' && styles.mastheadName,
+        design.templateId === 'minimal' && styles.headBrand]}>
+        {design.templateId === 'elegant' && centered ? (business.name || L.yourBusiness).toUpperCase() : business.name || L.yourBusiness}
+      </Text>
+      {has(business.registrationNumber) ? <Line value={`SSM: ${business.registrationNumber}`} color={tokens.muted} centered={centered} /> : null}
+      <Line value={business.phone} color={tokens.muted} centered={centered} />
+      <Line value={business.email} color={tokens.muted} centered={centered} />
+      <Line value={business.website} color={tokens.muted} centered={centered} />
+      {design.visibility.businessAddress ? <Line value={business.address} color={tokens.muted} centered={centered} /> : null}
+    </View>
+  );
+}
+
+function Header({ data, narrow }: { data: InvoiceRenderData; narrow: boolean }) {
   const L = data.labels ?? DEFAULT_INVOICE_DOCUMENT_LABELS;
   const { business, invoice, design, tokens } = data;
   const logo = business.logoUrl ? (
     <Image source={{ uri: business.logoUrl }} style={styles.logo} resizeMode="contain" />
   ) : null;
 
-  if (design.templateId === 'bold') {
+  if (design.templateId !== 'standard') {
+    const bold = design.templateId === 'bold';
+    const elegant = design.templateId === 'elegant';
+    const minimal = design.templateId === 'minimal';
     return (
-      <View style={[styles.banner, { backgroundColor: tokens.accent }]}>
-        <View style={styles.bannerBrand}>
-          {business.logoUrl ? (
-            <Image
-              source={{ uri: business.logoUrl }}
-              style={[styles.logo, styles.logoInvert, { backgroundColor: tokens.accentText }]}
-              resizeMode="contain"
-            />
-          ) : null}
-          <Text style={[styles.bannerName, { color: tokens.accentText }]} numberOfLines={2}>
-            {business.name || L.yourBusiness}
-          </Text>
-          <Line value={business.email} color={tokens.accentText} />
-          <Line value={business.phone} color={tokens.accentText} />
-          {design.visibility.businessAddress ? <Line value={business.address} color={tokens.accentText} /> : null}
-        </View>
-        <View style={styles.bannerMeta}>
-          <Text style={[styles.bannerTitle, { color: tokens.accentText }]}>{L.invoice.toUpperCase()}</Text>
-          <Text style={[styles.bannerNumber, { color: tokens.accentText }]}>{invoice.number}</Text>
-          {design.visibility.paymentStatus ? (
-            <View style={[styles.badge, { backgroundColor: tokens.accentText }]}>
-              <Text style={[styles.badgeText, { color: tokens.accent }]}>{invoice.paymentStatus}</Text>
+      <View style={[bold && [styles.banner, styles.proBanner, { backgroundColor: tokens.accent }], elegant && styles.masthead]}>
+        {business.logoUrl ? (
+          <Image source={{ uri: business.logoUrl }} resizeMode="contain"
+            style={[styles.logo, styles.proLogo, minimal && styles.smallLogo,
+              bold && [styles.logoInvert, { backgroundColor: tokens.accentText }]]} />
+        ) : null}
+        <View style={[styles.proHeading, !narrow && (bold || minimal) && styles.proHeadingSplit, (narrow || elegant) && styles.proHeadingCentered]}>
+          {bold ? (
+            <View style={[styles.bannerBrand, narrow && styles.centeredIdentity]}>
+              <Text style={[styles.bannerName, { color: tokens.accentText }, narrow && styles.centeredText]}>{business.name || L.yourBusiness}</Text>
+              <Line value={business.email} color={tokens.accentText} centered={narrow} />
+              <Line value={business.phone} color={tokens.accentText} centered={narrow} />
+              {design.visibility.businessAddress ? <Line value={business.address} color={tokens.accentText} centered={narrow} /> : null}
             </View>
-          ) : null}
+          ) : narrow ? <BusinessIdentity data={data} centered /> : (
+            minimal || elegant || !business.logoUrl ? <Text style={[elegant ? styles.mastheadName : styles.headBrand, styles.proName, { color: tokens.text }]}>{elegant ? (business.name || L.yourBusiness).toUpperCase() : business.name || L.yourBusiness}</Text> : null
+          )}
+          {elegant ? <View style={[styles.mastheadRule, { backgroundColor: tokens.accent }]} /> : null}
+          <Text style={[bold ? styles.bannerTitle : elegant ? styles.mastheadTitle : minimal ? styles.headTitleMinimal : styles.headTitle,
+            { color: bold ? tokens.accentText : minimal ? tokens.muted : tokens.accent }, narrow && styles.centeredText]}>
+            {bold || elegant || minimal ? L.invoice.toUpperCase() : L.invoice}
+          </Text>
         </View>
       </View>
     );
   }
-
-  if (design.templateId === 'elegant') {
-    return (
-      <View style={styles.masthead}>
-        {logo ? <View style={styles.logoCentre}>{logo}</View> : null}
-        <Text style={[styles.mastheadName, { color: tokens.text }]} numberOfLines={2}>
-          {(business.name || L.yourBusiness).toUpperCase()}
-        </Text>
-        <View style={[styles.mastheadRule, { backgroundColor: tokens.accent }]} />
-        <Text style={[styles.mastheadTitle, { color: tokens.accent }]}>{L.invoice.toUpperCase()}</Text>
-        <Text style={[styles.mastheadNumber, { color: tokens.muted }]}>
-          {invoice.number}
-          {design.visibility.paymentStatus ? ` · ${invoice.paymentStatus}` : ''}
-        </Text>
-      </View>
-    );
-  }
-
-  const minimal = design.templateId === 'minimal';
 
   return (
     <View style={styles.head}>
       <View style={styles.headMain}>
         {logo}
-        {minimal || !business.logoUrl ? (
+        {!business.logoUrl ? (
           <Text style={[styles.headBrand, { color: tokens.text }]} numberOfLines={2}>
             {business.name || L.yourBusiness}
           </Text>
         ) : null}
-        {minimal ? null : (
-          <Text style={[styles.headTitle, { color: tokens.accent }]}>{L.invoice}</Text>
-        )}
+        <Text style={[styles.headTitle, { color: tokens.accent }]}>{L.invoice}</Text>
       </View>
       <View style={styles.headMeta}>
-        {minimal ? <Text style={[styles.headTitleMinimal, { color: tokens.muted }]}>{L.invoice.toUpperCase()}</Text> : null}
         <Text style={[styles.headNumber, { color: tokens.text }]}>{invoice.number}</Text>
         <StatusBadge data={data} />
       </View>
@@ -146,6 +145,9 @@ function Header({ data }: { data: InvoiceRenderData }) {
 export function InvoicePreview({ data }: { data: InvoiceRenderData }) {
   const L = data.labels ?? DEFAULT_INVOICE_DOCUMENT_LABELS;
   const { business, client, invoice, design, tokens, totals, payment } = data;
+  const [previewWidth, setPreviewWidth] = useState(0);
+  const narrow = previewWidth <= 560;
+  const proNarrow = design.templateId !== 'standard' && narrow;
   const compact = design.templateId === 'compact';
   const bareTotal = design.templateId === 'minimal';
   const hasPayment =
@@ -153,17 +155,17 @@ export function InvoicePreview({ data }: { data: InvoiceRenderData }) {
     [payment.bankName, payment.accountHolder, payment.accountNumber, payment.duitNowId].some(has);
 
   return (
-    <View style={[styles.sheet, compact && styles.sheetCompact, { backgroundColor: tokens.background }]}>
+    <View onLayout={(event) => setPreviewWidth(event.nativeEvent.layout.width)} style={[styles.sheet, compact && styles.sheetCompact, { backgroundColor: tokens.background }]}>
       {design.templateId === 'modern' ? (
         <View style={[styles.topRule, { backgroundColor: tokens.accent }]} />
       ) : null}
 
       <View style={[styles.body, compact && styles.bodyCompact, design.templateId === 'bold' && styles.bodyBold]}>
-        <Header data={data} />
+        <Header data={data} narrow={narrow} />
 
         <View style={[styles.parties, compact && styles.partiesCompact]}>
-          {design.templateId === 'bold' ? null : (
-            <View style={styles.party}>
+          {design.templateId === 'bold' || proNarrow ? null : (
+            <View style={[styles.party, proNarrow && styles.narrowParty]}>
               <Text style={[styles.label, { color: tokens.muted }]}>{L.from}</Text>
               <Text style={[styles.partyName, { color: tokens.text }]}>{business.name || L.yourBusiness}</Text>
               {has(business.registrationNumber) ? (
@@ -175,7 +177,7 @@ export function InvoicePreview({ data }: { data: InvoiceRenderData }) {
               {design.visibility.businessAddress ? <Line value={business.address} color={tokens.muted} /> : null}
             </View>
           )}
-          <View style={styles.party}>
+          <View style={[styles.party, proNarrow && styles.narrowParty]}>
             <Text style={[styles.label, { color: tokens.muted }]}>{L.billTo}</Text>
             <Text style={[styles.partyName, { color: tokens.text }]}>{client.name || 'Client'}</Text>
             <Line value={client.email} color={tokens.muted} />
@@ -227,29 +229,30 @@ export function InvoicePreview({ data }: { data: InvoiceRenderData }) {
                   <Text style={[styles.itemDetail, { color: tokens.muted }]}>{item.detail}</Text>
                 ) : null}
               </View>
-              <Text style={[styles.itemAmount, { color: tokens.text }]}>{item.amountLabel}</Text>
+              <Text style={[styles.itemAmount, { color: tokens.text }, proNarrow && styles.narrowAmount]}>{item.amountLabel}</Text>
             </View>
           ))}
         </View>
 
-        <View style={styles.totals}>
-          <View style={styles.totalRow}>
+        <View style={[styles.totals, proNarrow && styles.narrowTotals]}>
+          <View style={[styles.totalRow, proNarrow && styles.narrowTotalRow]}>
             <Text style={[styles.totalLabel, { color: tokens.muted }]}>{L.invoiceTotal}</Text>
-            <Text style={[styles.totalValue, { color: tokens.text }]}>{totals.total}</Text>
+            <Text style={[styles.totalValue, proNarrow && styles.narrowTotalValue, { color: tokens.text }]}>{totals.total}</Text>
           </View>
           {totals.hasDeposit ? (
-            <View style={styles.totalRow}>
+            <View style={[styles.totalRow, proNarrow && styles.narrowTotalRow]}>
               <Text style={[styles.totalLabel, { color: tokens.muted }]}>{L.depositPaid}</Text>
-              <Text style={[styles.totalValue, { color: tokens.text }]}>{totals.depositPaid}</Text>
+              <Text style={[styles.totalValue, proNarrow && styles.narrowTotalValue, { color: tokens.text }]}>{totals.depositPaid}</Text>
             </View>
           ) : null}
-          <View style={styles.totalRow}>
+          <View style={[styles.totalRow, proNarrow && styles.narrowTotalRow]}>
             <Text style={[styles.totalLabel, { color: tokens.muted }]}>{L.amountPaid}</Text>
-            <Text style={[styles.totalValue, { color: tokens.text }]}>{totals.amountPaid}</Text>
+            <Text style={[styles.totalValue, proNarrow && styles.narrowTotalValue, { color: tokens.text }]}>{totals.amountPaid}</Text>
           </View>
           <View
             style={[
               styles.totalDue,
+              proNarrow && styles.narrowTotalRow,
               bareTotal
                 ? { borderTopColor: tokens.text, borderTopWidth: 2 }
                 : design.templateId === 'elegant'
@@ -265,7 +268,7 @@ export function InvoicePreview({ data }: { data: InvoiceRenderData }) {
             </Text>
             <Text
               style={[
-                styles.totalDueValue,
+                styles.totalDueValue, proNarrow && styles.narrowTotalValue,
                 { color: bareTotal ? tokens.text : design.templateId === 'elegant' ? tokens.accent : tokens.accentText },
               ]}>
               {totals.balance}
@@ -310,6 +313,21 @@ export function InvoicePreview({ data }: { data: InvoiceRenderData }) {
 }
 
 const styles = StyleSheet.create({
+  proBanner: { flexDirection: 'column', gap: 0, marginBottom: 0 },
+  proLogo: { alignSelf: 'center', maxWidth: '100%', marginBottom: 12 },
+  smallLogo: { width: 104, height: 40 },
+  proHeading: { gap: 14, width: '100%', minWidth: 0 },
+  proName: { minWidth: 0, maxWidth: '100%', flexShrink: 1 },
+  proHeadingSplit: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  proRowValue: { minWidth: 0, flexBasis: '58%' },
+  proHeadingCentered: { alignItems: 'center' },
+  centeredIdentity: { alignItems: 'center', width: '100%', minWidth: 0 },
+  centeredText: { textAlign: 'center', maxWidth: '100%' },
+  narrowParty: { minWidth: 0, flexBasis: '100%' },
+  narrowAmount: { width: '40%', flexShrink: 1, textAlign: 'right' },
+  narrowTotals: { minWidth: 0, width: '100%' },
+  narrowTotalRow: { flexWrap: 'wrap' },
+  narrowTotalValue: { flexShrink: 1, marginLeft: 'auto', textAlign: 'right' },
   sheet: { borderRadius: 14, overflow: 'hidden' },
   sheetCompact: {},
   topRule: { height: 5 },
@@ -349,8 +367,8 @@ const styles = StyleSheet.create({
   partiesCompact: { gap: 12, marginTop: 16 },
   party: { flexBasis: '44%', flexGrow: 1, minWidth: 150 },
   label: { fontSize: 8.5, fontWeight: '800', letterSpacing: 0.9, marginBottom: 5 },
-  partyName: { fontSize: 13, fontWeight: '800', marginBottom: 2 },
-  line: { fontSize: 11, lineHeight: 16 },
+  partyName: { minWidth: 0, maxWidth: '100%', fontSize: 13, fontWeight: '800', marginBottom: 2 },
+  line: { minWidth: 0, maxWidth: '100%', fontSize: 11, lineHeight: 16 },
 
   meta: { marginTop: 18 },
   row: { borderBottomWidth: 1, flexDirection: 'row', gap: 14, justifyContent: 'space-between', paddingVertical: 6 },

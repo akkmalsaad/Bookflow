@@ -111,7 +111,7 @@ export async function saveInvoiceAsPdf(data: InvoicePdfData) {
     requireOptionalNativeModule(moduleName),
   );
   if (!hasPdfNativeModules) {
-    throw new Error('PDF support requires one native app rebuild. Rebuild and reinstall Bookflow, then try again.');
+    throw new Error('PDFs can’t be created on this device right now. Please try again later.');
   }
 
   try {
@@ -129,7 +129,7 @@ export async function saveInvoiceAsPdf(data: InvoicePdfData) {
     const sourceFile = new File(result.uri);
     const destinationFile = new File(
       Paths.cache,
-      `Bookflow-Invoice-${safeFileSegment(getInvoiceNumber(data.invoice))}.pdf`,
+      `BookFlow-Invoice-${safeFileSegment(getInvoiceNumber(data.invoice))}.pdf`,
     );
 
     if (destinationFile.exists) {
@@ -145,7 +145,7 @@ export async function saveInvoiceAsPdf(data: InvoicePdfData) {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (message.includes('native module')) {
-      throw new Error('PDF support requires one native app rebuild. Rebuild and reinstall Bookflow, then try again.');
+      throw new Error('PDFs can’t be created on this device right now. Please try again later.');
     }
     throw error;
   }

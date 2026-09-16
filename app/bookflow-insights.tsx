@@ -1,8 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import BookFlowLoading from '@/components/feedback/BookFlowLoading';
+import { useLoadingTransition } from '@/components/feedback/useLoadingTransition';
 
 import { InsightRow } from '@/components/business-insights/InsightRow';
 import { InsightsPeriodSelector } from '@/components/business-insights/BusinessInsightsVisuals';
@@ -33,6 +35,8 @@ export default function BookflowInsightsScreen() {
   const soft = getSoftTokens(isDarkMode);
   const { t } = useTranslation();
   const { isLoadingSubscription, isPro } = useSubscription();
+  const loading = isLoadingSubscription || !isPro;
+  const loadingTransition = useLoadingTransition(loading);
   const { financeEntries, bookings, customers, invoices, payments, currency } = useAppData();
   const [period, setPeriod] = useState<InsightsPeriod>(isInsightsPeriod(params.period) ? params.period : 'this-month');
   const formatter = useMemo(() => getCompactCurrencyFormatter(currency), [currency]);
@@ -54,12 +58,8 @@ export default function BookflowInsightsScreen() {
     router.replace({ pathname: '/paywall', params: { returnTo: '/business-insights' } });
   }, [isLoadingSubscription, isPro, router]);
 
-  if (isLoadingSubscription || !isPro) {
-    return (
-      <SafeAreaView style={[styles.gate, { backgroundColor: palette.background }]}>
-        <ActivityIndicator size="large" color={palette.accent} />
-      </SafeAreaView>
-    );
+  if (loadingTransition.visible) {
+    return <BookFlowLoading key={loadingTransition.cycle} loading={loading} />;
   }
 
   const attention = metrics.insights.filter((insight) => insight.tone === 'attention' || insight.tone === 'expense');
@@ -176,7 +176,6 @@ function InsightGroup({
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  gate: { alignItems: 'center', flex: 1, justifyContent: 'center' },
   header: { alignItems: 'center', flexDirection: 'row', paddingHorizontal: 20, paddingTop: 10 },
   backButton: { alignItems: 'center', borderRadius: 15, borderWidth: 1, elevation: 3, height: 46, justifyContent: 'center', marginRight: 12, shadowOffset: { width: 3, height: 5 }, shadowOpacity: 0.14, shadowRadius: 9, width: 46 },
   pressed: { opacity: 0.78 },

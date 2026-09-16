@@ -3,7 +3,6 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMemo, useRef, useState } from 'react';
 import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { usePostHog } from 'posthog-react-native';
 
 import { InvoiceActionSheet, type InvoiceActionSheetItem } from '@/components/invoice/InvoiceActionSheet';
 import { InvoiceDeleteConfirmation } from '@/components/invoice/InvoiceDeleteConfirmation';
@@ -22,6 +21,7 @@ import { getInvoicePaymentSummary } from '@/lib/invoice-payments';
 import { saveInvoiceAsPdf } from '@/lib/invoice-pdf';
 import { getInvoiceNumber } from '@/lib/invoice-numbering';
 import { shareInvoiceOnWhatsApp } from '@/lib/invoice-sharing';
+import { captureEvent } from '@/lib/analytics';
 
 function getInvoiceTone(status: Invoice['status']) {
   if (status === 'Paid') return 'green';
@@ -67,7 +67,6 @@ export default function InvoiceAcceptanceScreen() {
     restoreInvoice,
     currency,
   } = useAppData();
-  const posthog = usePostHog();
   const { showSnackbar } = useSnackbar();
   const palette = getThemePalette(isDarkMode);
   const { readingStyle } = useResponsive();
@@ -131,7 +130,7 @@ export default function InvoiceAcceptanceScreen() {
 
   const handleAction = (status: 'Accepted' | 'Declined') => {
     updateInvoiceStatus(invoice.id, status);
-    posthog.capture('invoice_status_updated', { status });
+    captureEvent('invoice_status_updated', { status });
     router.back();
   };
 
@@ -166,7 +165,7 @@ export default function InvoiceAcceptanceScreen() {
         eventStartTime,
         eventEndTime,
       });
-      posthog.capture('invoice_pdf_saved');
+      captureEvent('invoice_pdf_saved');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'The PDF could not be created. Please try again.';
       Alert.alert(t('invoice.saveFailed'), message);
@@ -186,7 +185,7 @@ export default function InvoiceAcceptanceScreen() {
         currencyFormatter,
         createShareLink: createInvoiceShareLink,
       });
-      posthog.capture('invoice_shared');
+      captureEvent('invoice_shared');
     } finally {
       setIsSharing(false);
     }
@@ -211,7 +210,7 @@ export default function InvoiceAcceptanceScreen() {
       return;
     }
 
-    posthog.capture('invoice_removed', { mode: removalAction.mode });
+    captureEvent('invoice_removed', { mode: removalAction.mode });
     setShowRemoveConfirmation(false);
     handleBack();
     showSnackbar({
@@ -245,7 +244,7 @@ export default function InvoiceAcceptanceScreen() {
 
         <View style={styles.header}>
           <View>
-            <Text style={[styles.eyebrow, { color: palette.accent }]}>{t('invoice.eyebrow')}</Text>
+            <Text style={[styles.eyebrow, { color: '#142A3A' }]}>{t('invoice.eyebrow')}</Text>
             <Text style={[styles.title, { color: palette.text }]}>{getInvoiceNumber(invoice)}</Text>
           </View>
           <View style={styles.headerActions}>

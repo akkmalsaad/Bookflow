@@ -2,14 +2,18 @@ import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { DeleteAccountDialog, SignOutDialog } from '@/components/settings/AccountDialogs';
+import { SignOutDialog } from '@/components/settings/AccountDialogs';
 import { BusinessProfileModal } from '@/components/settings/BusinessProfileModal';
 import { ServicesManagerModal } from '@/components/settings/ServicesManagerModal';
-import { DangerActionRow, SettingsRow, SettingsSection } from '@/components/settings/SettingsList';
-import { getSoftTokens } from '@/components/settings/tokens';
+import { SettingsRow, SettingsSection } from '@/components/settings/SettingsList';
+import {
+  getSoftTokens,
+  SETTINGS_ICON_BACKGROUND_COLOR,
+  SETTINGS_ICON_STROKE_COLOR,
+} from '@/components/settings/tokens';
 import { CURRENCY_OPTIONS, useAppData } from '@/context/app-data-context';
 import { LOCALES } from '@/lib/i18n';
 import { useAuth } from '@/context/auth-context';
@@ -22,8 +26,8 @@ import { useTranslation } from '@/lib/use-translation';
 export default function SettingsScreen() {
   const router = useRouter();
   const { isDarkMode, themePreference } = useTheme();
-  const { signOut, user, verifyPassword, deleteAccount } = useAuth();
-  const { businessProfile, currency, deleteAllData, deleteWorkspace, language } = useAppData();
+  const { signOut, user } = useAuth();
+  const { businessProfile, currency, language } = useAppData();
   const { isPro, isLoadingSubscription } = useSubscription();
   const palette = getThemePalette(isDarkMode);
   const { readingStyle } = useResponsive();
@@ -33,62 +37,23 @@ export default function SettingsScreen() {
   const [showProfileEditor, setShowProfileEditor] = useState(false);
   const [showServicesManager, setShowServicesManager] = useState(false);
   const [showSignOut, setShowSignOut] = useState(false);
-  const [showDeleteAccount, setShowDeleteAccount] = useState(false);
-  const [deletePassword, setDeletePassword] = useState('');
-  const [deletePasswordError, setDeletePasswordError] = useState('');
-  const [isDeleting, setIsDeleting] = useState(false);
 
   const appVersion = Constants.expoConfig?.version ?? 'Unknown';
   const buildNumber = Constants.expoConfig?.ios?.buildNumber ?? Constants.expoConfig?.android?.versionCode;
   const currencyLabel = CURRENCY_OPTIONS.find((option) => option.code === currency)?.code ?? currency;
 
-  const closeDeleteAccount = () => {
-    setShowDeleteAccount(false);
-    setDeletePassword('');
-    setDeletePasswordError('');
-  };
-
-  const handleDeleteAccount = async () => {
-    if (isDeleting) return;
-
-    setIsDeleting(true);
-    const isValid = await verifyPassword(deletePassword);
-    if (!isValid) {
-      setDeletePasswordError('Incorrect password. Please try again.');
-      setIsDeleting(false);
-      return;
-    }
-
-    try {
-      await deleteWorkspace();
-      await deleteAccount();
-    } catch (error) {
-      setDeletePasswordError(error instanceof Error ? error.message : 'We could not delete your account. Please try again.');
-      setIsDeleting(false);
-      return;
-    }
-
-    setIsDeleting(false);
-    closeDeleteAccount();
-    deleteAllData();
-    await signOut();
-  };
-
-  const handleRate = () => {
-    Alert.alert(
-      t('settings.rate'),
-      t('settings.rate.body'),
-    );
-  };
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.scrollContent, readingStyle]}>
         <View style={styles.headerRow}>
-          <View style={[styles.headerIcon, { backgroundColor: soft.surface, borderColor: soft.border, shadowColor: soft.shadow }]}>
-            <Ionicons name="settings-outline" size={21} color={palette.accent} />
+          <View style={[styles.headerIcon, { backgroundColor: SETTINGS_ICON_BACKGROUND_COLOR, borderColor: soft.border, shadowColor: soft.shadow }]}>
+            <Ionicons name="settings-outline" size={21} color={SETTINGS_ICON_STROKE_COLOR} />
           </View>
-          <Text style={[styles.headerTitle, { color: palette.text }]}>{t('settings.title')}</Text>
+          <View>
+            <Text style={[styles.eyebrow, { color: '#142A3A' }]}>{t('settings.eyebrow')}</Text>
+            <Text style={[styles.headerTitle, { color: palette.text }]}>{t('settings.title')}</Text>
+          </View>
         </View>
 
         <SettingsSection title={t('settings.section.business')}>
@@ -177,7 +142,6 @@ export default function SettingsScreen() {
         <SettingsSection title={t('settings.section.support')}>
           <SettingsRow icon="help-circle-outline" title={t('settings.help')} onPress={() => router.push('/settings/help')} />
           <SettingsRow icon="chatbubble-ellipses-outline" title={t('settings.feedback')} onPress={() => router.push('/settings/feedback')} />
-          <SettingsRow icon="star-half-outline" title={t('settings.rate')} onPress={handleRate} />
         </SettingsSection>
 
         <SettingsSection title={t('settings.section.about')}>
@@ -199,15 +163,6 @@ export default function SettingsScreen() {
           <Text style={[styles.signOutText, { color: palette.danger }]}>{t('settings.signOut')}</Text>
         </Pressable>
 
-        <SettingsSection title={t('settings.section.danger')}>
-          <DangerActionRow
-            icon="trash-outline"
-            title={t('settings.deleteAccount')}
-            subtitle={t('settings.deleteAccount.subtitle')}
-            onPress={() => setShowDeleteAccount(true)}
-          />
-        </SettingsSection>
-
         <View style={styles.versionFooter}>
           <Text style={[styles.versionBrand, { color: palette.text }]}>BookFlow</Text>
           <Text style={[styles.versionText, { color: palette.muter }]}>
@@ -226,18 +181,6 @@ export default function SettingsScreen() {
           setShowSignOut(false);
           signOut();
         }}
-      />
-      <DeleteAccountDialog
-        visible={showDeleteAccount}
-        password={deletePassword}
-        error={deletePasswordError}
-        isDeleting={isDeleting}
-        onChangePassword={(value) => {
-          setDeletePassword(value);
-          setDeletePasswordError('');
-        }}
-        onCancel={closeDeleteAccount}
-        onConfirm={handleDeleteAccount}
       />
     </SafeAreaView>
   );
@@ -271,10 +214,18 @@ const styles = StyleSheet.create({
     shadowRadius: 11,
     width: 46,
   },
+  // Same values as the Dashboard, Bookings, Customers, Invoices and Finance headers.
+  eyebrow: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 1,
+    marginBottom: 5,
+    textTransform: 'uppercase',
+  },
   headerTitle: {
-    fontSize: 25,
-    fontWeight: '900',
-    letterSpacing: -0.6,
+    fontSize: 24,
+    fontWeight: '800',
+    letterSpacing: -0.5,
   },
   signOutButton: {
     alignItems: 'center',

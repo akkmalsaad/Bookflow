@@ -1,15 +1,20 @@
 {
   "expo": {
-    "name": "Bookflow",
+    "name": "BookFlow",
     "slug": "Bookflow",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/branding/bookflow-app-icon.png",
+    "icon": "./assets/images/icon.png",
+    "splash": {
+      "image": "./assets/images/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#E9EDE6"
+    },
     "scheme": "bookflow",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "icon": "./assets/branding/bookflow-app-icon.png",
+      "icon": "./assets/images/icon.png",
       "supportsTablet": true,
       "bundleIdentifier": "com.akkmal.bookflow.dev",
       "usesAppleSignIn": false,
@@ -28,9 +33,8 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#F5F7FB",
-        "foregroundImage": "./assets/branding/bookflow-adaptive-foreground.png",
-        "monochromeImage": "./assets/branding/bookflow-adaptive-monochrome.png"
+        "backgroundColor": "#E9EDE6",
+        "foregroundImage": "./assets/images/adaptive-icon.png"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
@@ -38,23 +42,32 @@
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/branding/bookflow-app-icon.png"
+      "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
       "./plugins/withPersonalTeamSigning",
-      "expo-router",
+      [
+        "expo-router",
+        {
+          "headers": {
+            "Referrer-Policy": "no-referrer",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "frame-ancestors 'none'; object-src 'none'; base-uri 'self'"
+          }
+        }
+      ],
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/bookflow-logo.png",
+          "image": "./assets/images/splash-icon.png",
           "imageWidth": 160,
           "resizeMode": "contain",
-          "backgroundColor": "#F5F7FB",
+          "backgroundColor": "#E9EDE6",
           "android": {
-            "image": "./assets/images/bookflow-logo.png",
+            "image": "./assets/images/splash-icon.png",
             "imageWidth": 160,
             "resizeMode": "contain",
-            "backgroundColor": "#F5F7FB"
+            "backgroundColor": "#E9EDE6"
           }
         }
       ],
@@ -76,7 +89,7 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow Bookflow to access your photos so you can choose a business logo.",
+          "photosPermission": "Allow BookFlow to access your photos so you can choose a business logo.",
           "cameraPermission": false,
           "microphonePermission": false
         }

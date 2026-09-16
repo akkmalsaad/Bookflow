@@ -1,7 +1,6 @@
 import { Link } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { usePostHog } from 'posthog-react-native';
 
 import {
   AuthDivider,
@@ -14,9 +13,10 @@ import {
   SocialButtons,
 } from '@/components/AuthUI';
 import { MIN_PASSWORD_LENGTH } from '@/constants/auth';
-import { type SocialProvider, useAuth } from '@/context/auth-context';
+import { AdditionalVerificationRequiredError, type SocialProvider, useAuth } from '@/context/auth-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 import { useTranslation } from '@/lib/use-translation';
+import { captureEvent } from '@/lib/analytics';
 
 type ResetStage = 'email' | 'code' | 'password' | 'success';
 
@@ -24,7 +24,6 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function LoginScreen() {
   const { signIn, signInWithSocial, sendPasswordResetCode, verifyPasswordResetCode, submitNewPassword } = useAuth();
-  const posthog = usePostHog();
   const { t } = useTranslation();
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
@@ -89,9 +88,15 @@ export default function LoginScreen() {
     setIsSubmitting(true);
     try {
       await signIn({ email: safeEmail, password });
-      posthog.capture('user_signed_in', { method: 'password' });
+      captureEvent('user_signed_in', { method: 'password' });
     } catch (error) {
-      setFormError(error instanceof Error ? error.message : t('auth.error.signIn'));
+      setFormError(
+        error instanceof AdditionalVerificationRequiredError
+          ? t('auth.error.verificationRequired')
+          : error instanceof Error
+            ? error.message
+            : t('auth.error.signIn'),
+      );
     } finally {
       setIsSubmitting(false);
     }

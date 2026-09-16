@@ -31,6 +31,8 @@ export function InsightRow({
   last,
   onPress,
   variant = 'tinted',
+  iconBackgroundColor,
+  iconColor: iconColorOverride,
 }: {
   insight: BusinessInsight;
   isDarkMode: boolean;
@@ -43,6 +45,8 @@ export function InsightRow({
    * grouped, colour-coded treatment its section headers rely on.
    */
   variant?: 'tinted' | 'quiet';
+  iconBackgroundColor?: string;
+  iconColor?: string;
 }) {
   const palette = getThemePalette(isDarkMode);
   const soft = getSoftTokens(isDarkMode);
@@ -69,12 +73,12 @@ export function InsightRow({
       <View
         style={[
           quiet ? styles.quietIcon : styles.icon,
-          { backgroundColor: quiet ? soft.inset : isDarkMode ? item.softDark : item.softLight },
+          { backgroundColor: iconBackgroundColor ?? (quiet ? soft.inset : isDarkMode ? item.softDark : item.softLight) },
         ]}>
-        <Ionicons name={quiet ? item.quietIcon : item.icon} size={quiet ? 19 : 18} color={iconColor} />
+        <Ionicons name={quiet ? item.quietIcon : item.icon} size={quiet ? 19 : 18} color={iconColorOverride ?? iconColor} />
       </View>
       <Text style={[styles.text, quiet && styles.quietText, { color: palette.text }]}>{insight.message}</Text>
-      {onPress ? <Ionicons name="chevron-forward" size={17} color={palette.muter} /> : null}
+      {onPress ? <Ionicons name="chevron-forward" size={17} color={iconColorOverride ?? palette.muter} /> : null}
     </Pressable>
   );
 }

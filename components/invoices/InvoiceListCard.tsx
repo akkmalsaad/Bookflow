@@ -132,7 +132,7 @@ export function InvoiceListCard({
             onPress={onSend}
             style={({ pressed }) => [
               styles.primaryButton,
-              { backgroundColor: palette.accent },
+              { backgroundColor: '#142A3A' },
               pressed && styles.pressed,
               isSending && styles.disabled,
             ]}>

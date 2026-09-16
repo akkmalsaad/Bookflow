@@ -1,16 +1,21 @@
+import { isPublicInvoiceBrowser } from '@/lib/public-invoice-browser';
 import { ClerkProvider } from '@clerk/expo';
 import { tokenCache } from '@clerk/expo/token-cache';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import * as SplashScreen from 'expo-splash-screen';
-import { Stack } from 'expo-router';
+import { useFonts } from 'expo-font';
+import { Slot, Stack, usePathname } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { type ReactNode, useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, LogBox, Pressable, StyleSheet, Text, View } from 'react-native';
+import { LogBox, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import { AnimatedSplash } from '@/components/AnimatedSplash';
+import BookFlowSplash from '@/components/feedback/BookFlowSplash';
+import BookFlowLoading from '@/components/feedback/BookFlowLoading';
+import { useLoadingTransition } from '@/components/feedback/useLoadingTransition';
+import { SplashTargetContext, type SplashTarget } from '@/context/splash-target-context';
 import { AppDataProvider, useAppData } from '@/context/app-data-context';
 import { AuthProvider, useAuth } from '@/context/auth-context';
 import { SubscriptionProvider } from '@/context/subscription-context';
@@ -23,6 +28,10 @@ import { PostHogProvider } from 'posthog-react-native';
 import { useTranslation } from '@/lib/use-translation';
 
 Sentry.init({
+  enabled: !isPublicInvoiceBrowser(),
+  beforeSend: event => isPublicInvoiceBrowser() ? null : event,
+  beforeSendTransaction: event => isPublicInvoiceBrowser() ? null : event,
+  beforeBreadcrumb: breadcrumb => isPublicInvoiceBrowser() ? null : breadcrumb,
   dsn: 'https://7a8195f3ba780f8e273bf72bf039ac08@o4512021511274496.ingest.de.sentry.io/4512021521825872',
 
   // Adds more context data to events (IP address, cookies, user, etc.)
@@ -33,8 +42,8 @@ Sentry.init({
   enableLogs: true,
 
   // Configure Session Replay
-  replaysSessionSampleRate: 0.1,
-  replaysOnErrorSampleRate: 1,
+  replaysSessionSampleRate: Platform.OS === 'web' ? 0 : 0.1,
+  replaysOnErrorSampleRate: Platform.OS === 'web' ? 0 : 1,
   integrations: [Sentry.mobileReplayIntegration(), Sentry.feedbackIntegration()],
 
   // uncomment the line below to enable Spotlight (https://spotlightjs.com)
@@ -69,32 +78,25 @@ function AnalyticsProvider({ children }: { children: ReactNode }) {
   return <PostHogProvider client={posthog}>{children}</PostHogProvider>;
 }
 
-function AppShell({ onReadyChange }: { onReadyChange: (ready: boolean) => void }) {
+function AppShell() {
   const { t } = useTranslation();
   const { isDarkMode } = useTheme();
   const { isAuthenticated, isLoaded } = useAuth();
   const { isLoading: isDataLoading, loadError, reload, retrySync, syncError } = useAppData();
   const palette = getThemePalette(isDarkMode);
   const { isPhone } = useResponsive();
+  const loading = !isLoaded || (isAuthenticated && isDataLoading);
+  const loadingTransition = useLoadingTransition(loading);
 
-  useEffect(() => {
-    onReadyChange(isLoaded && (!isAuthenticated || !isDataLoading));
-  }, [isAuthenticated, isDataLoading, isLoaded, onReadyChange]);
-
-  if (!isLoaded || (isAuthenticated && isDataLoading)) {
-    return (
-      <View style={[styles.dataGate, { backgroundColor: palette.background }]}>
-        <ActivityIndicator color={palette.accent} size="large" />
-        <Text style={[styles.dataGateTitle, { color: palette.text }]}>{t('app.loading')}</Text>
-      </View>
-    );
+  if (loadingTransition.visible) {
+    return <BookFlowLoading key={loadingTransition.cycle} loading={loading} />;
   }
 
   if (isAuthenticated && loadError) {
     return (
       <View style={[styles.dataGate, { backgroundColor: palette.background }]}>
         <Text style={[styles.dataGateTitle, { color: palette.text }]}>{t('app.loadFailed')}</Text>
-        <Text style={[styles.dataGateMessage, { color: palette.muter }]}>{loadError}</Text>
+        <Text style={[styles.dataGateMessage, { color: palette.muter }]}>{t('app.loadFailed.body')}</Text>
         <Pressable
           accessibilityRole="button"
           onPress={reload}
@@ -119,12 +121,12 @@ function AppShell({ onReadyChange }: { onReadyChange: (ready: boolean) => void }
           <Stack.Screen name="customer/[customerId]" />
           <Stack.Screen name="settings" />
           <Stack.Screen name="paywall" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-          <Stack.Screen name="modal" options={{ headerShown: true, presentation: 'modal', title: 'Modal' }} />
         </Stack.Protected>
         <Stack.Protected guard={!isAuthenticated}>
           <Stack.Screen name="(auth)" />
         </Stack.Protected>
         <Stack.Screen name="invoice-public" />
+        <Stack.Screen name="i" />
       </Stack>
       <StatusBar style={isDarkMode ? 'light' : 'dark'} />
       {syncError ? (
@@ -149,6 +151,10 @@ function AppShell({ onReadyChange }: { onReadyChange: (ready: boolean) => void }
 const styles = StyleSheet.create({
   root: {
     flex: 1,
+  },
+  launchRoot: {
+    flex: 1,
+    backgroundColor: '#E9EDE6',
   },
   dataGate: {
     flex: 1,
@@ -214,26 +220,53 @@ const styles = StyleSheet.create({
 });
 
 export default Sentry.wrap(function RootLayout() {
+  const pathname = usePathname();
+  const [fontsLoaded, fontError] = useFonts({
+    'DMSans-Bold': require('@/assets/fonts/DMSans-Bold.ttf'),
+  });
+  const { width, height } = useWindowDimensions();
+  const [measuredLogo, setMeasuredLogo] = useState<{ pathname: string; target: SplashTarget } | null>(null);
+  const reportTarget = useCallback((logoPathname: string, target: SplashTarget) => {
+    setMeasuredLogo(current => current?.pathname === logoPathname &&
+      current.target.x === target.x && current.target.y === target.y && current.target.size === target.size
+      ? current : { pathname: logoPathname, target });
+  }, []);
+  const isPublicInvoice = Platform.OS === 'web' && (pathname === '/i' || pathname === '/invoice-public');
   const [showSplash, setShowSplash] = useState(true);
-
-  const [appReady, setAppReady] = useState(false);
+  useEffect(() => {
+    if (isPublicInvoice) void SplashScreen.hideAsync().catch(() => {});
+  }, [isPublicInvoice]);
 
   const handleNativeReady = useCallback(async () => {
-    await SplashScreen.hideAsync().catch(() => {});
-  }, []);
+    if (fontsLoaded || fontError) await SplashScreen.hideAsync().catch(() => {});
+  }, [fontsLoaded, fontError]);
 
   const handleSplashFinish = useCallback(() => {
     setShowSplash(false);
   }, []);
 
+  // Public capability links must not wait for Clerk or private workspace loading.
+  if (isPublicInvoice) {
+    return <SafeAreaProvider><Slot /></SafeAreaProvider>;
+  }
+
+  if (!fontsLoaded && !fontError) return null;
+
+  // Deep-linked screens may have no logo. Keep the mark centred on those routes
+  // instead of flying to an invented header position.
+  const target = measuredLogo?.pathname === pathname
+    ? measuredLogo.target
+    : { x: width / 2, y: height / 2 - 23, size: 180 };
+
   return (
     // Required by react-native-gesture-handler for GestureDetector to receive touches. It is a
     // plain flex:1 view, so nothing about the existing layout changes.
-    <GestureHandlerRootView style={styles.root}>
+    <GestureHandlerRootView style={styles.launchRoot} onLayout={handleNativeReady}>
       {/* telemetry={false}: Clerk's own collector throws "Value is a number, expected an Object"
           while recording a hook event on this SDK version. Nothing else about Clerk changes. */}
       <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache} telemetry={false}>
         <SafeAreaProvider>
+        <SplashTargetContext.Provider value={reportTarget}>
         <View style={styles.root} pointerEvents={showSplash ? 'none' : 'auto'}
           accessibilityElementsHidden={showSplash} importantForAccessibility={showSplash ? 'no-hide-descendants' : 'auto'}>
         <AnalyticsProvider>
@@ -244,7 +277,7 @@ export default Sentry.wrap(function RootLayout() {
               <AppDataProvider>
                 {/* Outside the router so a snackbar survives the navigation that follows it. */}
                 <SnackbarProvider>
-                  <AppShell onReadyChange={setAppReady} />
+                  <AppShell />
                 </SnackbarProvider>
               </AppDataProvider>
             </SubscriptionProvider>
@@ -252,7 +285,14 @@ export default Sentry.wrap(function RootLayout() {
         </AppThemeProvider>
         </AnalyticsProvider>
         </View>
-          {showSplash ? <AnimatedSplash isReady={appReady} onNativeReady={handleNativeReady} onFinish={handleSplashFinish} /> : null}
+          {showSplash ? (
+            // Run the one-shot brand handoff immediately. If private app data is
+            // still loading, its loader remains underneath and appears afterward.
+            <View style={StyleSheet.absoluteFill} pointerEvents="none">
+              <BookFlowSplash target={target} onDone={handleSplashFinish} />
+            </View>
+          ) : null}
+        </SplashTargetContext.Provider>
         </SafeAreaProvider>
       </ClerkProvider>
     </GestureHandlerRootView>

@@ -3,9 +3,10 @@ import { SuccessFeedback } from '@/components/feedback/SuccessFeedback';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Animated, FlatList, Keyboard, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+// Aliased: this screen already imports React Native's own `Animated` for the package dropdown.
+import Reanimated from 'react-native-reanimated';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { usePostHog } from 'posthog-react-native';
 
 import { RecordDepositModal } from '@/components/RecordDepositModal';
 import { KeyboardDoneButton } from '@/components/KeyboardDoneButton';
@@ -13,6 +14,11 @@ import { modalScrollProps } from '@/components/modal-keyboard';
 import { UpdatePaymentModal } from '@/components/UpdatePaymentModal';
 import { InvoiceActionSheet } from '@/components/invoice/InvoiceActionSheet';
 import { InvoiceListCard } from '@/components/invoices/InvoiceListCard';
+import { usePressScale } from '@/components/use-press-scale';
+import {
+  SETTINGS_ICON_BACKGROUND_COLOR,
+  SETTINGS_ICON_STROKE_COLOR,
+} from '@/components/settings/tokens';
 import { ManagePaymentSheet } from '@/components/invoices/ManagePaymentSheet';
 import { DatePickerField } from '@/components/DatePickerField';
 import {
@@ -34,6 +40,7 @@ import { isInvoiceClosed } from '@/lib/invoice-lifecycle';
 import { getInvoicePaymentSummary } from '@/lib/invoice-payments';
 import { buildInvoiceSearchIndex, matchesInvoiceSearch } from '@/lib/invoice-search';
 import { shareInvoiceOnWhatsApp } from '@/lib/invoice-sharing';
+import { captureEvent } from '@/lib/analytics';
 
 /** The device's own calendar day, so an invoice counts against the month it was really made in. */
 function getLocalDayKey(date = new Date()) {
@@ -44,10 +51,10 @@ export default function InvoicesScreen() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
   const { customers, bookings, invoices, trashedInvoices, packages, payments, addCustomer, addInvoice, checkPlanLimit, confirmWorkspaceSave, createInvoiceShareLink, refreshInvoiceStatuses, invoiceDraft, setInvoiceDraft, updateInvoiceStatus, currency } = useAppData();
-  const posthog = usePostHog();
   const palette = getThemePalette(isDarkMode);
   // Invoice rows are dense text, so they stay one column inside the narrower reading width.
   const { readingStyle, sheetStyle, isPhone } = useResponsive();
+  const addButtonPress = usePressScale();
   const { t } = useTranslation();
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const customerMap = new Map(customers.map((customer) => [customer.id, customer]));
@@ -307,7 +314,7 @@ export default function InvoicesScreen() {
       return;
     }
 
-    posthog.capture('invoice_created', {
+    captureEvent('invoice_created', {
       customer_source: customerMode,
       source: invoiceDraft ? 'booking' : 'standalone',
       has_event_schedule: !isLinkedToBooking,
@@ -339,11 +346,11 @@ export default function InvoicesScreen() {
     <SafeAreaView style={[styles.screen, !isPhone && styles.screenBleed, { backgroundColor: palette.background }]}>
       <View style={[styles.headerRow, readingStyle]}>
         <View style={styles.headerTitleGroup}>
-          <View style={[styles.headerIcon, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
-            <Ionicons name="receipt-outline" size={23} color={palette.accent} />
+          <View style={[styles.headerIcon, { backgroundColor: SETTINGS_ICON_BACKGROUND_COLOR, borderColor: softBorder, shadowColor: softShadow }]}>
+            <Ionicons name="receipt-outline" size={23} color={SETTINGS_ICON_STROKE_COLOR} />
           </View>
           <View style={styles.headerCopy}>
-            <Text style={[styles.eyebrow, { color: palette.accent }]}>{t('invoices.eyebrow')}</Text>
+            <Text style={[styles.eyebrow, { color: '#142A3A' }]}>{t('invoices.eyebrow')}</Text>
             <Text style={[styles.title, { color: palette.text }]} numberOfLines={1}>{t('invoices.title')}</Text>
           </View>
         </View>
@@ -366,22 +373,26 @@ export default function InvoicesScreen() {
               <View style={[styles.trashBadge, { backgroundColor: palette.accent, borderColor: palette.background }]} />
             ) : null}
           </Pressable>
-          <Pressable
-            style={({ pressed }) => [
-              styles.primaryButton,
-              { backgroundColor: palette.accent, shadowColor: palette.accent },
-              pressed && styles.headerActionPressed,
-            ]}
-            onPress={() => {
-              setInvoiceDraft(null);
-              setSelectedPackageId(packages[0]?.id ?? '');
-              setUsePackagePrice(Boolean(packages.length));
-              setDraftAmount(packages[0] ? String(packages[0].price) : '');
-              setShowComposer(true);
-            }}>
-            <Ionicons name="add" size={18} color="#fff" />
-            <Text style={styles.primaryButtonText}>New</Text>
-          </Pressable>
+          <Reanimated.View style={addButtonPress.scaleStyle}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.primaryButton,
+                { backgroundColor: '#142A3A', shadowColor: palette.accent },
+                pressed && styles.headerActionPressed,
+              ]}
+              onPressIn={addButtonPress.onPressIn}
+              onPressOut={addButtonPress.onPressOut}
+              onPress={() => {
+                setInvoiceDraft(null);
+                setSelectedPackageId(packages[0]?.id ?? '');
+                setUsePackagePrice(Boolean(packages.length));
+                setDraftAmount(packages[0] ? String(packages[0].price) : '');
+                setShowComposer(true);
+              }}>
+              <Ionicons name="add" size={18} color="#fff" />
+              <Text style={styles.primaryButtonText}>{t('invoices.add')}</Text>
+            </Pressable>
+          </Reanimated.View>
         </View>
       </View>
 
@@ -412,6 +423,7 @@ export default function InvoicesScreen() {
       </View>
 
       <FlatList
+        showsVerticalScrollIndicator={false}
         data={visibleInvoices}
         keyExtractor={(item) => item.id}
         contentContainerStyle={[styles.list, readingStyle]}
@@ -618,6 +630,7 @@ export default function InvoicesScreen() {
                       that the panel simply clipped, so every drag fell through to the form behind
                       it and moved the whole modal instead. Mirrors the booking customer list. */}
                   <ScrollView
+                    showsVerticalScrollIndicator={false}
                     nestedScrollEnabled
                     keyboardShouldPersistTaps="handled"
                     style={styles.dropdownScroll}

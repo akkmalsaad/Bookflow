@@ -1,11 +1,24 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import Svg, { Path, Rect } from 'react-native-svg';
 
 import { ProBadge } from '@/components/ProBadge';
 import { getSoftTokens } from '@/components/settings/tokens';
 import { getThemePalette, useTheme } from '@/context/theme-context';
-import { WalletIllustration } from './BusinessInsightsVisuals';
 import { useTranslation } from '@/lib/use-translation';
+
+function InsightsGrowthArtwork({ compact, color }: { compact: boolean; color: string }) {
+  return (
+    <Svg width={compact ? 88 : 104} height={compact ? 88 : 104} viewBox="0 0 128 128" fill="none" accessible={false}>
+      <Rect x={14} y={18} width={100} height={96} rx={24} fill={color} fillOpacity={0.06} />
+      <Rect x={14} y={18} width={100} height={96} rx={24} stroke={color} strokeOpacity={0.22} strokeWidth={3} />
+      <Rect x={32} y={77} width={14} height={19} rx={5} fill={color} fillOpacity={0.28} />
+      <Rect x={57} y={66} width={14} height={30} rx={5} fill={color} fillOpacity={0.5} />
+      <Rect x={82} y={53} width={14} height={43} rx={5} fill={color} />
+      <Path d="M33 59L54 43L69 49L95 29M79 29H95V45" stroke={color} strokeWidth={5} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
 
 export function BusinessInsightsPromoCard({ onPress }: { onPress: () => void }) {
   const { width } = useWindowDimensions();
@@ -14,6 +27,7 @@ export function BusinessInsightsPromoCard({ onPress }: { onPress: () => void }) 
   const palette = getThemePalette(isDarkMode);
   const { t } = useTranslation();
   const soft = getSoftTokens(isDarkMode);
+  const cardBackground = isDarkMode ? '#1D1D3E' : '#F8F6FF';
 
   return (
     <Pressable
@@ -24,7 +38,7 @@ export function BusinessInsightsPromoCard({ onPress }: { onPress: () => void }) 
       style={({ pressed }) => [
         styles.card,
         {
-          backgroundColor: isDarkMode ? '#1D1D3E' : '#F8F6FF',
+          backgroundColor: cardBackground,
           borderColor: isDarkMode ? 'rgba(167, 139, 250, 0.22)' : '#E8E0FF',
           shadowColor: soft.shadow,
           transform: [{ scale: pressed ? 0.99 : 1 }],
@@ -36,14 +50,14 @@ export function BusinessInsightsPromoCard({ onPress }: { onPress: () => void }) 
           <ProBadge />
         </View>
         <Text style={[styles.subtitle, compact && styles.subtitleCompact, { color: palette.muter }]}>{t('insights.card.subtitle')}</Text>
-        <View style={[styles.cta, { backgroundColor: palette.accent, shadowColor: palette.accent }]}>
+        <View style={[styles.cta, { backgroundColor: '#142A3A', shadowColor: palette.accent }]}>
           <Text style={styles.ctaText}>{t('insights.card.cta')}</Text>
           <Ionicons name="arrow-forward" size={14} color="#FFFFFF" />
         </View>
       </View>
 
-      <View pointerEvents="none" style={[styles.wallet, compact && styles.walletCompact]}>
-        <WalletIllustration width={compact ? 104 : 126} height={compact ? 82 : 98} />
+      <View pointerEvents="none" style={[styles.artwork, compact && styles.artworkCompact]}>
+        <InsightsGrowthArtwork compact={compact} color={palette.accent} />
       </View>
     </Pressable>
   );
@@ -81,6 +95,6 @@ const styles = StyleSheet.create({
     shadowRadius: 9,
   },
   ctaText: { color: '#FFFFFF', fontSize: 12.5, fontWeight: '800' },
-  wallet: { position: 'absolute', right: -2, top: 34 },
-  walletCompact: { right: -8, top: 56 },
+  artwork: { position: 'absolute', right: 8, top: 40 },
+  artworkCompact: { right: 4, top: 58 },
 });

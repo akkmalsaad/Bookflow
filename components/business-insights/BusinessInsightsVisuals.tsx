@@ -191,6 +191,7 @@ export function InsightsPeriodSelector({
   value,
   onChange,
   variant = 'raised',
+  iconColor,
 }: {
   value: InsightsPeriod;
   onChange: (period: InsightsPeriod) => void;
@@ -199,6 +200,7 @@ export function InsightsPeriodSelector({
    * opt-in, so only the screen that asks for it changes.
    */
   variant?: 'raised' | 'flat';
+  iconColor?: string;
 }) {
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
@@ -221,9 +223,9 @@ export function InsightsPeriodSelector({
           flat && styles.periodButtonFlat,
           pressed && styles.pressed,
         ]}>
-        <Ionicons name="calendar-outline" size={flat ? 18 : 17} color={palette.text} />
+        <Ionicons name="calendar-outline" size={flat ? 18 : 17} color={iconColor ?? palette.text} />
         <Text style={[styles.periodButtonText, { color: palette.text }]} numberOfLines={1}>{label}</Text>
-        <Ionicons name="chevron-down" size={15} color={palette.muter} />
+        <Ionicons name="chevron-down" size={15} color={iconColor ?? palette.muter} />
       </Pressable>
       <BottomSheetModal visible={open} onClose={() => setOpen(false)} heightRatio={0.62}>
         <View style={styles.sheetHeader}>
@@ -232,7 +234,7 @@ export function InsightsPeriodSelector({
             <Text style={[styles.sheetTitle, { color: palette.text }]}>{t('insights.period.title')}</Text>
           </View>
           <Pressable accessibilityRole="button" accessibilityLabel={t('a11y.close')} hitSlop={8} onPress={() => setOpen(false)}>
-            <Ionicons name="close" size={23} color={palette.text} />
+            <Ionicons name="close" size={23} color={iconColor ?? palette.text} />
           </Pressable>
         </View>
         <View style={styles.options}>
@@ -253,7 +255,7 @@ export function InsightsPeriodSelector({
                   pressed && styles.pressed,
                 ]}>
                 <Text style={[styles.optionText, { color: selected ? palette.accent : palette.text }]}>{t(`period.${option.id}` as TranslationKey)}</Text>
-                {selected ? <Ionicons name="checkmark-circle" size={21} color={palette.accent} /> : null}
+                {selected ? <Ionicons name="checkmark-circle" size={21} color={iconColor ?? palette.accent} /> : null}
               </Pressable>
             );
           })}

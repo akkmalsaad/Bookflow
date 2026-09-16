@@ -21,6 +21,7 @@ type Props = {
    * the quietest element in the header, never the loudest.
    */
   tone?: 'neutral' | 'accent';
+  iconColor?: string;
 };
 
 /**
@@ -31,7 +32,7 @@ type Props = {
  * up just enough for a heading. Icon and title read as one unit and share a baseline, and the icon
  * stays the quietest element — content first, heading second, icon last.
  */
-export function SectionHeader({ icon, eyebrow, title, subtitle, rightElement, tone = 'neutral' }: Props) {
+export function SectionHeader({ icon, eyebrow, title, subtitle, rightElement, tone = 'neutral', iconColor }: Props) {
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
 
@@ -41,7 +42,7 @@ export function SectionHeader({ icon, eyebrow, title, subtitle, rightElement, to
         <Ionicons
           name={icon}
           size={20}
-          color={tone === 'accent' ? palette.accent : palette.muter}
+          color={iconColor ?? (tone === 'accent' ? palette.accent : palette.muter)}
           // The heading already names the section; the glyph is decoration for sighted scanning.
           accessibilityElementsHidden
           importantForAccessibility="no"

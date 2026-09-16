@@ -1,9 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Children, Fragment, type ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { ProBadge } from '@/components/ProBadge';
-import { getSoftTokens } from '@/components/settings/tokens';
+import {
+  getSoftTokens,
+  SETTINGS_ICON_BACKGROUND_COLOR,
+  SETTINGS_ICON_STROKE_COLOR,
+} from '@/components/settings/tokens';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
@@ -34,16 +38,11 @@ export function SettingsSection({ title, children }: { title: string; children: 
   );
 }
 
-/** The lavender rounded-square icon tile used at the start of every row. */
-export function SettingsIcon({ name, tone = 'accent' }: { name: IoniconName; tone?: 'accent' | 'danger' }) {
-  const { isDarkMode } = useTheme();
-  const palette = getThemePalette(isDarkMode);
-  const soft = getSoftTokens(isDarkMode);
-  const isDanger = tone === 'danger';
-
+/** The rounded-square icon tile used at the start of every row. */
+export function SettingsIcon({ name }: { name: IoniconName }) {
   return (
-    <View style={[styles.icon, { backgroundColor: isDanger ? soft.dangerSoft : soft.accentSoft }]}>
-      <Ionicons name={name} size={19} color={isDanger ? palette.danger : palette.accent} />
+    <View style={[styles.icon, { backgroundColor: SETTINGS_ICON_BACKGROUND_COLOR }]}>
+      <Ionicons name={name} size={19} color={SETTINGS_ICON_STROKE_COLOR} />
     </View>
   );
 }
@@ -122,6 +121,52 @@ export function SettingsRow({
   );
 }
 
+/** A row with the same layout as SettingsRow, ending in a switch instead of a chevron. */
+export function SettingsToggleRow({
+  icon,
+  title,
+  subtitle,
+  value,
+  onValueChange,
+  disabled = false,
+}: {
+  icon: IoniconName;
+  title: string;
+  subtitle?: string;
+  value: boolean;
+  onValueChange: (next: boolean) => void;
+  disabled?: boolean;
+}) {
+  const { isDarkMode } = useTheme();
+  const palette = getThemePalette(isDarkMode);
+  const soft = getSoftTokens(isDarkMode);
+
+  return (
+    <View style={[styles.row, subtitle ? styles.rowWithSubtitle : null]}>
+      <SettingsIcon name={icon} />
+      <View style={styles.rowCopy}>
+        <Text style={[styles.rowTitle, { color: palette.text }]} numberOfLines={1}>
+          {title}
+        </Text>
+        {subtitle ? (
+          <Text style={[styles.rowSubtitle, { color: palette.muter }]} numberOfLines={2}>
+            {subtitle}
+          </Text>
+        ) : null}
+      </View>
+      <Switch
+        accessibilityLabel={title}
+        accessibilityHint={subtitle}
+        value={value}
+        disabled={disabled}
+        onValueChange={onValueChange}
+        trackColor={{ true: palette.accent, false: soft.divider }}
+        style={styles.toggle}
+      />
+    </View>
+  );
+}
+
 /** Destructive row: red icon and label on the same calm surface as everything else. */
 export function DangerActionRow({
   icon,
@@ -149,7 +194,7 @@ export function DangerActionRow({
         subtitle ? styles.rowWithSubtitle : null,
         pressed && { backgroundColor: soft.inset },
       ]}>
-      <SettingsIcon name={icon} tone="danger" />
+      <SettingsIcon name={icon} />
       <View style={styles.rowCopy}>
         <Text style={[styles.rowTitle, { color: palette.danger }]} numberOfLines={1}>
           {title}
@@ -198,6 +243,9 @@ const styles = StyleSheet.create({
   },
   rowWithSubtitle: {
     minHeight: 76,
+  },
+  toggle: {
+    marginLeft: 12,
   },
   rowDisabled: {
     opacity: 0.5,

@@ -120,3 +120,20 @@ export async function syncTodayPriorityNotifications(todaysBookings: Booking[]) 
 export function onNotificationReceived(handler: () => void) {
   return Notifications.addNotificationReceivedListener(() => handler());
 }
+
+/**
+ * Removes this app's booking reminders still waiting with the OS. Used when the account is
+ * deleted, so a reminder about a deleted customer's booking can never fire afterwards.
+ */
+export async function cancelBookingReminderNotifications() {
+  try {
+    const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+    await Promise.all(
+      scheduled
+        .filter((item) => item.identifier.startsWith(TODAY_PRIORITY_PREFIX))
+        .map((item) => Notifications.cancelScheduledNotificationAsync(item.identifier)),
+    );
+  } catch {
+    // Best effort: notification access can be unavailable (e.g. Expo Go on Android).
+  }
+}

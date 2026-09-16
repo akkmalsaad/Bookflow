@@ -207,48 +207,33 @@ function header(data: InvoiceRenderData, templateId: InvoiceTemplateId) {
   const L = labelsOf(data);
   const number = escapeHtml(data.invoice.number);
 
-  if (templateId === 'bold') {
-    return `<header class="banner">
-      <div class="banner-brand">
-        ${logoTag(data, 'logo logo-invert')}
-        <div class="banner-name">${escapeHtml(data.business.name) || L.yourBusiness}</div>
-        ${has(data.business.email) ? `<div class="banner-line">${escapeHtml(data.business.email)}</div>` : ''}
-        ${has(data.business.phone) ? `<div class="banner-line">${escapeHtml(data.business.phone)}</div>` : ''}
-        ${data.design.visibility.businessAddress && has(data.business.address) ? `<div class="banner-line">${escapeHtml(data.business.address)}</div>` : ''}
-      </div>
-      <div class="banner-meta">
-        <div class="banner-title">${L.invoice}</div>
-        <div class="banner-number">${number}</div>
-        ${statusBadge(data)}
+  if (templateId !== 'standard') {
+    const headerClass = templateId === 'bold' ? 'banner' : templateId === 'elegant' ? 'masthead' : 'head';
+    const nameClass = templateId === 'bold' ? 'banner-name' : templateId === 'elegant' ? 'masthead-name' : templateId === 'minimal' ? 'head-name' : 'head-brand';
+    const titleClass = templateId === 'bold' ? 'banner-title' : templateId === 'elegant' ? 'masthead-title' : 'head-title';
+    const logoClass = templateId === 'bold' ? 'logo logo-invert' : templateId === 'minimal' ? 'logo logo-small' : 'logo';
+    const desktopName = templateId === 'modern' || templateId === 'compact'
+      ? !data.business.logoUrl
+      : true;
+
+    return `<header class="${headerClass} pro-header">
+      ${logoTag(data, logoClass)}
+      <div class="pro-heading">
+        <div class="pro-identity">
+          ${desktopName ? `<div class="${nameClass} desktop-identity">${escapeHtml(data.business.name) || L.yourBusiness}</div>` : ''}
+          ${templateId === 'bold' ? `
+            ${has(data.business.email) ? `<div class="banner-line">${escapeHtml(data.business.email)}</div>` : ''}
+            ${has(data.business.phone) ? `<div class="banner-line">${escapeHtml(data.business.phone)}</div>` : ''}
+            ${data.design.visibility.businessAddress && has(data.business.address) ? `<div class="banner-line">${escapeHtml(data.business.address)}</div>` : ''}
+          ` : `<div class="mobile-identity">${businessBlock(data, '')}</div>`}
+        </div>
+        ${templateId === 'elegant' ? '<div class="masthead-rule"></div>' : ''}
+        <div class="${titleClass}">${L.invoice}</div>
       </div>
     </header>`;
   }
 
-  if (templateId === 'elegant') {
-    return `<header class="masthead">
-      ${logoTag(data, 'logo logo-centred')}
-      <div class="masthead-name">${escapeHtml(data.business.name) || L.yourBusiness}</div>
-      <div class="masthead-rule"></div>
-      <div class="masthead-title">${L.invoice}</div>
-      <div class="masthead-number">${number}${data.design.visibility.paymentStatus ? ` · ${escapeHtml(data.invoice.paymentStatus)}` : ''}</div>
-    </header>`;
-  }
-
-  if (templateId === 'minimal') {
-    return `<header class="head head-minimal">
-      <div>
-        ${logoTag(data, 'logo logo-small')}
-        <div class="head-name">${escapeHtml(data.business.name) || L.yourBusiness}</div>
-      </div>
-      <div class="head-meta">
-        <div class="head-title">${L.invoice}</div>
-        <div class="head-number">${number}</div>
-        ${statusBadge(data)}
-      </div>
-    </header>`;
-  }
-
-  // Standard, Modern and Compact share a split masthead; their CSS differs, not their structure.
+  // Preserve the free Standard template masthead.
   return `<header class="head">
     <div>
       ${logoTag(data, 'logo')}
@@ -424,15 +409,59 @@ const TEMPLATE_CSS: Record<InvoiceTemplateId, (data: InvoiceRenderData) => strin
   `,
 };
 
+/** Appended after template styles so mobile rules cannot be overridden by desktop variants. */
+function proResponsiveCss(templateId: InvoiceTemplateId) {
+  if (templateId === 'standard') return '';
+  return `
+    .pro-header { display: block; }
+    .pro-header .logo { width: auto; height: auto; margin: 0 auto 12px; object-position: center; }
+    .pro-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; }
+    .pro-identity { min-width: 0; }
+    .pro-header .head-brand, .pro-header .head-name { overflow-wrap: anywhere; }
+    .mobile-identity { display: none; }
+    ${templateId === 'modern' || templateId === 'compact' ? '.pro-heading { flex-direction: column; gap: 0; }' : ''}
+    .masthead .pro-heading { display: block; }
+    .pro-sheet .party, .pro-sheet .panel { min-width: 0; }
+    .pro-sheet .row > span { min-width: 0; overflow-wrap: anywhere; }
+    .pro-sheet .total-row > *, .pro-sheet .total-due > * { min-width: 0; overflow-wrap: anywhere; }
+    .pro-sheet .total-row strong, .pro-sheet .total-due strong { text-align: right; }
+    .pro-sheet .thank-you, .pro-sheet .branding { overflow-wrap: anywhere; }
+    @media screen and (max-width: 560px) {
+      .pro-sheet { padding: 24px 18px 28px; }
+      .pro-header, .pro-heading { text-align: center; }
+      .pro-heading { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+      .pro-identity { width: 100%; }
+      .pro-header .logo { max-width: min(150px, 100%); max-height: 58px; }
+      .pro-header .logo-small { max-width: min(104px, 100%); max-height: 40px; }
+      .mobile-identity { display: block; }
+      .pro-header .desktop-identity, .pro-sheet .business-party { display: none; }
+      .banner .desktop-identity { display: block; }
+      .pro-sheet .parties { flex-direction: column; gap: 18px; margin-top: 24px; }
+      .pro-sheet .party { flex: auto; width: 100%; }
+      .pro-sheet .panel { flex-basis: 100%; }
+      .pro-sheet .row { gap: 12px; }
+      .pro-sheet .items .amount { width: 40%; text-align: right; white-space: normal; overflow-wrap: anywhere; }
+      .pro-sheet .items { table-layout: fixed; }
+      .pro-sheet .row > span:first-child { flex: 0 0 36%; }
+      .pro-sheet .total-row, .pro-sheet .total-due { gap: 12px; flex-wrap: wrap; }
+      .pro-sheet .total-row strong, .pro-sheet .total-due strong { margin-left: auto; }
+      ${templateId === 'bold' ? '.pro-sheet { padding-top: 0; } .banner { margin-bottom: 0; padding: 24px 18px; }' : ''}
+      ${templateId === 'elegant' ? '.masthead { padding-bottom: 0; } .masthead .pro-heading { display: block; } .masthead .party-name { font-size: 19px; font-weight: 700; letter-spacing: 2.6px; text-transform: uppercase; }' : ''}
+      ${templateId === 'minimal' ? '.head .party-name { font-size: 17px; letter-spacing: -0.3px; }' : ''}
+      ${templateId === 'compact' ? '.pro-sheet { padding: 20px 16px 24px; } .pro-sheet .parties { margin-top: 20px; gap: 16px; }' : ''}
+    }
+  `;
+}
+
 /** The invoice body, without the surrounding document. Reused by the web page and the PDF alike. */
 export function renderInvoiceBody(data: InvoiceRenderData) {
   const templateId = getInvoiceTemplate(data.design.templateId).id;
   const compactMeta = templateId === 'compact';
 
-  return `<div class="sheet">
+  return `<div class="sheet${templateId === 'standard' ? '' : ' pro-sheet'}">
     ${header(data, templateId)}
     <section class="parties">
-      ${templateId === 'bold' ? '' : businessBlock(data)}
+      ${templateId === 'bold' ? '' : templateId === 'standard' ? businessBlock(data) : `<div class="business-party party">${businessBlock(data)}</div>`}
       ${clientBlock(data)}
       ${compactMeta || templateId === 'bold' ? `<div class="party">${metaBlock(data)}</div>` : ''}
     </section>
@@ -462,6 +491,7 @@ export function renderInvoiceHtml(data: InvoiceRenderData) {
       @page { size: A4; margin: 14mm; }
       ${baseCss(data)}
       ${TEMPLATE_CSS[templateId](data)}
+      ${proResponsiveCss(templateId)}
     </style>
   </head>
   <body>${renderInvoiceBody(data)}</body>
