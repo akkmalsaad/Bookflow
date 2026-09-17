@@ -5,17 +5,38 @@ import {
   SettingsDetailScreen,
   SettingsInfoRow,
   SettingsNotice,
+  SettingsOptionRow,
   settingsDetailStyles,
 } from '@/components/settings/SettingsDetailScreen';
+import { useAppData } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
-import { getNotificationPermissionStatus } from '@/lib/notifications';
+import { getNotificationPermissionStatus, syncTodayPriorityNotifications } from '@/lib/notifications';
+import {
+  REMINDER_LEAD_HOUR_OPTIONS,
+  setReminderLeadHours,
+  useReminderLeadHours,
+  type ReminderLeadHours,
+} from '@/lib/reminder-preference';
 import { useTranslation } from '@/lib/use-translation';
 
 export default function NotificationSettingsScreen() {
   const { t } = useTranslation();
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
+  const { bookings } = useAppData();
   const [permission, setPermission] = useState<string | null>(null);
+  const reminderLeadHours = useReminderLeadHours();
+
+  const chooseReminderLead = (hours: ReminderLeadHours) => {
+    if (hours === reminderLeadHours) return;
+    setReminderLeadHours(hours);
+
+    // Re-arms every booking against the new lead time on the tap itself, rather than waiting for the
+    // next dashboard visit. The sync withdraws each request the OS is holding for the old lead time
+    // and schedules its replacement, because it compares the instant a request was armed for rather
+    // than only whether its identifier is pending.
+    syncTodayPriorityNotifications(bookings).catch(() => {});
+  };
 
   useEffect(() => {
     getNotificationPermissionStatus()
@@ -51,10 +72,22 @@ export default function NotificationSettingsScreen() {
       </Pressable>
 
       <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter }]}>{t('notifset.booking')}</Text>
-      <SettingsInfoRow label={t('notifset.bookingReminder')} value="On · 5 hours before each booking" />
+      <SettingsInfoRow
+        label={t('notifset.bookingReminder')}
+        value={t('notifset.bookingReminder.value', { hours: reminderLeadHours })}
+      />
+      {/* The four choices sit here rather than behind a row, so the reminder time is set in one tap. */}
+      {REMINDER_LEAD_HOUR_OPTIONS.map((hours) => (
+        <SettingsOptionRow
+          key={hours}
+          title={t('notifset.reminderTime.option', { hours })}
+          selected={reminderLeadHours === hours}
+          onPress={() => chooseReminderLead(hours)}
+        />
+      ))}
       <SettingsNotice
         title={t('notifset.booking.notice')}
-        body={t('notifset.booking.body')}
+        body={t('notifset.booking.body', { hours: reminderLeadHours })}
       />
     </SettingsDetailScreen>
   );

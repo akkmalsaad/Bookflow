@@ -3,19 +3,25 @@ import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-na
 import Svg, { Path, Rect } from 'react-native-svg';
 
 import { ProBadge } from '@/components/ProBadge';
-import { getSoftTokens } from '@/components/settings/tokens';
+import { getSoftTokens, SETTINGS_ICON_BACKGROUND_COLOR, SETTINGS_ICON_STROKE_COLOR } from '@/components/settings/tokens';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 import { useTranslation } from '@/lib/use-translation';
 
-function InsightsGrowthArtwork({ compact, color }: { compact: boolean; color: string }) {
+/**
+ * The container is the same chip the Settings icons sit on — a fixed light ground carrying a fixed
+ * dark ink — which is what lets `foreground` stay one colour in both themes without disappearing
+ * into the card behind it. `color` now paints only the border, so the artwork keeps its tie to the
+ * card's accent; `foreground` paints the three bars and the trend arrow.
+ */
+function InsightsGrowthArtwork({ compact, color, foreground }: { compact: boolean; color: string; foreground: string }) {
   return (
     <Svg width={compact ? 88 : 104} height={compact ? 88 : 104} viewBox="0 0 128 128" fill="none" accessible={false}>
-      <Rect x={14} y={18} width={100} height={96} rx={24} fill={color} fillOpacity={0.06} />
+      <Rect x={14} y={18} width={100} height={96} rx={24} fill={SETTINGS_ICON_BACKGROUND_COLOR} />
       <Rect x={14} y={18} width={100} height={96} rx={24} stroke={color} strokeOpacity={0.22} strokeWidth={3} />
-      <Rect x={32} y={77} width={14} height={19} rx={5} fill={color} fillOpacity={0.28} />
-      <Rect x={57} y={66} width={14} height={30} rx={5} fill={color} fillOpacity={0.5} />
-      <Rect x={82} y={53} width={14} height={43} rx={5} fill={color} />
-      <Path d="M33 59L54 43L69 49L95 29M79 29H95V45" stroke={color} strokeWidth={5} strokeLinecap="round" strokeLinejoin="round" />
+      <Rect x={32} y={77} width={14} height={19} rx={5} fill={foreground} fillOpacity={0.28} />
+      <Rect x={57} y={66} width={14} height={30} rx={5} fill={foreground} fillOpacity={0.5} />
+      <Rect x={82} y={53} width={14} height={43} rx={5} fill={foreground} />
+      <Path d="M33 59L54 43L69 49L95 29M79 29H95V45" stroke={foreground} strokeWidth={5} strokeLinecap="round" strokeLinejoin="round" />
     </Svg>
   );
 }
@@ -57,7 +63,7 @@ export function BusinessInsightsPromoCard({ onPress }: { onPress: () => void }) 
       </View>
 
       <View pointerEvents="none" style={[styles.artwork, compact && styles.artworkCompact]}>
-        <InsightsGrowthArtwork compact={compact} color={palette.accent} />
+        <InsightsGrowthArtwork compact={compact} color={palette.accent} foreground={SETTINGS_ICON_STROKE_COLOR} />
       </View>
     </Pressable>
   );

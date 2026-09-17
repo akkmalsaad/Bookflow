@@ -1,4 +1,5 @@
 import type { AppNotification, Booking } from '@/context/app-data-context';
+import { getReminderLeadTimeMs } from '@/lib/reminder-preference';
 
 /**
  * The one definition of a booking reminder: which booking has one, when it is due, and what
@@ -6,12 +7,14 @@ import type { AppNotification, Booking } from '@/context/app-data-context';
  *
  * Both the scheduled OS notification and BookFlow's own notification centre are built from these,
  * so the two always describe the same event and share one id. Deliberately free of any
- * expo-notifications import: the rules are pure, and the scheduler is the only thing that talks to
- * the OS.
+ * expo-notifications import: the rules stay independent of the OS, and the scheduler is the only
+ * thing that talks to it.
+ *
+ * How far ahead a reminder falls due is the person's own setting rather than a constant here, so
+ * changing it moves the OS notification and the in-app record together.
  */
 
 export const BOOKING_REMINDER_PREFIX = 'today-priority-';
-export const REMINDER_LEAD_TIME_MS = 5 * 60 * 60 * 1000;
 
 /** The identifier the OS notification is scheduled under, and the in-app record's stable id. */
 export function bookingNotificationId(booking: Pick<Booking, 'id'>) {
@@ -40,10 +43,15 @@ export function getBookingStartDate(booking: Booking) {
   return date;
 }
 
-/** When the reminder for this booking falls due — the same instant the OS notification fires. */
+/**
+ * When the reminder for this booking falls due — the same instant the OS notification fires.
+ *
+ * Reads the chosen lead time on every call rather than closing over it, so a reminder worked out
+ * after the setting changes already reflects the new choice.
+ */
 export function getBookingReminderDate(booking: Booking) {
   const startDate = getBookingStartDate(booking);
-  return startDate === null ? null : new Date(startDate.getTime() - REMINDER_LEAD_TIME_MS);
+  return startDate === null ? null : new Date(startDate.getTime() - getReminderLeadTimeMs());
 }
 
 /**
@@ -52,11 +60,18 @@ export function getBookingReminderDate(booking: Booking) {
  * Existing records are never rewritten, so a notification the user has already read stays read, and
  * reloading or re-syncing the workspace cannot produce a second copy: the id is the booking's, not
  * a fresh one per pass. Returns the array it was given when nothing is due.
+ *
+ * `clearedAt` is when the person last emptied the in-app notification history. A reminder that had
+ * already fallen due by then is not written again, which is what makes Clear all stick: the record
+ * is gone, but the booking is still sitting there due, so without this the next foreground or
+ * restart would simply put it back. Reminders that come due *after* that moment are unaffected —
+ * clearing the list is not a way to switch future reminders off.
  */
 export function materialiseDueBookingNotifications(
   bookings: Booking[],
   existing: AppNotification[],
   now: number,
+  clearedAt: number | null = null,
 ): AppNotification[] {
   const known = new Set(existing.map((notification) => notification.id));
 
@@ -68,6 +83,8 @@ export function materialiseDueBookingNotifications(
 
     const reminderDate = getBookingReminderDate(booking);
     if (reminderDate === null || reminderDate.getTime() > now) continue;
+    // Already swept up by a Clear all, so its record stays gone rather than reappearing.
+    if (clearedAt !== null && reminderDate.getTime() <= clearedAt) continue;
 
     const time = formatBookingTime(booking.startTime ?? booking.time);
     created.push({

@@ -1,4 +1,5 @@
 import { SUPPORT_EMAIL } from '@/lib/legal/contact';
+import { PRIVACY_POLICY_MS } from '@/lib/legal/privacy-policy.ms';
 import type { LegalDocument } from '@/lib/legal/types';
 
 /**
@@ -8,8 +9,9 @@ import type { LegalDocument } from '@/lib/legal/types';
  * changes (a new provider, a new field, a change to deletion or analytics), update this text and
  * `lastUpdated` in the same change. tests/privacy-policy.test.cjs guards the most important facts.
  *
- * Only English exists. A Bahasa Melayu version must be a reviewed legal translation, not a
- * machine translation; until one is added to PRIVACY_POLICIES, Malay falls back to English.
+ * English and Bahasa Melayu exist, clause for clause, in PRIVACY_POLICIES. Any further language
+ * must be a reviewed legal translation, not a machine translation; until one is added there, that
+ * locale falls back to English. When this text changes, change privacy-policy.ms.ts with it.
  */
 
 export { SUPPORT_EMAIL };
@@ -356,10 +358,10 @@ const PRIVACY_POLICY_EN: LegalDocument = {
 
 const PRIVACY_POLICIES: Partial<Record<'en' | 'ms-MY', LegalDocument>> = {
   en: PRIVACY_POLICY_EN,
-  // 'ms-MY': add only a reviewed Bahasa Melayu legal translation.
+  'ms-MY': PRIVACY_POLICY_MS,
 };
 
-/** The policy for a locale, falling back to English until a reviewed translation exists. */
+/** The policy for the app's language, falling back to English for any locale without one. */
 export function getPrivacyPolicy(locale: string): LegalDocument {
   return PRIVACY_POLICIES[locale as 'en' | 'ms-MY'] ?? PRIVACY_POLICY_EN;
 }

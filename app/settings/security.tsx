@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 import { DeleteAccountFlow } from '@/components/settings/AccountDialogs';
 import { SettingsDetailScreen } from '@/components/settings/SettingsDetailScreen';
 import { DangerActionRow, SettingsRow, SettingsSection, SettingsToggleRow } from '@/components/settings/SettingsList';
-import { useSubscription } from '@/context/subscription-context';
 import { useAnalyticsPreference } from '@/lib/analytics-preference';
 import { useTranslation } from '@/lib/use-translation';
 import { captureEvent } from '@/lib/analytics';
@@ -12,20 +11,12 @@ import { captureEvent } from '@/lib/analytics';
 export default function SecurityScreen() {
   const { t } = useTranslation();
   const router = useRouter();
-  const { isPro, isLoadingSubscription } = useSubscription();
   const analytics = useAnalyticsPreference();
   const [showDeleteAccount, setShowDeleteAccount] = useState(false);
 
   useEffect(() => {
     captureEvent('security_privacy_opened');
   }, []);
-
-  const openExport = () => {
-    captureEvent('data_export_opened', { source: 'security_privacy', is_pro: isPro });
-    // The same destination and Pro gate as Settings > Export data & reports.
-    if (isPro) router.push('/settings/export');
-    else router.push({ pathname: '/paywall', params: { returnTo: '/settings/export' } });
-  };
 
   const changeAnalytics = async (enabled: boolean) => {
     // Recorded while analytics is still on: an opt-out is the last event this device sends, and an
@@ -52,28 +43,6 @@ export default function SecurityScreen() {
           title={t('security.sessions.title')}
           subtitle={t('security.sessions.subtitle')}
           onPress={() => router.push('/settings/sessions')}
-        />
-      </SettingsSection>
-
-      <SettingsSection title={t('security.section.privacy')}>
-        <SettingsRow
-          icon="download-outline"
-          title={t('security.export.title')}
-          subtitle={t('security.export.subtitle')}
-          proBadge={!isLoadingSubscription && !isPro}
-          onPress={openExport}
-        />
-        <SettingsRow
-          icon="shield-checkmark-outline"
-          title={t('security.privacy.title')}
-          subtitle={t('security.privacy.subtitle')}
-          onPress={() => router.push('/settings/privacy')}
-        />
-        <SettingsRow
-          icon="document-text-outline"
-          title={t('security.terms.title')}
-          subtitle={t('security.terms.subtitle')}
-          onPress={() => router.push('/settings/terms')}
         />
       </SettingsSection>
 

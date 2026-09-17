@@ -189,19 +189,6 @@ export default function DataManagementScreen() {
         </Text>
       </View>
 
-      <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter }]}>{t('data.export')}</Text>
-      <ActionRow
-        icon="download-outline"
-        title={t('export.title')}
-        subtitle={t('data.export.subtitle')}
-        onPress={() =>
-          isPro
-            ? router.push('/settings/export')
-            : router.push({ pathname: '/paywall', params: { returnTo: '/settings/export' } })
-        }
-        isDarkMode={isDarkMode}
-      />
-
       <Text style={[settingsDetailStyles.groupLabel, { color: palette.muter }]}>{t('data.backup')}</Text>
       <View style={[styles.card, { backgroundColor: soft.surface, borderColor: soft.border }]}>
         <View style={styles.backupHeader}>
@@ -260,47 +247,6 @@ export default function DataManagementScreen() {
         onConfirm={handleConfirmRestore}
       />
     </SettingsDetailScreen>
-  );
-}
-
-/** A settings row that leads somewhere: icon, copy, chevron. */
-function ActionRow({
-  icon,
-  title,
-  subtitle,
-  onPress,
-  isDarkMode,
-}: {
-  icon: IconName;
-  title: string;
-  subtitle: string;
-  onPress: () => void;
-  isDarkMode: boolean;
-}) {
-  const palette = getThemePalette(isDarkMode);
-  const soft = getSoftTokens(isDarkMode);
-
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={title}
-      accessibilityHint={subtitle}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.card,
-        styles.actionRow,
-        { backgroundColor: soft.surface, borderColor: soft.border },
-        pressed && styles.pressed,
-      ]}>
-      <View style={[styles.actionIcon, { backgroundColor: soft.accentSoft }]}>
-        <Ionicons name={icon} size={19} color={palette.accent} />
-      </View>
-      <View style={styles.actionCopy}>
-        <Text style={[styles.cardTitle, { color: palette.text }]}>{title}</Text>
-        <Text style={[styles.cardBody, { color: palette.muter }]}>{subtitle}</Text>
-      </View>
-      <Ionicons name="chevron-forward" size={18} color={palette.muter} />
-    </Pressable>
   );
 }
 
@@ -390,24 +336,6 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     lineHeight: 17,
     marginTop: 8,
-  },
-  actionRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 12,
-    paddingVertical: 14,
-  },
-  actionIcon: {
-    alignItems: 'center',
-    borderRadius: 12,
-    height: 38,
-    justifyContent: 'center',
-    width: 38,
-  },
-  actionCopy: {
-    flex: 1,
-    gap: 3,
-    minWidth: 0,
   },
   backupHeader: {
     alignItems: 'center',

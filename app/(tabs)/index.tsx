@@ -17,6 +17,7 @@ import { useSnackbar } from '@/context/snackbar-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 import { getFinancialMetrics, getFinancialPeriodBounds } from '@/lib/financial-metrics';
 import { getNotificationPermissionStatus, syncTodayPriorityNotifications } from '@/lib/notifications';
+import { useReminderLeadHours } from '@/lib/reminder-preference';
 import { getInvoiceNumber } from '@/lib/invoice-numbering';
 import { useResponsive } from '@/lib/responsive';
 import { getNextBookingDate } from '@/lib/upcoming-bookings';
@@ -92,13 +93,14 @@ export default function HomeScreen() {
 
   const [showNotificationPrompt, setShowNotificationPrompt] = useState(false);
   const hasResolvedNotificationPromptRef = useRef(false);
+  const reminderLeadHours = useReminderLeadHours();
 
   useEffect(() => {
     let cancelled = false;
 
     async function run() {
       if (hasResolvedNotificationPromptRef.current) {
-        syncTodayPriorityNotifications(todaysBookings).catch(() => {});
+        syncTodayPriorityNotifications(bookings).catch(() => {});
         return;
       }
 
@@ -109,7 +111,7 @@ export default function HomeScreen() {
         setShowNotificationPrompt(true);
       } else {
         hasResolvedNotificationPromptRef.current = true;
-        syncTodayPriorityNotifications(todaysBookings).catch(() => {});
+        syncTodayPriorityNotifications(bookings).catch(() => {});
       }
     }
 
@@ -117,12 +119,16 @@ export default function HomeScreen() {
     return () => {
       cancelled = true;
     };
-  }, [todaysBookings]);
+    // Every booking, not just today's: a reminder is armed with the OS days ahead of its own day so
+    // iOS can deliver it with BookFlow closed, and re-armed whenever a booking is added or changed.
+    // The chosen reminder time is a dependency too, so changing it re-arms everything against the
+    // new lead time rather than leaving the OS holding requests built from the old one.
+  }, [bookings, reminderLeadHours]);
 
   const handleAllowNotifications = () => {
     hasResolvedNotificationPromptRef.current = true;
     setShowNotificationPrompt(false);
-    syncTodayPriorityNotifications(todaysBookings).catch(() => {});
+    syncTodayPriorityNotifications(bookings).catch(() => {});
   };
 
   const handleDismissNotificationPrompt = () => {

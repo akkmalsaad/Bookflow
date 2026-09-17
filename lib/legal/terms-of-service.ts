@@ -1,4 +1,5 @@
 import { SUPPORT_EMAIL } from '@/lib/legal/contact';
+import { TERMS_OF_SERVICE_MS } from '@/lib/legal/terms-of-service.ms';
 import type { LegalDocument } from '@/lib/legal/types';
 
 /**
@@ -9,8 +10,9 @@ import type { LegalDocument } from '@/lib/legal/types';
  * When a feature, provider, billing flow or deletion step changes, update this text and
  * `lastUpdated` together. tests/terms-of-service.test.cjs guards the most important facts.
  *
- * Only English exists. A Bahasa Melayu version must be a reviewed legal translation; until one is
- * added to TERMS_OF_SERVICE, Malay falls back to English.
+ * English and Bahasa Melayu exist, clause for clause, in TERMS_OF_SERVICE. Any further language
+ * must be a reviewed legal translation; until one is added there, that locale falls back to
+ * English. When this text changes, change terms-of-service.ms.ts with it.
  */
 
 const TERMS_OF_SERVICE_EN: LegalDocument = {
@@ -518,10 +520,10 @@ const TERMS_OF_SERVICE_EN: LegalDocument = {
 
 const TERMS_OF_SERVICE: Partial<Record<'en' | 'ms-MY', LegalDocument>> = {
   en: TERMS_OF_SERVICE_EN,
-  // 'ms-MY': add only a reviewed Bahasa Melayu legal translation.
+  'ms-MY': TERMS_OF_SERVICE_MS,
 };
 
-/** The Terms for a locale, falling back to English until a reviewed translation exists. */
+/** The Terms for the app's language, falling back to English for any locale without one. */
 export function getTermsOfService(locale: string): LegalDocument {
   return TERMS_OF_SERVICE[locale as 'en' | 'ms-MY'] ?? TERMS_OF_SERVICE_EN;
 }

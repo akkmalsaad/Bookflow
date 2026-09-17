@@ -427,6 +427,12 @@ const HOME_EN = {
   'notifications.back': 'Back to Home',
   'notifications.markAll': 'Mark all read',
   'notifications.markAll.label': 'Mark all notifications as read',
+  'notifications.clearAll': 'Clear all',
+  'notifications.clearAll.label': 'Clear all notifications',
+  'notifications.clearAll.title': 'Clear all notifications?',
+  'notifications.clearAll.body':
+    'This removes every notification from your in-app history. Scheduled booking reminders are not affected and will still arrive.',
+  'notifications.clearAll.confirm': 'Clear all',
   'notifications.caughtUp': 'You’re all caught up',
   'notifications.unread': '{count} unread notifications',
   'notifications.unread.one': '1 unread notification',
@@ -497,7 +503,7 @@ const HOME_EN = {
   'sub.appearance.dark': 'Dark',
   'sub.appearance.dark.sub': 'Always use the dark palette',
   'sub.about.title': 'About BookFlow',
-  'sub.about.description': 'BookFlow is a booking and finance app for small service businesses — customers, bookings, invoices, payments and cash flow in one place.',
+  'sub.about.description': 'BookFlow is a booking, invoice, and finance app built for independent professionals to manage customers, bookings, invoices, payments, and cash flow—all in one place. A little less admin. A lot more room to grow.',
   'sub.about.version': 'Version',
   'sub.help.title': 'Help & Support',
   'sub.help.description': 'Find answers or get in touch with us.',
@@ -1035,7 +1041,9 @@ const HOME_EN = {
   'notifset.booking': 'Booking notifications',
   'notifset.bookingReminder': 'Upcoming booking reminder',
   'notifset.booking.notice': 'Booking reminders',
-  'notifset.booking.body': 'BookFlow reminds you 5 hours before each of today’s bookings.',
+  'notifset.booking.body': 'BookFlow reminds you {hours} hours before each of today’s bookings.',
+  'notifset.bookingReminder.value': 'On · {hours} hours before each booking',
+  'notifset.reminderTime.option': '{hours} hours before',
 
   // Export, data management, Dustbin and backup
   'export.title': 'Export data & reports',
@@ -1633,6 +1641,12 @@ const HOME_MS: Record<TranslationKey, string> = {
   'notifications.back': 'Kembali ke Utama',
   'notifications.markAll': 'Tanda semua dibaca',
   'notifications.markAll.label': 'Tanda semua notifikasi sebagai dibaca',
+  'notifications.clearAll': 'Kosongkan semua',
+  'notifications.clearAll.label': 'Kosongkan semua notifikasi',
+  'notifications.clearAll.title': 'Kosongkan semua notifikasi?',
+  'notifications.clearAll.body':
+    'Ini membuang setiap notifikasi daripada sejarah dalam aplikasi anda. Peringatan tempahan yang dijadualkan tidak terjejas dan tetap akan tiba.',
+  'notifications.clearAll.confirm': 'Kosongkan semua',
   'notifications.caughtUp': 'Semua sudah dibaca',
   'notifications.unread': '{count} notifikasi belum dibaca',
   'notifications.unread.one': '1 notifikasi belum dibaca',
@@ -2237,7 +2251,9 @@ const HOME_MS: Record<TranslationKey, string> = {
   'notifset.booking': 'Notifikasi tempahan',
   'notifset.bookingReminder': 'Peringatan tempahan akan datang',
   'notifset.booking.notice': 'Peringatan tempahan',
-  'notifset.booking.body': 'BookFlow mengingatkan anda 5 jam sebelum setiap tempahan hari ini.',
+  'notifset.booking.body': 'BookFlow mengingatkan anda {hours} jam sebelum setiap tempahan hari ini.',
+  'notifset.bookingReminder.value': 'Hidup · {hours} jam sebelum setiap tempahan',
+  'notifset.reminderTime.option': '{hours} jam sebelum',
 
   // Eksport, pengurusan data, Tong sampah dan sandaran
   'export.title': 'Eksport data & laporan',

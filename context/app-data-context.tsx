@@ -423,6 +423,11 @@ type AppDataContextValue = {
   markNotificationOpened: (notificationId: string) => void;
   markAllNotificationsOpened: () => void;
   /**
+   * Empties the in-app notification history. Nothing scheduled with the OS is touched: reminders
+   * already handed to iOS still fire, and reminders still to come still appear here afterwards.
+   */
+  clearAllNotifications: () => void;
+  /**
    * Stops workspace saves and waits for any in-flight save to finish, so nothing can write the
    * workspace back while the server deletes the account. `resumeWorkspaceSync` undoes it when the
    * deletion fails.
@@ -478,6 +483,11 @@ type PersistedAppData = {
   financeEntries: FinanceEntry[];
   reminders: Reminder[];
   notifications: AppNotification[];
+  /**
+   * When the notification history was last emptied, as an ISO string. Absent on workspaces saved
+   * before Clear all existed, which read as "never cleared".
+   */
+  notificationsClearedAt?: string;
   businessProfile: BusinessProfile;
   currency: CurrencyCode;
   /** Interface language. Absent on workspaces saved before it existed, which read as English. */
@@ -802,6 +812,8 @@ function parseWorkspace(value: Json, user: AuthUser): PersistedAppData {
     notifications: Array.isArray(data.notifications)
       ? (data.notifications as AppNotification[])
       : fallback.notifications,
+    notificationsClearedAt:
+      typeof data.notificationsClearedAt === 'string' ? data.notificationsClearedAt : fallback.notificationsClearedAt,
     businessProfile: normalizeBusinessProfile(profile, fallback.businessProfile),
     currency: currency === 'MYR' || currency === 'IDR' || currency === 'USD' ? currency : fallback.currency,
     language: isLocale(data.language) ? data.language : fallback.language,
@@ -921,6 +933,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const [allFinanceEntries, setFinanceEntries] = useState<FinanceEntry[]>([]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [notificationsClearedAt, setNotificationsClearedAt] = useState<string | undefined>(undefined);
   const [invoiceDraft, setInvoiceDraft] = useState<InvoiceDraftPrefill | null>(null);
   const [businessProfile, setBusinessProfile] = useState<BusinessProfile>({
     name: '',
@@ -1023,7 +1036,14 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
    */
   useEffect(() => {
     const materialise = () => {
-      setNotifications((current) => materialiseDueBookingNotifications(bookingsRef.current, current, Date.now()));
+      setNotifications((current) =>
+        materialiseDueBookingNotifications(
+          bookingsRef.current,
+          current,
+          Date.now(),
+          notificationsClearedAt ? new Date(notificationsClearedAt).getTime() : null,
+        ),
+      );
     };
 
     materialise();
@@ -1036,7 +1056,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       appState.remove();
       received.remove();
     };
-  }, [bookings]);
+  }, [bookings, notificationsClearedAt]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -1105,6 +1125,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       setFinanceEntries(workspace.financeEntries);
       setReminders(workspace.reminders);
       setNotifications(workspace.notifications);
+      setNotificationsClearedAt(workspace.notificationsClearedAt);
       setBusinessProfile(workspace.businessProfile);
       setCurrency(workspace.currency);
       setLanguage(workspace.language ?? DEFAULT_LOCALE);
@@ -1168,6 +1189,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       financeEntries: allFinanceEntries,
       reminders,
       notifications,
+      notificationsClearedAt,
       businessProfile,
       currency,
       language,
@@ -1205,7 +1227,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           waiters.forEach(({ reject }) => reject(failure));
         }
       });
-  }, [allFinanceEntries, allInvoices, allPayments, bookings, businessProfile, confirmationRevision, currency, customers, invoiceSettings, language, notifications, packages, reminders, supabase, syncRetryKey, user]);
+  }, [allFinanceEntries, allInvoices, allPayments, bookings, businessProfile, confirmationRevision, currency, customers, invoiceSettings, language, notifications, notificationsClearedAt, packages, reminders, supabase, syncRetryKey, user]);
 
   /**
    * The single place Dustbin is filtered out. Every screen, selector and finance calculation reads
@@ -2364,6 +2386,13 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       markAllNotificationsOpened: () => {
         setNotifications((current) => current.map((item) => ({ ...item, isOpened: true })));
       },
+      clearAllNotifications: () => {
+        setNotifications([]);
+        // Stamped so the reminders that produced these records are not materialised all over again
+        // on the next foreground or the next launch. The normal save queue persists both, because
+        // the workspace document carries this field alongside the list itself.
+        setNotificationsClearedAt(new Date().toISOString());
+      },
       suspendWorkspaceSync: async () => {
         canSaveRef.current = false;
         await saveQueueRef.current.catch(() => {});
@@ -2435,6 +2464,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         setFinanceEntries([]);
         setReminders([]);
         setNotifications([]);
+        // Reset with the rest, so a wiped workspace is not left holding a Clear all stamp that
+        // would suppress reminders for whatever is put back into it.
+        setNotificationsClearedAt(undefined);
         setInvoiceDraft(null);
         setBusinessProfile({
           name: '',

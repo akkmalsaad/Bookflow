@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import type { ComponentProps } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAppData } from '@/context/app-data-context';
@@ -28,11 +28,21 @@ function formatNotificationDate(value: string) {
 export default function NotificationsScreen() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
-  const { notifications, markNotificationOpened, markAllNotificationsOpened } = useAppData();
+  const { notifications, markNotificationOpened, markAllNotificationsOpened, clearAllNotifications } = useAppData();
   const palette = getThemePalette(isDarkMode);
   const { readingStyle } = useResponsive();
   const { t } = useTranslation();
   const unreadCount = notifications.filter((notification) => !notification.isOpened).length;
+  const isEmpty = notifications.length === 0;
+
+  // Emptying the history cannot be undone, so it goes through the same destructive confirmation
+  // every other irreversible delete in BookFlow uses.
+  const handleClearAll = () => {
+    Alert.alert(t('notifications.clearAll.title'), t('notifications.clearAll.body'), [
+      { text: t('dialog.cancel'), style: 'cancel' },
+      { text: t('notifications.clearAll.confirm'), style: 'destructive', onPress: clearAllNotifications },
+    ]);
+  };
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]}>
@@ -62,6 +72,16 @@ export default function NotificationsScreen() {
           accessibilityLabel={t('notifications.markAll.label')}
           accessibilityState={{ disabled: unreadCount === 0 }}>
           <Text style={[styles.markAllText, { color: palette.accent }]}>{t('notifications.markAll')}</Text>
+        </Pressable>
+
+        <Pressable
+          onPress={handleClearAll}
+          disabled={isEmpty}
+          style={({ pressed }) => [styles.markAllButton, { opacity: isEmpty ? 0.4 : pressed ? 0.65 : 1 }]}
+          accessibilityRole="button"
+          accessibilityLabel={t('notifications.clearAll.label')}
+          accessibilityState={{ disabled: isEmpty }}>
+          <Text style={[styles.markAllText, { color: palette.danger }]}>{t('notifications.clearAll')}</Text>
         </Pressable>
       </View>
 
