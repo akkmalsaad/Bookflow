@@ -82,7 +82,7 @@
       [
         "@clerk/expo",
         {
-          "appleSignIn": false
+          "appleSignIn": true
         }
       ],
       "expo-web-browser",
