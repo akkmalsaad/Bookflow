@@ -20,6 +20,7 @@
       }
     },
     "production": {
+      "node": "24.19.0",
       "distribution": "store",
       "environment": "production",
       "autoIncrement": true,
