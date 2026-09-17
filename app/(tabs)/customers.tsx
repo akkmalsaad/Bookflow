@@ -2,7 +2,7 @@ import { SuccessFeedback } from '@/components/feedback/SuccessFeedback';
 
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { FlatList, Keyboard, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { FlatList, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Reanimated from 'react-native-reanimated';
 import { useMemo, useRef, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -278,6 +278,7 @@ export default function CustomersScreen() {
 
       <Modal visible={showComposer || showSuccess} transparent animationType="slide" onRequestClose={() => { if (!successActive.current) setShowComposer(false); }}>
         <View style={styles.modalBackdrop}>
+          <KeyboardAvoidingView enabled={Platform.OS === 'ios'} behavior="padding" style={styles.composerKeyboardArea}>
           <View style={[styles.modalCard, sheetStyle, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }, showSuccess && { display: 'none' }]}>
             <View style={[styles.modalHandle, { backgroundColor: palette.border }]} />
             <View accessibilityElementsHidden={showSuccess} importantForAccessibility={showSuccess ? 'no-hide-descendants' : 'auto'} style={styles.modalHeader}>
@@ -290,7 +291,7 @@ export default function CustomersScreen() {
               </Pressable>
             </View>
 
-            <ScrollView accessibilityElementsHidden={showSuccess} importantForAccessibility={showSuccess ? 'no-hide-descendants' : 'auto'} pointerEvents={showSuccess ? 'none' : 'auto'} {...modalScrollProps} contentContainerStyle={styles.modalScrollContent}>
+            <ScrollView accessibilityElementsHidden={showSuccess} importantForAccessibility={showSuccess ? 'no-hide-descendants' : 'auto'} pointerEvents={showSuccess ? 'none' : 'auto'} {...modalScrollProps} automaticallyAdjustKeyboardInsets={Platform.OS !== 'ios'}>
             <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('customers.field.name')}</Text>
             <TextInput value={name} onChangeText={setName} style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]} placeholder="Nur Aisyah Rahman" placeholderTextColor={palette.muter} />
 
@@ -306,11 +307,14 @@ export default function CustomersScreen() {
             <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('customers.field.notes')}</Text>
             <TextInput value={notes} onChangeText={setNotes} style={[styles.input, styles.notesInput, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]} placeholder={t('customers.notes.placeholder')} placeholderTextColor={palette.muter} multiline />
 
+            </ScrollView>
+            <View style={styles.modalScrollContent}>
             <Pressable style={[styles.submitButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]} disabled={showSuccess} onPress={handleAddCustomer}>
               <Text style={styles.submitButtonText}>{t('customers.save')}</Text>
             </Pressable>
-            </ScrollView>
+            </View>
           </View>
+          </KeyboardAvoidingView>
           <SuccessFeedback
             visible={showSuccess}
             title={t('customers.added.title')}
@@ -527,6 +531,10 @@ const styles = StyleSheet.create({
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(15, 23, 42, 0.58)',
+    justifyContent: 'flex-end',
+  },
+  composerKeyboardArea: {
+    flex: 1,
     justifyContent: 'flex-end',
   },
   modalScrollContent: {

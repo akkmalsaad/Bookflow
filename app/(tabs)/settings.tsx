@@ -14,7 +14,7 @@ import {
   SETTINGS_ICON_BACKGROUND_COLOR,
   SETTINGS_ICON_STROKE_COLOR,
 } from '@/components/settings/tokens';
-import { CURRENCY_OPTIONS, useAppData } from '@/context/app-data-context';
+import { useAppData } from '@/context/app-data-context';
 import { LOCALES } from '@/lib/i18n';
 import { useAuth } from '@/context/auth-context';
 import { useSubscription } from '@/context/subscription-context';
@@ -27,7 +27,7 @@ export default function SettingsScreen() {
   const router = useRouter();
   const { isDarkMode, themePreference } = useTheme();
   const { signOut, user } = useAuth();
-  const { businessProfile, currency, language } = useAppData();
+  const { businessProfile, language } = useAppData();
   const { isPro, isLoadingSubscription } = useSubscription();
   const palette = getThemePalette(isDarkMode);
   const { readingStyle } = useResponsive();
@@ -40,9 +40,6 @@ export default function SettingsScreen() {
 
   const appVersion = Constants.expoConfig?.version ?? 'Unknown';
   const buildNumber = Constants.expoConfig?.ios?.buildNumber ?? Constants.expoConfig?.android?.versionCode;
-  const currencyLabel = CURRENCY_OPTIONS.find((option) => option.code === currency)?.code ?? currency;
-
-
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.scrollContent, readingStyle]}>
@@ -94,12 +91,6 @@ export default function SettingsScreen() {
             onPress={() => router.push('/settings/notifications')}
           />
           <SettingsRow icon="globe-outline" title={t('settings.language')} value={LOCALES.find((option) => option.id === language)?.label ?? 'English'} onPress={() => router.push('/settings/language')} />
-          <SettingsRow
-            icon="cash-outline"
-            title={t('settings.currency')}
-            value={`${currencyLabel} · Malaysia`}
-            onPress={() => router.push('/settings/currency-region')}
-          />
         </SettingsSection>
 
         <SettingsSection title={t('settings.section.data')}>

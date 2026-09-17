@@ -224,6 +224,8 @@ export type InvoiceEventSchedule = {
   date: string;
   startTime: string;
   endTime: string;
+  depositAmount?: number;
+  notes?: string;
 };
 
 export type AddInvoiceResult =
@@ -2021,7 +2023,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
             packageName: invoice.serviceName?.trim() ?? '',
             price: invoice.amount,
             status: 'Inquiry',
-            notes: 'Booking created from an invoice.',
+            depositAmount: schedule.depositAmount,
+            notes: schedule.notes?.trim() || 'Booking created from an invoice.',
           };
         }
 

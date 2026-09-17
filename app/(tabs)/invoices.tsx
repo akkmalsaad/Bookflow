@@ -1,3 +1,4 @@
+import { AddBookingModal, type BookingInvoiceInput } from '@/components/booking/AddBookingModal';
 import { SuccessFeedback } from '@/components/feedback/SuccessFeedback';
 
 import { Ionicons } from '@expo/vector-icons';
@@ -59,6 +60,7 @@ export default function InvoicesScreen() {
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const customerMap = new Map(customers.map((customer) => [customer.id, customer]));
   const [searchTerm, setSearchTerm] = useState('');
+  const [showAddInvoice, setShowAddInvoice] = useState(false);
   const [showComposer, setShowComposer] = useState(Boolean(invoiceDraft));
   const [showSuccess, setShowSuccess] = useState(false);
   const successActive = useRef(false);
@@ -251,6 +253,39 @@ export default function InvoicesScreen() {
     }
   };
 
+  const handleAddInvoice = (input: BookingInvoiceInput) => {
+    const customerId = input.newCustomer ? addCustomer(input.newCustomer)?.id : input.customerId;
+    if (!customerId) return { ok: false as const, error: t('bookings.error.fields') };
+
+    const service = packages.find((item) => item.id === input.packageId);
+    const result = addInvoice({
+      bookingId: '',
+      customerId,
+      amount: input.price,
+      dueDate: draftDueDate,
+      status: 'Draft',
+      sentAt: getLocalDayKey(),
+      serviceName: service?.name,
+      packageDetails: service?.details,
+      terms: service?.info,
+      eventLocation: input.location,
+    }, {
+      date: input.date,
+      startTime: input.startTime,
+      endTime: input.endTime,
+      depositAmount: input.depositAmount,
+      notes: input.notes,
+    });
+    if (result.ok) {
+      captureEvent('invoice_created', {
+        customer_source: input.newCustomer ? 'manual' : 'existing',
+        source: 'standalone',
+        has_event_schedule: true,
+      });
+    }
+    return result;
+  };
+
   const handleCreateInvoice = () => {
     if (successActive.current) return;
     // The same gate the mutation enforces; checked here only to route into the upgrade flow.
@@ -384,10 +419,9 @@ export default function InvoicesScreen() {
               onPressOut={addButtonPress.onPressOut}
               onPress={() => {
                 setInvoiceDraft(null);
-                setSelectedPackageId(packages[0]?.id ?? '');
-                setUsePackagePrice(Boolean(packages.length));
-                setDraftAmount(packages[0] ? String(packages[0].price) : '');
-                setShowComposer(true);
+                setDraftEventDate(new Date().toISOString().slice(0, 10));
+                setDraftDueDate(new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10));
+                setShowAddInvoice(true);
               }}>
               <Ionicons name="add" size={18} color="#fff" />
               <Text style={styles.primaryButtonText}>{t('invoices.add')}</Text>
@@ -547,6 +581,17 @@ export default function InvoicesScreen() {
           },
         ]}
       />
+
+      {showAddInvoice ? (
+        <AddBookingModal
+          selectedDate={draftEventDate}
+          onDateChange={setDraftEventDate}
+          dueDate={draftDueDate}
+          onDueDateChange={setDraftDueDate}
+          onClose={() => setShowAddInvoice(false)}
+          onSaveInvoice={handleAddInvoice}
+        />
+      ) : null}
 
       <Modal visible={showComposer || showSuccess} transparent animationType="slide" onRequestClose={() => { if (!successActive.current) setShowComposer(false); }}>
         <View style={styles.modalBackdrop}>

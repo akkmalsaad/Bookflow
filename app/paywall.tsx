@@ -263,13 +263,13 @@ function FeatureComparison({ isDarkMode, t, styles }: { isDarkMode: boolean; t: 
   const rows: { label: string; free: string | boolean; pro: string | boolean }[] = [
     { label: t('paywall.bookings'), free: t('paywall.perMonth', { count: FREE_LIMITS.bookingsPerMonth }), pro: unlimited },
     { label: t('paywall.clients'), free: String(FREE_LIMITS.customers), pro: unlimited },
-    { label: t('paywall.invoices'), free: t('paywall.perMonth', { count: FREE_LIMITS.invoicesPerMonth }), pro: unlimited },
+    { label: t('paywall.invoices'), free: t('paywall.perMonth', { count: 5 }), pro: unlimited },
     { label: t('paywall.templates'), free: t('paywall.basic'), pro: t('paywall.allTemplates') },
     { label: t('paywall.payments'), free: true, pro: true },
     { label: t('paywall.invoiceLogo'), free: false, pro: true },
     { label: t('paywall.insights'), free: t('paywall.overview'), pro: t('paywall.advanced') },
-    // Export is available to Free accounts too; only custom report branding is Pro-gated.
-    { label: t('paywall.reports'), free: true, pro: true },
+    { label: t('paywall.reports'), free: false, pro: true },
+    { label: 'Workspace backup', free: false, pro: true },
   ];
   const value = (entry: string | boolean, pro: boolean) => typeof entry === 'boolean'
     ? entry
