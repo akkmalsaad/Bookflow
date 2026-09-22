@@ -30,6 +30,11 @@
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "ascAppId": "6811386316",
+        "bundleIdentifier": "my.bookflow.app"
+      }
+    }
   }
 }
