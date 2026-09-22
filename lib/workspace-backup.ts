@@ -247,10 +247,21 @@ const SANITIZERS = {
     if (!recordId) return null;
     const status = str(value.status) as Invoice['status'];
     const snapshot = isRecord(value.snapshot) ? value.snapshot : null;
+    // The client's details as they stood when the invoice was raised. Carried through a backup so a
+    // restored invoice stays readable even when its client is not in the file (or was deleted).
+    const customerSnapshot = isRecord(value.customerSnapshot) ? value.customerSnapshot : null;
     return {
       id: recordId,
       bookingId: str(value.bookingId),
       customerId: str(value.customerId),
+      customerSnapshot: customerSnapshot
+        ? {
+            name: str(customerSnapshot.name),
+            email: str(customerSnapshot.email),
+            phone: str(customerSnapshot.phone),
+            address: str(customerSnapshot.address),
+          }
+        : undefined,
       amount: num(value.amount),
       depositPaid: typeof value.depositPaid === 'number' ? value.depositPaid : undefined,
       dueDate: str(value.dueDate),

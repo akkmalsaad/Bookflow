@@ -27,6 +27,13 @@ import { fromCents, resolveInvoiceStatus, sumPaymentsInCents, toCents } from '@/
 import { DEFAULT_INVOICE_NUMBER_FORMAT, getInvoiceNumber, nextAvailableInvoiceNumber } from '@/lib/invoice-numbering';
 import { getExpiredDustbinInvoiceIds } from '@/lib/invoice-lifecycle';
 import {
+  backfillInvoiceCustomerSnapshots,
+  createInvoiceCustomerSnapshot,
+  refreshInvoiceCustomerSnapshots,
+  resolveInvoiceCustomer,
+  type InvoiceCustomerSnapshot,
+} from '@/lib/invoice-customer';
+import {
   buildInvoiceRenderData,
   DEFAULT_INVOICE_DESIGN,
   normalizeBankDetails,
@@ -130,7 +137,18 @@ export type Booking = {
 export type Invoice = {
   id: string;
   bookingId: string;
+  /**
+   * The client this invoice was raised for. It stays as written even after that client is deleted,
+   * because the record itself is never rewritten — `customerSnapshot` is what keeps the invoice
+   * readable once the client record is gone, and nothing may assume this id still resolves.
+   */
   customerId: string;
+  /**
+   * The client's details, stamped at creation and kept in step while that client exists, so a
+   * deleted client is remembered as they last were. Absent on invoices raised before snapshots
+   * existed whose client was already deleted by then; those fall back to "Deleted client".
+   */
+  customerSnapshot?: InvoiceCustomerSnapshot;
   amount: number;
   depositPaid?: number;
   dueDate: string;
@@ -781,9 +799,15 @@ function parseWorkspace(value: Json, user: AuthUser): PersistedAppData {
   const data = value as Record<string, unknown>;
   const profile = data.businessProfile;
   const currency = data.currency;
-  const parsedInvoices = Array.isArray(data.invoices) ? (data.invoices as Invoice[]) : fallback.invoices;
   const parsedCustomers = normalizeCustomerCreationDates(
     Array.isArray(data.customers) ? (data.customers as Customer[]) : fallback.customers,
+  );
+  // Invoices raised before client snapshots existed get one from the client they still point at, so
+  // deleting that client later leaves the invoice fully readable. An invoice whose client is already
+  // gone keeps no snapshot: nothing is invented for it, and the UI names it "Deleted client".
+  const parsedInvoices = backfillInvoiceCustomerSnapshots(
+    Array.isArray(data.invoices) ? (data.invoices as Invoice[]) : fallback.invoices,
+    parsedCustomers,
   );
   const parsedBookings = normalizeBookingCreationDates(
     Array.isArray(data.bookings) ? (data.bookings as Booking[]) : fallback.bookings,
@@ -1825,30 +1849,53 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         return createdCustomer;
       },
       updateCustomer: (id: string, updates: Partial<Omit<Customer, 'id'>>) => {
-        const existing = customers.find((customer) => customer.id === id);
+        const existing = customersRef.current.find((customer) => customer.id === id);
         const nextName = (updates.name ?? existing?.name ?? '').trim();
 
         if (!existing || !nextName) {
           return false;
         }
 
-        setCustomers((current) =>
-          current.map((customer) =>
-            customer.id === id
-              ? {
-                  ...customer,
-                  ...updates,
-                  name: nextName,
-                  email: (updates.email ?? customer.email).trim(),
-                  phone: (updates.phone ?? customer.phone).trim(),
-                }
-              : customer,
-          ),
+        // Built once, so the record that lands in state is the same one the invoice snapshots are
+        // taken from — the two can never drift apart mid-update.
+        const nextCustomer: Customer = {
+          ...existing,
+          ...updates,
+          name: nextName,
+          email: (updates.email ?? existing.email).trim(),
+          phone: (updates.phone ?? existing.phone).trim(),
+        };
+
+        customersRef.current = customersRef.current.map((customer) =>
+          customer.id === id ? nextCustomer : customer,
         );
+        setCustomers((current) => current.map((customer) => (customer.id === id ? nextCustomer : customer)));
+        // This client's invoices carry their details forward, so deleting them later leaves the
+        // invoice naming them as they are now rather than as they were when it was raised. Only
+        // their own invoices are considered, and an unchanged snapshot is left alone — the helper
+        // hands back the same array when nothing differs, and this updater then bails out.
+        setInvoices((current) => refreshInvoiceCustomerSnapshots(current, nextCustomer));
         return true;
       },
       deleteCustomer: (id: string) => {
-        setCustomers((current) => current.filter((customer) => customer.id !== id));
+        const customer = customersRef.current.find((item) => item.id === id) ?? null;
+
+        // Invoices are financial records and are never deleted with their client. Any of this
+        // client's invoices still missing a snapshot (raised before snapshots existed) gets one
+        // now, while the record is still here to copy — the last moment it can be taken.
+        if (customer) {
+          const snapshot = createInvoiceCustomerSnapshot(customer);
+          setInvoices((current) =>
+            current.map((invoice) =>
+              invoice.customerId === id && !invoice.customerSnapshot
+                ? { ...invoice, customerSnapshot: snapshot }
+                : invoice,
+            ),
+          );
+        }
+
+        customersRef.current = customersRef.current.filter((item) => item.id !== id);
+        setCustomers((current) => current.filter((item) => item.id !== id));
       },
       createBooking: (booking: CreateBookingInput) => {
         const safeTitle = booking.title.trim();
@@ -1924,6 +1971,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           snapshot: stamp.snapshot,
           bookingId: createdBooking.id,
           customerId: resolvedCustomer.id,
+          customerSnapshot: createInvoiceCustomerSnapshot(resolvedCustomer),
           amount: createdBooking.price,
           dueDate: invoiceDueDate,
           status: 'Draft',
@@ -2036,6 +2084,13 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           setBookings(nextBookings);
         }
 
+        // Stamped here rather than read at display time, so the invoice keeps its "Bill to" details
+        // even after the client is deleted from the Clients screen. Editing that client later
+        // refreshes it; deleting them is what finally freezes it.
+        const invoiceCustomer = customersRef.current.find((item) => item.id === invoice.customerId) ?? null;
+        const customerSnapshot =
+          invoice.customerSnapshot ?? (invoiceCustomer ? createInvoiceCustomerSnapshot(invoiceCustomer) : undefined);
+
         const stampedInvoice = { id: invoiceId, sentAt: invoice.sentAt } as Invoice;
         invoicesRef.current = [stampedInvoice, ...invoicesRef.current];
         setInvoices((current) => {
@@ -2045,6 +2100,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
               ...invoice,
               id: invoiceId,
               bookingId,
+              ...(customerSnapshot ? { customerSnapshot } : {}),
               invoiceNumber: stamp.invoiceNumber,
               snapshot: stamp.snapshot,
               status: invoice.status ?? 'Draft',
@@ -2071,10 +2127,14 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         }
 
         const storedInvoice = allInvoices.find((item) => item.id === invoiceId);
-        const customer = storedInvoice ? customers.find((item) => item.id === storedInvoice.customerId) : undefined;
-        if (!storedInvoice || !customer) {
-          throw new Error('The invoice or customer could not be found.');
+        if (!storedInvoice) {
+          throw new Error('The invoice could not be found.');
         }
+        // The client record may be gone; the invoice's own snapshot is what the link then carries.
+        const client = resolveInvoiceCustomer(
+          storedInvoice,
+          customers.find((item) => item.id === storedInvoice.customerId),
+        );
         if (storedInvoice.deletedAt || storedInvoice.status === 'Void') {
           throw new Error('This invoice is no longer active and cannot be sent.');
         }
@@ -2131,7 +2191,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           // owner later switches the app to another language.
           labels: getInvoiceDocumentLabels(language),
           invoice: { ...invoice, status: publicStatus },
-          customer,
+          client,
           payments: allPayments,
           currency,
           design: presentation.design,
@@ -2162,9 +2222,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
             terms: invoice.terms,
           },
           customer: {
-            name: customer.name,
-            email: customer.email,
-            phone: customer.phone,
+            name: client.name,
+            email: client.email,
+            phone: client.phone,
           },
           businessProfile: invoiceBusinessProfile,
           currency,

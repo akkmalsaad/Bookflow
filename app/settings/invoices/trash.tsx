@@ -10,6 +10,7 @@ import { getSoftTokens } from '@/components/settings/tokens';
 import { getCurrencyFormatter, type Invoice, useAppData } from '@/context/app-data-context';
 import { useSnackbar } from '@/context/snackbar-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { getInvoiceClientName } from '@/lib/invoice-customer';
 import { DUSTBIN_RETENTION_DAYS, hasInvoiceFinancialHistory } from '@/lib/invoice-lifecycle';
 import { getInvoiceNumber } from '@/lib/invoice-numbering';
 import { useTranslation } from '@/lib/use-translation';
@@ -46,7 +47,10 @@ export default function InvoiceTrashScreen() {
   if (activePurgeInvoice) lastPurgeInvoice.current = activePurgeInvoice;
   const menuInvoice = activeMenuInvoice ?? lastMenuInvoice.current;
   const purgeInvoice = activePurgeInvoice ?? lastPurgeInvoice.current;
-  const getClientName = (customerId: string) => customerMap.get(customerId)?.name ?? 'Unknown client';
+  // Trash never depends on the client record: a trashed invoice can be restored or permanently
+  // deleted long after its client is gone, and is named from its own snapshot when it is.
+  const getClientName = (invoice: Invoice) =>
+    getInvoiceClientName(invoice, customerMap.get(invoice.customerId), t('invoice.deletedClient'));
 
   const handleRestore = async (invoiceId: string) => {
     if (pending) return;
@@ -89,7 +93,7 @@ export default function InvoiceTrashScreen() {
           <InvoiceTrashCard
             key={invoice.id}
             invoice={invoice}
-            clientName={getClientName(invoice.customerId)}
+            clientName={getClientName(invoice)}
             amount={currencyFormatter.format(invoice.amount)}
             isRestoring={pending?.kind === 'restore' && pending.invoiceId === invoice.id}
             isBusy={pending !== null}
@@ -116,7 +120,7 @@ export default function InvoiceTrashScreen() {
           setQueuedPurgeId(null);
         }}
         title={menuInvoice ? getInvoiceNumber(menuInvoice) : ''}
-        subtitle={menuInvoice ? getClientName(menuInvoice.customerId) : undefined}
+        subtitle={menuInvoice ? getClientName(menuInvoice) : undefined}
         items={
           menuInvoice
             ? [
@@ -152,7 +156,7 @@ export default function InvoiceTrashScreen() {
       <InvoicePermanentDeleteConfirmation
         visible={activePurgeInvoice !== null}
         invoiceNumber={purgeInvoice ? getInvoiceNumber(purgeInvoice) : ''}
-        clientName={purgeInvoice ? getClientName(purgeInvoice.customerId) : ''}
+        clientName={purgeInvoice ? getClientName(purgeInvoice) : ''}
         amount={purgeInvoice ? currencyFormatter.format(purgeInvoice.amount) : ''}
         hasPaymentHistory={purgeInvoice ? hasInvoiceFinancialHistory(purgeInvoice, allPayments) : false}
         isBusy={pending?.kind === 'purge'}

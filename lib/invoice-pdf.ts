@@ -4,10 +4,10 @@ import { Platform } from 'react-native';
 import {
   BusinessProfile,
   CurrencyCode,
-  Customer,
   Invoice,
   InvoicePayment,
 } from '@/context/app-data-context';
+import type { InvoiceCustomerDetails } from '@/lib/invoice-customer';
 import {
   buildInvoiceRenderData,
   normalizeBankDetails,
@@ -24,7 +24,11 @@ function safeFileSegment(value: string) {
 
 export type InvoicePdfData = {
   invoice: Invoice;
-  customer: Customer;
+  /**
+   * The client as `resolveInvoiceCustomer` resolved them — the live record, or the invoice's frozen
+   * snapshot once that record has been deleted. A PDF is never blocked on a missing client.
+   */
+  client: InvoiceCustomerDetails;
   businessProfile: BusinessProfile;
   currency: CurrencyCode;
   /** Every payment record for the invoice; totals are derived from these, never re-added here. */
@@ -68,7 +72,7 @@ export function createInvoicePdfHtml(data: InvoicePdfData) {
     buildInvoiceRenderData({
       labels: data.labels,
       invoice: data.invoice,
-      customer: data.customer,
+      client: data.client,
       payments: data.payments,
       currency: data.currency,
       design: presentation.design,

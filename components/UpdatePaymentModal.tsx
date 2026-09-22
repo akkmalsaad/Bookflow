@@ -15,6 +15,7 @@ import { getCurrencyFormatter, useAppData } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 import type { TranslationKey } from '@/lib/i18n';
 import { useTranslation } from '@/lib/use-translation';
+import { getInvoiceClientName } from '@/lib/invoice-customer';
 import { fromCents, getInvoicePaymentSummary, parseAmountInput, toCents } from '@/lib/invoice-payments';
 import { captureEvent } from '@/lib/analytics';
 
@@ -39,7 +40,11 @@ export function UpdatePaymentModal({ invoiceId, onClose, onSaved }: Props) {
   const palette = getThemePalette(isDarkMode);
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const invoice = invoices.find((item) => item.id === invoiceId) ?? null;
-  const customer = customers.find((item) => item.id === invoice?.customerId) ?? null;
+  // Named from the invoice's own snapshot once the client record is gone, so recording a payment
+  // against a deleted client's invoice still shows who it was raised for.
+  const clientName = invoice
+    ? getInvoiceClientName(invoice, customers.find((item) => item.id === invoice.customerId), t('invoice.deletedClient'))
+    : '';
   const summary = invoice ? getInvoicePaymentSummary(invoice, payments) : null;
 
   const [amount, setAmount] = useState('');
@@ -136,9 +141,9 @@ export function UpdatePaymentModal({ invoiceId, onClose, onSaved }: Props) {
       // Reached from the Manage payment sheet, so it slides up from below rather than popping —
       // the hand-off then reads as one continuous movement.
       entrance="sheet">
-      {customer ? (
+      {clientName ? (
         <Text style={[styles.reference, { color: palette.muter }]} numberOfLines={1}>
-          {customer.name}
+          {clientName}
         </Text>
       ) : null}
 

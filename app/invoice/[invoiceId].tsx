@@ -9,13 +9,14 @@ import { InvoiceDeleteConfirmation } from '@/components/invoice/InvoiceDeleteCon
 import { RecordDepositModal } from '@/components/RecordDepositModal';
 import { StatusPill } from '@/components/StatusPill';
 import { UpdatePaymentModal } from '@/components/UpdatePaymentModal';
-import { Customer, getCurrencyFormatter, Invoice, useAppData } from '@/context/app-data-context';
+import { getCurrencyFormatter, Invoice, useAppData } from '@/context/app-data-context';
 import { useSnackbar } from '@/context/snackbar-context';
 import { useSubscription } from '@/context/subscription-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 import { useResponsive } from '@/lib/responsive';
 import { getInvoiceDocumentLabels } from '@/lib/i18n';
 import { useTranslation } from '@/lib/use-translation';
+import { resolveInvoiceCustomer } from '@/lib/invoice-customer';
 import { getInvoiceRemovalAction, isInvoiceClosed } from '@/lib/invoice-lifecycle';
 import { getInvoicePaymentSummary } from '@/lib/invoice-payments';
 import { saveInvoiceAsPdf } from '@/lib/invoice-pdf';
@@ -83,15 +84,20 @@ export default function InvoiceAcceptanceScreen() {
   const [removeError, setRemoveError] = useState<string | null>(null);
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const foundInvoice = invoices.find((item) => item.id === params.invoiceId);
-  const foundCustomer = foundInvoice ? customers.find((person) => person.id === foundInvoice.customerId) : undefined;
   // Removing an invoice takes it out of the active list immediately, which would otherwise flash
   // "Invoice not found" for the moment between the state change and this screen popping back.
-  const lastLoadedRef = useRef<{ invoice: Invoice; customer: Customer } | null>(null);
-  if (foundInvoice && foundCustomer) {
-    lastLoadedRef.current = { invoice: foundInvoice, customer: foundCustomer };
+  const lastLoadedRef = useRef<Invoice | null>(null);
+  if (foundInvoice) {
+    lastLoadedRef.current = foundInvoice;
   }
-  const invoice = foundInvoice ?? (isRemoving ? lastLoadedRef.current?.invoice : undefined);
-  const customer = foundCustomer ?? (isRemoving ? lastLoadedRef.current?.customer : undefined);
+  const invoice = foundInvoice ?? (isRemoving ? lastLoadedRef.current ?? undefined : undefined);
+  // Deliberately independent of the client record: an invoice outlives the client it was raised
+  // for, and falls back to the details snapshotted onto it — the client as they last were — when
+  // that client has been deleted.
+  const client = invoice
+    ? resolveInvoiceCustomer(invoice, customers.find((person) => person.id === invoice.customerId))
+    : null;
+  const clientName = client?.name || t('invoice.deletedClient');
   const booking = invoice ? bookings.find((item) => item.id === invoice.bookingId) : undefined;
   const packageName = invoice?.serviceName ?? booking?.packageName;
   const packageOption = packages.find((item) => item.name === packageName)
@@ -115,7 +121,7 @@ export default function InvoiceAcceptanceScreen() {
       : businessProfile.logoUrl
     : undefined;
 
-  if (!invoice || !customer) {
+  if (!invoice || !client) {
     return (
       <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]}>
         <View style={styles.notFoundWrap}>
@@ -151,7 +157,7 @@ export default function InvoiceAcceptanceScreen() {
       await saveInvoiceAsPdf({
         labels: getInvoiceDocumentLabels(locale),
         invoice,
-        customer,
+        client,
         businessProfile,
         currency,
         payments,
@@ -181,7 +187,7 @@ export default function InvoiceAcceptanceScreen() {
     try {
       await shareInvoiceOnWhatsApp({
         invoice,
-        customer,
+        client,
         currencyFormatter,
         createShareLink: createInvoiceShareLink,
       });
@@ -307,9 +313,9 @@ export default function InvoiceAcceptanceScreen() {
 
         <View style={[styles.card, { backgroundColor: palette.surface, borderColor: palette.border, shadowColor: isDarkMode ? '#020617' : '#101828' }]}>
           <Text style={[styles.sectionLabel, { color: palette.muter }]}>{t('invoice.billTo')}</Text>
-          <Text style={[styles.customerName, { color: palette.text }]}>{customer.name}</Text>
-          <Text style={[styles.customerMeta, { color: palette.muter }]}>{customer.email}</Text>
-          {customer.phone ? <Text style={[styles.customerMeta, { color: palette.muter }]}>{customer.phone}</Text> : null}
+          <Text style={[styles.customerName, { color: palette.text }]}>{clientName}</Text>
+          {client.email ? <Text style={[styles.customerMeta, { color: palette.muter }]}>{client.email}</Text> : null}
+          {client.phone ? <Text style={[styles.customerMeta, { color: palette.muter }]}>{client.phone}</Text> : null}
 
           <View style={[styles.divider, { backgroundColor: palette.border }]} />
 
@@ -451,7 +457,7 @@ export default function InvoiceAcceptanceScreen() {
           setShowRemoveConfirmation(true);
         }}
         title={getInvoiceNumber(invoice)}
-        subtitle={customer.name}
+        subtitle={clientName}
         items={[
           {
             key: 'share',
@@ -501,7 +507,7 @@ export default function InvoiceAcceptanceScreen() {
         visible={showRemoveConfirmation}
         action={removalAction}
         invoiceNumber={getInvoiceNumber(invoice)}
-        clientName={customer.name}
+        clientName={clientName}
         amount={currencyFormatter.format(invoice.amount)}
         amountPaidNote={
           depositPaid > 0 ? `${currencyFormatter.format(depositPaid)} already received` : undefined

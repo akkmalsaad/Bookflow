@@ -2,11 +2,11 @@ import {
   getCurrencyFormatter,
   type BusinessProfile,
   type CurrencyCode,
-  type Customer,
   type Invoice,
   type InvoicePayment,
   type InvoiceSnapshot,
 } from '@/context/app-data-context';
+import type { InvoiceCustomerDetails } from '@/lib/invoice-customer';
 import { getInvoicePaymentSummary, getInvoicePayments, sumPaymentsInCents, fromCents } from '@/lib/invoice-payments';
 import { getInvoiceNumber } from '@/lib/invoice-numbering';
 
@@ -128,7 +128,12 @@ function describePaymentStatus(invoice: Invoice, payments: InvoicePayment[]) {
 
 export type BuildInvoiceRenderDataInput = {
   invoice: Invoice;
-  customer?: Customer | null;
+  /**
+   * The client, already resolved by `resolveInvoiceCustomer` from the live record or the invoice's
+   * own snapshot. Optional and never looked up here, so an invoice whose client has been deleted
+   * still renders — with whatever the snapshot kept, and blank fields otherwise.
+   */
+  client?: InvoiceCustomerDetails | null;
   payments: InvoicePayment[];
   currency: CurrencyCode;
   /** Live settings, used for drafts. An issued invoice passes its snapshot instead. */
@@ -165,7 +170,7 @@ export type BuildInvoiceRenderDataInput = {
  * customer's page and the PDF cannot disagree about what is owed.
  */
 export function buildInvoiceRenderData(input: BuildInvoiceRenderDataInput): InvoiceRenderData {
-  const { invoice, customer, payments, currency, design, business, paymentDetails, labels } = input;
+  const { invoice, client, payments, currency, design, business, paymentDetails, labels } = input;
   const formatter = getCurrencyFormatter(currency);
   const summary = getInvoicePaymentSummary(invoice, payments);
   const depositCents = sumPaymentsInCents(
@@ -179,10 +184,10 @@ export function buildInvoiceRenderData(input: BuildInvoiceRenderDataInput): Invo
     tokens: resolveInvoiceTokens(design.accentColor, design.templateId),
     business,
     client: {
-      name: customer?.name ?? '',
-      email: customer?.email ?? '',
-      phone: customer?.phone ?? '',
-      address: customer?.location ?? '',
+      name: client?.name ?? '',
+      email: client?.email ?? '',
+      phone: client?.phone ?? '',
+      address: client?.address ?? '',
     },
     invoice: {
       number: getInvoiceNumber(invoice),

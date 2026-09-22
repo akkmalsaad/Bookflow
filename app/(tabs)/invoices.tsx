@@ -40,6 +40,7 @@ import { useTranslation } from '@/lib/use-translation';
 import { isInvoiceClosed } from '@/lib/invoice-lifecycle';
 import { getInvoicePaymentSummary } from '@/lib/invoice-payments';
 import { buildInvoiceSearchIndex, matchesInvoiceSearch } from '@/lib/invoice-search';
+import { getInvoiceClientName, resolveInvoiceCustomer } from '@/lib/invoice-customer';
 import { shareInvoiceOnWhatsApp } from '@/lib/invoice-sharing';
 import { captureEvent } from '@/lib/analytics';
 
@@ -119,12 +120,17 @@ export default function InvoicesScreen() {
 
   // Built once per data change rather than per keystroke, so typing stays light on long lists.
   const invoiceSearchIndex = useMemo(() => {
-    const customerNames = new Map(customers.map((customer) => [customer.id, customer.name]));
+    const customerById = new Map(customers.map((customer) => [customer.id, customer]));
     const bookingsById = new Map(bookings.map((booking) => [booking.id, booking]));
     return new Map(
       invoices.map((invoice) => [
         invoice.id,
-        buildInvoiceSearchIndex(invoice, customerNames.get(invoice.customerId) ?? '', bookingsById.get(invoice.bookingId)),
+        buildInvoiceSearchIndex(
+          invoice,
+          // The snapshot keeps a deleted client's invoices findable by the name they were raised under.
+          resolveInvoiceCustomer(invoice, customerById.get(invoice.customerId)).name,
+          bookingsById.get(invoice.bookingId),
+        ),
       ]),
     );
   }, [bookings, customers, invoices]);
@@ -244,7 +250,7 @@ export default function InvoicesScreen() {
     try {
       await shareInvoiceOnWhatsApp({
         invoice,
-        customer: customerMap.get(invoice.customerId),
+        client: resolveInvoiceCustomer(invoice, customerMap.get(invoice.customerId)),
         currencyFormatter,
         createShareLink: createInvoiceShareLink,
       });
@@ -472,13 +478,13 @@ export default function InvoicesScreen() {
           </View>
         ) : null}
         renderItem={({ item }) => {
-          const customer = customerMap.get(item.customerId);
           const summary = getInvoicePaymentSummary(item, payments);
 
           return (
             <InvoiceListCard
               invoice={item}
-              clientName={customer?.name ?? t('invoices.unknownCustomer')}
+              // An invoice whose client was deleted stays in the list, named from its own snapshot.
+              clientName={getInvoiceClientName(item, customerMap.get(item.customerId), t('invoice.deletedClient'))}
               summary={summary}
               currencyFormatter={currencyFormatter}
               // Same condition the old action rows used, so nothing gains or loses an action.
@@ -511,7 +517,15 @@ export default function InvoicesScreen() {
           else void confirmWorkspaceSave().then(() => setShowPaidSuccess(true)).catch(() => {});
         }}
         invoice={managePaymentInvoice}
-        clientName={managePaymentInvoice ? customerMap.get(managePaymentInvoice.customerId)?.name ?? t('invoices.unknownCustomer') : ''}
+        clientName={
+          managePaymentInvoice
+            ? getInvoiceClientName(
+                managePaymentInvoice,
+                customerMap.get(managePaymentInvoice.customerId),
+                t('invoice.deletedClient'),
+              )
+            : ''
+        }
         summary={managePaymentSummary}
         currencyFormatter={currencyFormatter}
         onClose={() => setManagePaymentId(null)}

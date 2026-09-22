@@ -18,6 +18,7 @@ import { getThemePalette, useTheme } from '@/context/theme-context';
 import { getFinancialMetrics, getFinancialPeriodBounds } from '@/lib/financial-metrics';
 import { getNotificationPermissionStatus, syncTodayPriorityNotifications } from '@/lib/notifications';
 import { useReminderLeadHours } from '@/lib/reminder-preference';
+import { getInvoiceClientName } from '@/lib/invoice-customer';
 import { getInvoiceNumber } from '@/lib/invoice-numbering';
 import { useResponsive } from '@/lib/responsive';
 import { getNextBookingDate } from '@/lib/upcoming-bookings';
@@ -339,7 +340,12 @@ export default function HomeScreen() {
 
         <View style={styles.softList}>
           {invoices.slice(0, 3).map((invoice, index) => {
-            const customer = customerMap.get(invoice.customerId);
+            // From the invoice's own snapshot when the client record has been deleted.
+            const clientName = getInvoiceClientName(
+              invoice,
+              customerMap.get(invoice.customerId),
+              t('invoice.deletedClient'),
+            );
             const tone =
               invoice.status === 'Paid' ? 'green' : invoice.status === 'Accepted' ? 'blue' : invoice.status === 'Overdue' ? 'amber' : invoice.status === 'Declined' || invoice.status === 'Void' ? 'red' : 'gray';
 
@@ -352,7 +358,7 @@ export default function HomeScreen() {
                       {getInvoiceNumber(invoice)}
                     </Text>
                     <Text style={[styles.invoiceCustomer, { color: palette.muter }]} numberOfLines={1}>
-                      {customer?.name ?? t('home.unknownCustomer')}
+                      {clientName}
                     </Text>
                   </View>
                   <View style={styles.invoiceMeta}>

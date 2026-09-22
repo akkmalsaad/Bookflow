@@ -27,6 +27,7 @@ import {
   type InvoiceVisibility,
 } from '@/lib/invoice-design';
 import { SAMPLE_INVOICE, SAMPLE_CUSTOMER, SAMPLE_PAYMENTS } from '@/lib/invoice-design/sample';
+import { resolveInvoiceCustomer } from '@/lib/invoice-customer';
 import { getInvoiceDocumentLabels } from '@/lib/i18n';
 import { useTranslation } from '@/lib/use-translation';
 
@@ -94,7 +95,7 @@ export default function InvoiceCustomisationScreen() {
       buildInvoiceRenderData({
         labels: getInvoiceDocumentLabels(locale),
         invoice: SAMPLE_INVOICE,
-        customer: SAMPLE_CUSTOMER,
+        client: resolveInvoiceCustomer(SAMPLE_INVOICE, SAMPLE_CUSTOMER),
         payments: SAMPLE_PAYMENTS,
         currency,
         design,

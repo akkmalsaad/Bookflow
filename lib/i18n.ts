@@ -441,6 +441,8 @@ const HOME_EN = {
 
   // Invoice detail
   'invoice.notFound': 'Invoice not found',
+  /** Shown wherever an invoice's client no longer exists and nothing was snapshotted onto it. */
+  'invoice.deletedClient': 'Deleted client',
   'invoice.goBack': 'Go back',
   'invoice.back': 'Back',
   'invoice.backLabel': 'Back to invoices',
@@ -1655,6 +1657,7 @@ const HOME_MS: Record<TranslationKey, string> = {
 
   // Butiran invois
   'invoice.notFound': 'Invois tidak dijumpai',
+  'invoice.deletedClient': 'Pelanggan dipadam',
   'invoice.goBack': 'Kembali',
   'invoice.back': 'Kembali',
   'invoice.backLabel': 'Kembali ke senarai invois',

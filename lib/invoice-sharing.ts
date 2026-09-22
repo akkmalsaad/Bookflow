@@ -1,12 +1,17 @@
 import * as Linking from 'expo-linking';
 import { Alert, Platform } from 'react-native';
 
-import type { Customer, Invoice } from '@/context/app-data-context';
+import type { Invoice } from '@/context/app-data-context';
+import type { InvoiceCustomerDetails } from '@/lib/invoice-customer';
 import { getInvoiceNumber } from '@/lib/invoice-numbering';
 
 type ShareInvoiceOptions = {
   invoice: Invoice;
-  customer?: Customer;
+  /**
+   * The resolved client: the live record, or the invoice's snapshot once that record is gone. A
+   * deleted client can still be messaged, as long as the snapshot kept their WhatsApp number.
+   */
+  client: InvoiceCustomerDetails;
   currencyFormatter: Intl.NumberFormat;
   createShareLink: (invoiceId: string) => Promise<string>;
 };
@@ -17,14 +22,13 @@ type ShareInvoiceOptions = {
  */
 export async function shareInvoiceOnWhatsApp({
   invoice,
-  customer,
+  client,
   currencyFormatter,
   createShareLink,
 }: ShareInvoiceOptions) {
-  const rawPhone = customer?.phone.trim() ?? '';
-  const phoneNumber = rawPhone.replace(/\D/g, '');
+  const phoneNumber = client.phone.trim().replace(/\D/g, '');
 
-  if (!customer || !phoneNumber || phoneNumber.startsWith('0')) {
+  if (!phoneNumber || phoneNumber.startsWith('0')) {
     Alert.alert(
       'WhatsApp number required',
       'Add the customer phone number with its country code, for example +60 12-345 6789.',
@@ -35,7 +39,7 @@ export async function shareInvoiceOnWhatsApp({
   try {
     const invoiceUrl = await createShareLink(invoice.id);
     const message = [
-      `Hi ${customer.name},`,
+      `Hi ${client.name},`,
       '',
       `Invoice ${getInvoiceNumber(invoice)} · ${currencyFormatter.format(invoice.amount)}`,
       `Due: ${invoice.dueDate}`,

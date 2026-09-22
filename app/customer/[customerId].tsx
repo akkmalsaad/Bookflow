@@ -28,6 +28,7 @@ import {
   toWhatsAppNumber,
   type BookingPaymentState,
 } from '@/lib/customer-metrics';
+import { resolveInvoiceCustomer } from '@/lib/invoice-customer';
 import { shareInvoiceOnWhatsApp } from '@/lib/invoice-sharing';
 
 /** Module scope, so the caller passes both the wording and the locale to format the date in. */
@@ -217,7 +218,7 @@ export default function CustomerProfileScreen() {
       try {
         await shareInvoiceOnWhatsApp({
           invoice: payment.invoice,
-          customer,
+          client: resolveInvoiceCustomer(payment.invoice, customer),
           currencyFormatter,
           createShareLink: createInvoiceShareLink,
         });
