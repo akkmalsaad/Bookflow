@@ -1,4 +1,4 @@
-import { createClient } from 'npm:@supabase/supabase-js@2';
+import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { createLocalJWKSet, jwtVerify, type JSONWebKeySet } from 'npm:jose@5.9.6';
 
 /**
@@ -7,16 +7,25 @@ import { createLocalJWKSet, jwtVerify, type JSONWebKeySet } from 'npm:jose@5.9.6
  * Who is deleted comes ONLY from the verified Clerk session token in the Authorization header —
  * the request body is ignored, so no client can name another user.
  *
- * Order, chosen so a failure never strands data behind a deleted login, and so a failing external
- * service stops the request *before* any BookFlow data is removed:
- *   1. RevenueCat customer record (when REVENUECAT_SECRET_API_KEY is set; must be a secret sk_ key)
+ * Order, chosen so a failure never strands data behind a deleted login, and so nothing is removed
+ * before the RevenueCat erasure it will leave owing has been durably recorded:
+ *   1. Erasure request: the RevenueCat customer (App User ID = this Clerk user id) is recorded in
+ *      revenuecat_erasure_requests, which survives the deletion. If this fails, nothing is deleted.
  *   2. Storage: every object under business-logos/<user_id>/
  *   3. Database: all BookFlow rows, in one transaction (delete_bookflow_account_data)
  *   4. PostHog person (optional, best effort, when POSTHOG_PERSONAL_API_KEY is set)
  *   5. Clerk user — last, so the person can still sign in and retry if anything above fails
- *   6. Database sweep again, catching a workspace save that raced the deletion
+ *   6. The request is marked account_deleted, which also stops any further writes for this user
+ *   7. Database sweep again, catching a workspace save that raced the deletion
+ *   8. RevenueCat: deleted through the API only when a RevenueCat *secret* key (sk_…) is configured.
+ *      Otherwise — as now, with the public SDK key — the customer is left for an administrator to
+ *      erase in the RevenueCat dashboard within 30 days (bookflow_admin.revenuecat_erasure_queue).
+ *      A RevenueCat failure never undoes or blocks the account deletion; the request stays pending.
  *
- * Every step treats "already gone" as success, so the whole request is safe to retry.
+ * The response says exactly what is done: `deleted: true` means the BookFlow account and data are
+ * gone (kept as the success flag released app versions read); `revenuecat.status` says whether the
+ * RevenueCat erasure is still pending, with its deadline. A failure after the data was removed says
+ * so (`dataDeleted: true`). Every step treats "already gone" as success, so retrying is safe.
  *
  * Clerk instances: the production app and the development build sign users in through different
  * Clerk instances but share this Supabase project. A token is accepted only if its signature verifies
@@ -31,7 +40,9 @@ import { createLocalJWKSet, jwtVerify, type JSONWebKeySet } from 'npm:jose@5.9.6
  *   CLERK_DEVELOPMENT_ISSUER       created in development builds can be deleted too. Both are
  *                                  required: without the issuer the development instance stays off
  *   CLERK_AUTHORIZED_PARTIES       optional — comma-separated allowed `azp` origins
- *   REVENUECAT_SECRET_API_KEY      optional — RevenueCat v1 secret key, deletes the customer record
+ *   REVENUECAT_SECRET_API_KEY      optional — only a RevenueCat v1 *secret* key (sk_…) is used, to
+ *                                  delete the customer record; any other value is ignored and the
+ *                                  erasure stays queued for the dashboard
  *   POSTHOG_PERSONAL_API_KEY, POSTHOG_PROJECT_ID, POSTHOG_HOST   optional — deletes the person
  *   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY                     provided by Supabase
  */
@@ -161,7 +172,7 @@ async function authenticate(request: Request, instances: ClerkInstance[]): Promi
   return { ok: false, reason, issuerHost };
 }
 
-async function deleteStorage(admin: ReturnType<typeof createClient>, userId: string) {
+async function deleteStorage(admin: SupabaseClient, userId: string) {
   // Objects can sit directly in the user's folder or one level below; remove until the folder is empty.
   for (let pass = 0; pass < 50; pass += 1) {
     const { data, error } = await admin.storage.from(LOGO_BUCKET).list(userId, { limit: 100 });
@@ -182,24 +193,42 @@ async function deleteStorage(admin: ReturnType<typeof createClient>, userId: str
   throw new DeletionError({ step: 'storage_remove' });
 }
 
-async function deleteDatabaseRows(admin: ReturnType<typeof createClient>, userId: string) {
+async function deleteDatabaseRows(admin: SupabaseClient, userId: string) {
   const { error } = await admin.rpc('delete_bookflow_account_data', { p_user_id: userId });
   if (error) throw new DeletionError({ step: 'database' });
 }
 
-async function deleteRevenueCatCustomer(userId: string) {
-  const key = Deno.env.get('REVENUECAT_SECRET_API_KEY');
-  if (!key) return 'skipped';
-  // RevenueCat only lets *secret* keys (sk_…) delete customers. A public SDK key (appl_…, goog_…,
-  // test_…) is rejected with 401, so it is refused here before anything else is touched.
-  if (!key.startsWith('sk_')) throw new DeletionError({ step: 'revenuecat_config' });
-  const response = await fetch(`https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(userId)}`, {
-    method: 'DELETE',
-    headers: { authorization: `Bearer ${key}` },
-  });
-  // 404: no customer was ever created for this user (e.g. never opened the paywall).
-  if (!response.ok && response.status !== 404) throw new DeletionError({ step: 'revenuecat', status: response.status });
-  return 'deleted';
+/**
+ * Deletes the RevenueCat customer through the API — possible only with a secret key. Returns whether
+ * it was erased; never throws, because the erasure request already records what is still owed.
+ */
+async function eraseRevenueCatCustomer(userId: string): Promise<'erased' | 'queued'> {
+  const key = Deno.env.get('REVENUECAT_SECRET_API_KEY') ?? '';
+  // A public SDK key (appl_…, goog_…, test_…) cannot delete customers: RevenueCat answers 401.
+  if (!key.startsWith('sk_')) return 'queued';
+  try {
+    const response = await fetch(`https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(userId)}`, {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${key}` },
+    });
+    // 404: no customer was ever created for this user (e.g. never opened the paywall).
+    return response.ok || response.status === 404 ? 'erased' : 'queued';
+  } catch {
+    return 'queued';
+  }
+}
+
+type ErasureState = { reference: string; status: string; deadline: string };
+
+async function requestErasure(admin: SupabaseClient, userId: string, instance: ClerkInstance) {
+  const { data, error } = await admin.rpc('request_revenuecat_erasure', { p_app_user_id: userId, p_clerk_instance: instance.label });
+  if (error || !data) throw new DeletionError({ step: 'erasure_request' });
+  return data as ErasureState;
+}
+
+async function recordErasure(admin: SupabaseClient, userId: string, event: 'account_deleted' | 'erased_by_api') {
+  const { data, error } = await admin.rpc('record_revenuecat_erasure_progress', { p_app_user_id: userId, p_event: event });
+  return error || !data ? null : data as ErasureState;
 }
 
 /** Best effort: analytics history is not a reason to refuse someone's deletion request. */
@@ -243,7 +272,7 @@ async function deleteClerkUser(userId: string, instance: ClerkInstance) {
  * removed in step 2. It is retried, and if it still fails after the login is gone the deletion is
  * reported complete (the person can no longer sign in to retry) and the failure logged for follow-up.
  */
-async function sweepAfterLoginDeleted(admin: ReturnType<typeof createClient>, userId: string) {
+async function sweepAfterLoginDeleted(admin: SupabaseClient, userId: string) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       await deleteDatabaseRows(admin, userId);
@@ -296,10 +325,18 @@ Deno.serve(async (request) => {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  let revenuecat = 'skipped';
+  // 1. Recorded before anything is removed: what the deletion will leave owing at RevenueCat.
+  let erasure: ErasureState;
+  try {
+    erasure = await requestErasure(admin, userId, instance);
+  } catch {
+    console.error('delete-account: could not record the erasure request; nothing was deleted', { instance: instance.label });
+    return respond({ error: 'deletion_failed', step: 'erasure_request' }, 500);
+  }
+
+  // 2–4. The account's data.
   let posthog = 'skipped';
   try {
-    revenuecat = await deleteRevenueCatCustomer(userId);
     await deleteStorage(admin, userId);
     await deleteDatabaseRows(admin, userId);
     posthog = await deletePostHogPerson(userId);
@@ -311,18 +348,34 @@ Deno.serve(async (request) => {
     return respond({ error: 'deletion_failed', step: failure.step }, 500);
   }
 
+  // 5. The login, last.
   try {
     await deleteClerkUser(userId, instance);
   } catch (error) {
     const failure = error instanceof DeletionError ? error.failure : { step: 'unexpected', error: error instanceof Error ? error.name : typeof error };
     console.error('delete-account: failed removing the login', { ...failure, instance: instance.label });
-    return respond({ error: 'deletion_failed', step: failure.step }, 500);
+    // The data is already gone; the person can still sign in and finish with the same request.
+    return respond({ error: 'deletion_failed', step: failure.step, dataDeleted: true }, 500);
   }
 
+  // 6. From here the account's rows can no longer be written, by anyone.
+  erasure = (await recordErasure(admin, userId, 'account_deleted')) ?? erasure;
+
+  // 7.
   const sweep = await sweepAfterLoginDeleted(admin, userId);
   if (sweep === 'pending') console.error('delete-account: final sweep failed after the login was removed', { instance: instance.label });
 
-  // Step names and outcomes only — never tokens, emails or record contents.
-  console.log('delete-account: completed', { instance: instance.label, revenuecat, posthog, sweep });
-  return respond({ deleted: true });
+  // 8. RevenueCat: through the API when a secret key allows it, otherwise left queued for an
+  // administrator. Either way the request row says which.
+  const revenuecat = await eraseRevenueCatCustomer(userId);
+  if (revenuecat === 'erased') erasure = (await recordErasure(admin, userId, 'erased_by_api')) ?? erasure;
+  if (erasure.status !== 'completed') erasure = { ...erasure, status: 'pending' };
+
+  // Step names and outcomes only — never tokens, ids, emails or record contents.
+  console.log('delete-account: account deleted', { instance: instance.label, revenuecat: erasure.status, posthog, sweep });
+  return respond({
+    deleted: true,
+    revenuecat: { status: erasure.status === 'completed' ? 'completed' : 'pending', deadline: erasure.deadline },
+    reference: erasure.reference,
+  });
 });

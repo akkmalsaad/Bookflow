@@ -60,9 +60,9 @@ test('every user-owned BookFlow table is covered by the deletion', () => {
   }
 });
 
-test('the Clerk user is deleted only after RevenueCat, storage and database cleanup', () => {
-  // RevenueCat runs first, so a refused key stops the request before any BookFlow data is removed.
-  const order = ['await deleteRevenueCatCustomer(', 'await deleteStorage(', 'await deleteDatabaseRows(', 'await deleteClerkUser('];
+test('the erasure request comes first, then storage and database, then the Clerk user', () => {
+  // The RevenueCat erasure owed is recorded before anything is removed; if it cannot be, nothing is.
+  const order = ['await requestErasure(', 'await deleteStorage(', 'await deleteDatabaseRows(', 'await deleteClerkUser(', "await recordErasure(admin, userId, 'account_deleted')", 'await eraseRevenueCatCustomer('];
   // The order that matters is the request handler's; helpers defined above it are not steps.
   const handler = edgeFunction.slice(edgeFunction.indexOf('Deno.serve('));
   const positions = order.map((call) => handler.indexOf(call));
@@ -84,7 +84,28 @@ test('the final button stays locked until DELETE is typed, and failures never sh
   assert.match(deleteFlow, /DELETE_CONFIRMATION_WORD = 'DELETE'/);
   assert.match(deleteFlow, /const canDelete = confirmation\.trim\(\) === DELETE_CONFIRMATION_WORD && !isDeleting;/);
   assert.match(deleteFlow, /disabled=\{!canDelete\}/);
-  const failureBranch = deleteFlow.slice(deleteFlow.indexOf('if (!deleted) {'), deleteFlow.indexOf('showSnackbar('));
-  assert.match(failureBranch, /resumeWorkspaceSync\(\);/);
+  const failureBranch = deleteFlow.slice(deleteFlow.indexOf('if (!deleted) {'), deleteFlow.indexOf('Alert.alert('));
+  assert.match(failureBranch, /if \(!dataDeleted\) resumeWorkspaceSync\(\);/);
+  assert.match(failureBranch, /setFailed\(dataDeleted \? 'partial' : 'failed'\);/);
   assert.match(failureBranch, /return;/);
+  assert.equal(/deleteAccount\.done/.test(failureBranch), false, 'no success wording on a failure');
+});
+
+test('success names exactly what is done and what is still scheduled, with the store subscription note', () => {
+  const success = deleteFlow.slice(deleteFlow.indexOf('const erasure: RevenueCatErasure'), deleteFlow.indexOf('await cancelBookingReminderNotifications()'));
+  assert.match(success, /t\(erasure\.status === 'completed' \? 'deleteAccount\.done\.complete' : 'deleteAccount\.done\.pending'\)/);
+  assert.match(success, /t\('deleteAccount\.done\.subscription'\)/);
+  assert.match(success, /onPress: openStoreSubscriptions/);
+  // A lost answer with the account verifiably gone is reported as pending, never as complete.
+  assert.match(success, /result\.outcome === 'deleted' \? result\.revenuecat : \{ status: 'pending' \}/);
+  assert.match(deleteFlow, /'https:\/\/apps\.apple\.com\/account\/subscriptions'/);
+  assert.match(deleteFlow, /Linking\.openURL\(STORE_SUBSCRIPTIONS_URL\)/);
+  const { loadTs } = require('./helpers/load-ts.cjs');
+  const i18n = loadTs('lib/i18n.ts');
+  assert.equal(i18n.translate('en', 'deleteAccount.done.pending'), 'Your BookFlow account and business data have been deleted. Your RevenueCat subscription record is scheduled for deletion within 30 days.');
+  for (const key of ['deleteAccount.done.pending', 'deleteAccount.done.complete', 'deleteAccount.done.subscription', 'deleteAccount.done.reference', 'deleteAccount.partial.title', 'deleteAccount.partial.body', 'deleteAccount.record.revenuecat', 'deleteAccount.record.forms', 'deleteAccount.subscription.manageStore', 'deleteAccount.subscription.openFailed']) {
+    const en = i18n.translate('en', key);
+    const ms = i18n.translate('ms-MY', key);
+    assert.ok(en !== key && ms !== key && en !== ms, key);
+  }
 });

@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -21,7 +22,7 @@ import { useAuth } from '@/context/auth-context';
 import { useSnackbar } from '@/context/snackbar-context';
 import { useSubscription } from '@/context/subscription-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
-import { requestAccountDeletion } from '@/lib/account-deletion';
+import { requestAccountDeletion, type RevenueCatErasure } from '@/lib/account-deletion';
 import type { TranslationKey } from '@/lib/i18n';
 import { cancelBookingReminderNotifications } from '@/lib/notifications';
 import { useTranslation } from '@/lib/use-translation';
@@ -30,7 +31,8 @@ import { captureEvent } from '@/lib/analytics';
 /**
  * Everything the server-side deletion removes, matching the delete-account Edge Function and
  * delete_bookflow_account_data(): the workspace document's contents, the tables keyed by the
- * account, the logo in Storage, the RevenueCat customer record and the Clerk sign-in account.
+ * account, the logo in Storage and the Clerk sign-in account — and, within 30 days, the RevenueCat
+ * customer record, which an administrator erases from the request the deletion records.
  */
 const DELETED_RECORD_KEYS: TranslationKey[] = [
   'deleteAccount.record.customers',
@@ -43,9 +45,16 @@ const DELETED_RECORD_KEYS: TranslationKey[] = [
   'deleteAccount.record.business',
   'deleteAccount.record.logo',
   'deleteAccount.record.links',
+  'deleteAccount.record.forms',
   'deleteAccount.record.support',
   'deleteAccount.record.login',
+  'deleteAccount.record.revenuecat',
 ];
+
+/** Apple's and Google's own subscription settings — the only places a store subscription is cancelled. */
+export const STORE_SUBSCRIPTIONS_URL = Platform.OS === 'android'
+  ? 'https://play.google.com/store/account/subscriptions'
+  : 'https://apps.apple.com/account/subscriptions';
 
 /** Typed exactly, in capitals, to unlock the final button. Kept the same in every language. */
 export const DELETE_CONFIRMATION_WORD = 'DELETE';
@@ -99,7 +108,6 @@ export function DeleteAccountFlow({ visible, onClose }: { visible: boolean; onCl
   const palette = getThemePalette(isDarkMode);
   const soft = getSoftTokens(isDarkMode);
   const { t } = useTranslation();
-  const router = useRouter();
   const { showSnackbar } = useSnackbar();
   const { isPro } = useSubscription();
   const { getAccessToken, accountNoLongerExists, endDeletedSession } = useAuth();
@@ -108,7 +116,8 @@ export function DeleteAccountFlow({ visible, onClose }: { visible: boolean; onCl
   const [step, setStep] = useState<Step>('overview');
   const [confirmation, setConfirmation] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
-  const [failed, setFailed] = useState(false);
+  // 'partial': the data is gone but the sign-in account is not yet — retrying finishes it.
+  const [failed, setFailed] = useState<false | 'failed' | 'partial'>(false);
 
   useEffect(() => {
     if (!visible) return;
@@ -126,10 +135,15 @@ export function DeleteAccountFlow({ visible, onClose }: { visible: boolean; onCl
     onClose();
   };
 
+  const openStoreSubscriptions = () => {
+    Linking.openURL(STORE_SUBSCRIPTIONS_URL).catch(() => {
+      showSnackbar({ message: t('deleteAccount.subscription.openFailed'), tone: 'danger' });
+    });
+  };
+
   const manageSubscription = () => {
     if (isDeleting) return;
-    onClose();
-    router.push('/settings/plan');
+    openStoreSubscriptions();
   };
 
   const handleDelete = async () => {
@@ -149,15 +163,32 @@ export function DeleteAccountFlow({ visible, onClose }: { visible: boolean; onCl
       const reason = result.outcome === 'deleted' ? 'unconfirmed' : result.reason;
       // A short code only (e.g. "unknown_issuer", "storage_remove", "timeout") — no token or account data.
       if (__DEV__) console.warn('[account-deletion] not deleted', { outcome: result.outcome, reason });
-      resumeWorkspaceSync();
+      const dataDeleted = result.outcome === 'failed' && result.dataDeleted;
+      // With the data already gone there is nothing left to sync; resuming would only fail.
+      if (!dataDeleted) resumeWorkspaceSync();
       setIsDeleting(false);
-      setFailed(true);
-      captureEvent('account_deletion_failed', { reason });
+      setFailed(dataDeleted ? 'partial' : 'failed');
+      captureEvent('account_deletion_failed', { reason, data_deleted: dataDeleted });
       return;
     }
 
-    // Survives the navigation to the signed-out screens, which unmount this component.
-    showSnackbar({ message: t('deleteAccount.done'), tone: 'success' });
+    // The account and its data are confirmed gone. When the answer was lost but the account is
+    // verifiably gone, the server had recorded the RevenueCat erasure before deleting anything.
+    const erasure: RevenueCatErasure = result.outcome === 'deleted' ? result.revenuecat : { status: 'pending' };
+    const reference = result.outcome === 'deleted' ? result.reference : undefined;
+    // A native alert survives the navigation to the signed-out screens, which unmount this component.
+    Alert.alert(
+      t('deleteAccount.done.title'),
+      [
+        t(erasure.status === 'completed' ? 'deleteAccount.done.complete' : 'deleteAccount.done.pending'),
+        t('deleteAccount.done.subscription'),
+        reference ? t('deleteAccount.done.reference', { reference }) : '',
+      ].filter(Boolean).join('\n\n'),
+      [
+        { text: t('deleteAccount.subscription.manageStore'), onPress: openStoreSubscriptions },
+        { text: t('deleteAccount.done.ok'), style: 'cancel' },
+      ],
+    );
     await cancelBookingReminderNotifications();
     deleteAllData();
     // Clears the analytics identity before signing out, so nothing further is tied to the account.
@@ -201,11 +232,11 @@ export function DeleteAccountFlow({ visible, onClose }: { visible: boolean; onCl
                     <Text style={[styles.noticeText, { color: palette.text }]}>
                       {isPro ? t('deleteAccount.subscription.active') : t('deleteAccount.subscription.general')}
                     </Text>
-                    {isPro ? (
-                      <Pressable accessibilityRole="link" hitSlop={6} onPress={manageSubscription}>
-                        <Text style={[styles.noticeLink, { color: palette.accent }]}>{t('deleteAccount.subscription.manage')}</Text>
-                      </Pressable>
-                    ) : null}
+                    {/* Always offered: it opens the store's own subscription settings, the only place a
+                        store-billed subscription can be cancelled. */}
+                    <Pressable accessibilityRole="link" hitSlop={6} onPress={manageSubscription}>
+                      <Text style={[styles.noticeLink, { color: palette.accent }]}>{t('deleteAccount.subscription.manage')}</Text>
+                    </Pressable>
                   </View>
                 </View>
 
@@ -253,8 +284,12 @@ export function DeleteAccountFlow({ visible, onClose }: { visible: boolean; onCl
 
                 {failed ? (
                   <View accessibilityRole="alert" style={[styles.failure, { backgroundColor: soft.dangerSoft }]}>
-                    <Text style={[styles.failureTitle, { color: palette.danger }]}>{t('deleteAccount.failed.title')}</Text>
-                    <Text style={[styles.failureBody, { color: palette.text }]}>{t('deleteAccount.failed.body')}</Text>
+                    <Text style={[styles.failureTitle, { color: palette.danger }]}>
+                      {t(failed === 'partial' ? 'deleteAccount.partial.title' : 'deleteAccount.failed.title')}
+                    </Text>
+                    <Text style={[styles.failureBody, { color: palette.text }]}>
+                      {t(failed === 'partial' ? 'deleteAccount.partial.body' : 'deleteAccount.failed.body')}
+                    </Text>
                   </View>
                 ) : null}
 
