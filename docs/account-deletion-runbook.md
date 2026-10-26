@@ -49,8 +49,8 @@ dashboard yourself — the data step has already run.
 
 ## Requests to erase RevenueCat records
 
-The Privacy Policy asks people to make this request **before** deleting their account, because that
-is when their records can still be identified:
+The Privacy Policy suggests making this request **before** deleting the account, because that is
+when the records can still be identified:
 
 1. Confirm the request comes from the account holder (reply to the account's email address).
 2. Clerk dashboard → Users → find the user by email → copy the user id. This is their RevenueCat App
@@ -61,8 +61,21 @@ is when their records can still be identified:
    → **Delete customer** (Admin or Customer Admin role) → search again to confirm it is gone.
 5. Tell the person, and remind them that this does not cancel an App Store subscription.
 
-After an account is deleted, BookFlow cannot reliably find its RevenueCat records (no email or name
-is kept). Say so if asked.
+## Requests after an account was deleted
+
+The Privacy Policy tells people they can still write to support@bookflow.my after deleting their
+account, about information BookFlow or its providers may still hold. Answer every such request.
+
+- **BookFlow data:** none is left in the database or Storage. Copies may remain in backups taken
+  before the deletion (manual release backups are kept outside the repository) until those backups
+  are destroyed.
+- **RevenueCat records:** BookFlow keeps no email or name for a deleted account, so the App User ID
+  cannot be looked up from Clerk any more. Ask for the App Store order ID from Apple's receipt email
+  and search RevenueCat for that transaction. *Confirm in the RevenueCat dashboard that transaction
+  search works for this before relying on it.* If there is no exact match, tell the person the
+  records could not be identified. Never delete a customer that is not an exact match.
+- **Analytics and error monitoring:** PostHog and Sentry data is linked to the account id; it ages
+  out under those services' retention settings.
 
 ## Known gaps
 

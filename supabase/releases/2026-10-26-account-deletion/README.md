@@ -30,6 +30,11 @@ data was removed returns `dataDeleted: true`. RevenueCat is never called. The re
 
 ## Deployment steps (in order)
 
+**Privacy Policy first.** The policy in the released app and on `bookflow.expo.app` (dated
+2026-09-15) says deletion removes "your subscription record with RevenueCat". Once this function is
+live that is untrue. Publish the approved policy (web export) before step 3, and ship it in the next
+app build.
+
 0. **Backup.** The project lists no physical backups (PITR off). Take a database backup first
    (e.g. `supabase db dump --linked` for schema and data, stored securely — it contains customer
    data). Storage objects are not part of a database backup; this migration does not touch them.
@@ -61,6 +66,7 @@ data was removed returns `dataDeleted: true`. RevenueCat is never called. The re
 
 ## Open items
 
-- Legal review of the Privacy Policy changes (English and Malay) before release.
+- Legal review of the Privacy Policy changes (English and Malay) before release, including the
+  booking forms and quotations section and the retention wording.
 - Sign in with Apple token revocation is not implemented (see the runbook).
 - PostHog deletion needs its keys configured to run.

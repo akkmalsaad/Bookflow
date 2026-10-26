@@ -22,7 +22,7 @@ const PRIVACY_POLICY_EN: LegalDocument = {
   intro: [
     {
       type: 'paragraph',
-      text: 'BookFlow respects your privacy. This Privacy Policy explains how we collect, use, store and handle information when you use the BookFlow application and related services, such as the web page your customers use to view invoices you share.',
+      text: 'BookFlow respects your privacy. This Privacy Policy explains how we collect, use, store and handle information when you use the BookFlow application and related services, such as the web pages your customers use to view invoices, booking forms and quotations you share.',
     },
     {
       type: 'paragraph',
@@ -73,6 +73,23 @@ const PRIVACY_POLICY_EN: LegalDocument = {
           type: 'paragraph',
           text: 'When you share an invoice, BookFlow creates a secure link to a copy of that invoice. Anyone who has the link can view the invoice — including your business details and logo, your customer’s name and contact details, and the invoice amounts — and can accept or decline it. Links expire after 30 days.',
         },
+        { type: 'subheading', text: 'Booking forms and quotations' },
+        {
+          type: 'paragraph',
+          text: 'When you share a booking form or quotation, BookFlow creates a secure link to a web page showing what you include: your business name, logo, phone number and email address; the services, prices, deposit, event date, time and location you set; your terms; and, for a quotation, your customer’s name. Anyone who has the link can view it. Once a booking is confirmed, the page can also show its status, the payments recorded and the invoice you shared. A booking form link stops working after 14 days, and a quotation link on the quotation’s expiry date (or after 30 days if it has none), or sooner if you turn the link off.',
+        },
+        {
+          type: 'paragraph',
+          text: 'When a client fills in a booking form, we collect what they enter — their name, phone number, email address (if given), their own location and the event location — and record that they accepted your terms and when. When a client accepts a quotation, we collect the name they enter and record their acceptance in the same way. Clients can also send you a request for changes with a short message. Clients do not choose the event date or time; those are the ones you set.',
+        },
+        {
+          type: 'paragraph',
+          text: 'Submissions are stored with Supabase as part of your BookFlow account, and the public page does not show them back. We use them to show you the request, check it against your existing bookings and plan limits, and turn it into a customer, booking and invoice in your account. From then on, your client’s information is handled as described in section 3, including your responsibilities as the business that collected it.',
+        },
+        {
+          type: 'paragraph',
+          text: 'Deleting a booking form removes its link and what your client submitted through it, together with the booking it created; any customer and invoice created from it stay until you delete them. Turning a link off stops it working but keeps what was already submitted. Quotation responses, and booking forms you have not deleted, stay in your account until you delete your account. To have a submission removed sooner, contact us.',
+        },
         { type: 'subheading', text: 'Support and feedback' },
         {
           type: 'paragraph',
@@ -105,7 +122,7 @@ const PRIVACY_POLICY_EN: LegalDocument = {
             'Provide BookFlow’s features and store the business records you create',
             'Create, authenticate and secure your account',
             'Manage your customers, bookings, invoices, payments, income and expenses',
-            'Create invoice links, PDFs and reports when you ask for them',
+            'Create invoice links, booking forms, quotations, PDFs and reports when you ask for them',
             'Provide BookFlow Pro and check your subscription status',
             'Respond to support requests and review feedback',
             'Understand which features are used, fix problems and improve reliability and the user experience',
@@ -125,7 +142,7 @@ const PRIVACY_POLICY_EN: LegalDocument = {
       blocks: [
         {
           type: 'paragraph',
-          text: 'BookFlow lets you enter personal information about your customers — such as names, contact details, locations, booking details and notes — so you can manage bookings, invoices and related work.',
+          text: 'BookFlow lets you enter personal information about your customers — such as names, contact details, locations, booking details and notes — and collect it from them through booking forms and quotations you share, so you can manage bookings, invoices and related work.',
         },
         {
           type: 'paragraph',
@@ -133,7 +150,7 @@ const PRIVACY_POLICY_EN: LegalDocument = {
         },
         {
           type: 'paragraph',
-          text: 'BookFlow processes your customers’ information only to provide the features you use, such as storing their records, preparing invoices and creating invoice links you choose to share.',
+          text: 'BookFlow processes your customers’ information only to provide the features you use, such as storing their records, preparing invoices and creating the invoice links, booking forms and quotations you choose to share.',
         },
       ],
     },
@@ -151,12 +168,12 @@ const PRIVACY_POLICY_EN: LegalDocument = {
             { term: 'Clerk', text: 'Account sign-up, sign-in, password management and session management.' },
             {
               term: 'Supabase',
-              text: 'Database, file storage and server functions. Your workspace records, business logo, shared invoice links, support requests and feedback are stored here.',
+              text: 'Database, file storage and server functions. Your workspace records, business logo, shared invoice links, booking forms and quotations with your clients’ submissions, support requests and feedback are stored here.',
             },
             { term: 'RevenueCat', text: 'Manages BookFlow Pro subscription status and entitlements, using your account identifier.' },
             { term: 'PostHog', text: 'Product analytics (see section 5).' },
             { term: 'Sentry', text: 'Error and crash monitoring (see section 1).' },
-            { term: 'Expo', text: 'Hosts the web page your customers use to view invoices you share.' },
+            { term: 'Expo', text: 'Hosts the web pages your customers use to view invoices, booking forms and quotations you share.' },
             {
               term: 'Apple',
               text: 'App Store distribution, in-app purchases on iOS, and Sign in with Apple if you choose it.',
@@ -246,6 +263,7 @@ const PRIVACY_POLICY_EN: LegalDocument = {
           items: [
             'Invoices you move to Dustbin are permanently removed after 30 days, the next time BookFlow opens after that period.',
             'Shared invoice links stop working after 30 days.',
+            'Booking form and quotation links stop working when they expire or when you turn them off. What your clients submitted stays in your account until you delete the booking form or your account (see section 1).',
             'Support requests and feedback are kept until your account is deleted, unless we need to keep them longer for a legal reason.',
           ],
         },
@@ -271,11 +289,19 @@ const PRIVACY_POLICY_EN: LegalDocument = {
         },
         {
           type: 'paragraph',
-          text: 'Deletion removes your BookFlow account and associated BookFlow data according to our deletion process: your customers, bookings, invoices (including Dustbin), payments, income and expenses, services, reminders and notifications, business profile and invoice settings, uploaded business logo, shared invoice links, booking forms and quotations (including details your clients submitted through them), support requests and feedback, and your sign-in account with Clerk. Information may be retained where the law requires it or temporarily where technically necessary, as described in section 8. We keep a record that your account was deleted — your account identifier and the dates — for 30 days, to block any further access to it and to confirm the deletion if you ask.',
+          text: 'Deleting your account permanently removes your BookFlow business data from Supabase, our database and storage provider: your customers, bookings, invoices (including Dustbin), payments, income and expenses, services, reminders and notifications, business profile and invoice settings, uploaded business logo, shared invoice links, booking forms and quotations (including what your clients submitted through them), support requests and feedback. It also deletes your sign-in account with Clerk, our authentication provider.',
         },
         {
           type: 'paragraph',
-          text: 'Deleting your account does not delete the subscription records held by RevenueCat, our subscription provider: your BookFlow account identifier and the purchase information RevenueCat received from the Apple App Store or Google Play, such as the product and the purchase, renewal, expiry and cancellation dates. They are kept so subscription status and purchase history stay correct, so refunds, renewals and billing questions can be handled, and to meet accounting and legal obligations, for as long as RevenueCat retains them or those obligations require. After your BookFlow account is deleted, that identifier is no longer linked to any account, name or email address held by BookFlow. To ask for these records to be erased, contact us before you delete your account, so we can identify them; once the account is deleted we may no longer be able to. We will erase them where we are not required to keep them.',
+          text: 'Some information is not deleted with your account, or not straight away. We keep a minimal record that your account was deleted — only your account identifier and the deletion dates — for 30 days, to block any further access to the account and to confirm the deletion if you ask; after that it is removed the next time our deletion process runs. Copies in backups and logs, and analytics and error-monitoring data, may remain for the limited periods described in section 8.',
+        },
+        {
+          type: 'paragraph',
+          text: 'Your subscription and purchase records are kept separately by RevenueCat, our subscription provider, and are not deleted with your BookFlow account: your BookFlow account identifier and the purchase information RevenueCat received from the Apple App Store or Google Play, such as the product and the purchase, renewal, expiry and cancellation dates. They are used to keep subscription status and purchase history correct, to handle refunds, renewals and billing questions, and to meet accounting and legal obligations. They should be kept only as long as these purposes or the law require, subject to RevenueCat’s own retention practices and to your right to ask for erasure. After your BookFlow account is deleted, that identifier is no longer linked to any account, name or email address held by BookFlow.',
+        },
+        {
+          type: 'paragraph',
+          text: `You can contact us at ${SUPPORT_EMAIL} at any time, including after your account has been deleted, about personal information that we or our service providers may still hold, and to ask for it to be erased. If you want your RevenueCat records erased, it is easiest to ask before you delete your account, while we can still identify them. After deletion, we may ask for details such as your App Store order ID to find them, and we will tell you if we cannot. We will erase them unless we are required to keep them, and tell you if we are.`,
         },
         {
           type: 'paragraph',

@@ -19,7 +19,7 @@ export const PRIVACY_POLICY_MS: LegalDocument = {
   intro: [
     {
       type: 'paragraph',
-      text: 'BookFlow menghormati privasi anda. Dasar Privasi ini menerangkan cara kami mengumpul, menggunakan, menyimpan dan mengendalikan maklumat apabila anda menggunakan aplikasi BookFlow dan perkhidmatan berkaitan, seperti halaman web yang digunakan oleh pelanggan anda untuk melihat invois yang anda kongsikan.',
+      text: 'BookFlow menghormati privasi anda. Dasar Privasi ini menerangkan cara kami mengumpul, menggunakan, menyimpan dan mengendalikan maklumat apabila anda menggunakan aplikasi BookFlow dan perkhidmatan berkaitan, seperti halaman web yang digunakan oleh pelanggan anda untuk melihat invois, borang tempahan dan sebut harga yang anda kongsikan.',
     },
     {
       type: 'paragraph',
@@ -70,6 +70,23 @@ export const PRIVACY_POLICY_MS: LegalDocument = {
           type: 'paragraph',
           text: 'Apabila anda berkongsi invois, BookFlow mencipta pautan selamat kepada salinan invois tersebut. Sesiapa yang mempunyai pautan itu boleh melihat invois tersebut — termasuk butiran dan logo perniagaan anda, nama dan butiran hubungan pelanggan anda, serta jumlah invois — dan boleh menerima atau menolaknya. Pautan tamat tempoh selepas 30 hari.',
         },
+        { type: 'subheading', text: 'Borang tempahan dan sebut harga' },
+        {
+          type: 'paragraph',
+          text: 'Apabila anda berkongsi borang tempahan atau sebut harga, BookFlow mencipta pautan selamat kepada halaman web yang memaparkan apa yang anda masukkan: nama, logo, nombor telefon dan alamat e-mel perniagaan anda; perkhidmatan, harga, deposit, tarikh, masa dan lokasi acara yang anda tetapkan; terma anda; dan, bagi sebut harga, nama pelanggan anda. Sesiapa yang mempunyai pautan itu boleh melihatnya. Selepas tempahan disahkan, halaman itu juga boleh memaparkan status tempahan, pembayaran yang direkodkan dan invois yang anda kongsikan. Pautan borang tempahan berhenti berfungsi selepas 14 hari, dan pautan sebut harga pada tarikh tamat tempoh sebut harga itu (atau selepas 30 hari jika tiada tarikh), atau lebih awal jika anda mematikan pautan tersebut.',
+        },
+        {
+          type: 'paragraph',
+          text: 'Apabila pelanggan mengisi borang tempahan, kami mengumpul apa yang mereka masukkan — nama, nombor telefon, alamat e-mel (jika diberikan), lokasi mereka sendiri dan lokasi acara — serta merekodkan bahawa mereka menerima terma anda dan bilakah mereka menerimanya. Apabila pelanggan menerima sebut harga, kami mengumpul nama yang mereka masukkan dan merekodkan penerimaan mereka dengan cara yang sama. Pelanggan juga boleh menghantar permintaan perubahan kepada anda bersama mesej ringkas. Pelanggan tidak memilih tarikh atau masa acara; tarikh dan masa itu ialah yang anda tetapkan.',
+        },
+        {
+          type: 'paragraph',
+          text: 'Maklumat yang dihantar disimpan dengan Supabase sebagai sebahagian daripada akaun BookFlow anda, dan halaman awam tidak memaparkannya semula. Kami menggunakannya untuk menunjukkan permintaan itu kepada anda, menyemaknya berbanding tempahan sedia ada dan had pelan anda, dan menukarkannya kepada pelanggan, tempahan dan invois dalam akaun anda. Selepas itu, maklumat pelanggan anda dikendalikan seperti yang diterangkan dalam seksyen 3, termasuk tanggungjawab anda sebagai perniagaan yang mengumpulnya.',
+        },
+        {
+          type: 'paragraph',
+          text: 'Memadamkan borang tempahan membuang pautannya dan apa yang dihantar oleh pelanggan anda melaluinya, bersama tempahan yang diciptanya; pelanggan dan invois yang dicipta daripadanya kekal sehingga anda memadamkannya. Mematikan pautan menghentikan pautan itu daripada berfungsi tetapi mengekalkan apa yang telah dihantar. Respons sebut harga, dan borang tempahan yang belum anda padamkan, kekal dalam akaun anda sehingga anda memadamkan akaun anda. Untuk membuang sesuatu yang dihantar lebih awal, hubungi kami.',
+        },
         { type: 'subheading', text: 'Sokongan dan maklum balas' },
         {
           type: 'paragraph',
@@ -102,7 +119,7 @@ export const PRIVACY_POLICY_MS: LegalDocument = {
             'Menyediakan ciri-ciri BookFlow dan menyimpan rekod perniagaan yang anda cipta',
             'Mencipta, mengesahkan dan melindungi akaun anda',
             'Mengurus pelanggan, tempahan, invois, pembayaran, pendapatan dan perbelanjaan anda',
-            'Mencipta pautan invois, PDF dan laporan apabila anda memintanya',
+            'Mencipta pautan invois, borang tempahan, sebut harga, PDF dan laporan apabila anda memintanya',
             'Menyediakan BookFlow Pro dan menyemak status langganan anda',
             'Membalas permintaan sokongan dan menyemak maklum balas',
             'Memahami ciri yang digunakan, membaiki masalah dan menambah baik kebolehpercayaan serta pengalaman pengguna',
@@ -122,7 +139,7 @@ export const PRIVACY_POLICY_MS: LegalDocument = {
       blocks: [
         {
           type: 'paragraph',
-          text: 'BookFlow membolehkan anda memasukkan maklumat peribadi tentang pelanggan anda — seperti nama, butiran hubungan, lokasi, butiran tempahan dan nota — supaya anda boleh mengurus tempahan, invois dan kerja berkaitan.',
+          text: 'BookFlow membolehkan anda memasukkan maklumat peribadi tentang pelanggan anda — seperti nama, butiran hubungan, lokasi, butiran tempahan dan nota — dan mengumpulnya daripada mereka melalui borang tempahan dan sebut harga yang anda kongsikan, supaya anda boleh mengurus tempahan, invois dan kerja berkaitan.',
         },
         {
           type: 'paragraph',
@@ -130,7 +147,7 @@ export const PRIVACY_POLICY_MS: LegalDocument = {
         },
         {
           type: 'paragraph',
-          text: 'BookFlow memproses maklumat pelanggan anda semata-mata untuk menyediakan ciri yang anda gunakan, seperti menyimpan rekod mereka, menyediakan invois dan mencipta pautan invois yang anda pilih untuk dikongsi.',
+          text: 'BookFlow memproses maklumat pelanggan anda semata-mata untuk menyediakan ciri yang anda gunakan, seperti menyimpan rekod mereka, menyediakan invois dan mencipta pautan invois, borang tempahan dan sebut harga yang anda pilih untuk dikongsi.',
         },
       ],
     },
@@ -148,12 +165,12 @@ export const PRIVACY_POLICY_MS: LegalDocument = {
             { term: 'Clerk', text: 'Pendaftaran akaun, log masuk, pengurusan kata laluan dan pengurusan sesi.' },
             {
               term: 'Supabase',
-              text: 'Pangkalan data, storan fail dan fungsi pelayan. Rekod ruang kerja, logo perniagaan, pautan invois yang dikongsi, permintaan sokongan dan maklum balas anda disimpan di sini.',
+              text: 'Pangkalan data, storan fail dan fungsi pelayan. Rekod ruang kerja, logo perniagaan, pautan invois yang dikongsi, borang tempahan dan sebut harga bersama maklumat yang dihantar oleh pelanggan anda, permintaan sokongan dan maklum balas anda disimpan di sini.',
             },
             { term: 'RevenueCat', text: 'Menguruskan status dan kelayakan langganan BookFlow Pro, menggunakan pengecam akaun anda.' },
             { term: 'PostHog', text: 'Analitik produk (lihat seksyen 5).' },
             { term: 'Sentry', text: 'Pemantauan ralat dan kerosakan (lihat seksyen 1).' },
-            { term: 'Expo', text: 'Mengehos halaman web yang digunakan oleh pelanggan anda untuk melihat invois yang anda kongsikan.' },
+            { term: 'Expo', text: 'Mengehos halaman web yang digunakan oleh pelanggan anda untuk melihat invois, borang tempahan dan sebut harga yang anda kongsikan.' },
             {
               term: 'Apple',
               text: 'Pengedaran App Store, pembelian dalam aplikasi pada iOS, dan Sign in with Apple jika anda memilihnya.',
@@ -243,6 +260,7 @@ export const PRIVACY_POLICY_MS: LegalDocument = {
           items: [
             'Invois yang anda pindahkan ke Tong sampah akan dibuang secara kekal selepas 30 hari, pada kali berikutnya BookFlow dibuka selepas tempoh tersebut.',
             'Pautan invois yang dikongsi berhenti berfungsi selepas 30 hari.',
+            'Pautan borang tempahan dan sebut harga berhenti berfungsi apabila tamat tempoh atau apabila anda mematikannya. Apa yang dihantar oleh pelanggan anda kekal dalam akaun anda sehingga anda memadamkan borang tempahan itu atau akaun anda (lihat seksyen 1).',
             'Permintaan sokongan dan maklum balas disimpan sehingga akaun anda dipadamkan, melainkan kami perlu menyimpannya lebih lama atas sebab undang-undang.',
           ],
         },
@@ -268,11 +286,19 @@ export const PRIVACY_POLICY_MS: LegalDocument = {
         },
         {
           type: 'paragraph',
-          text: 'Pemadaman membuang akaun BookFlow anda dan data BookFlow yang berkaitan mengikut proses pemadaman kami: pelanggan, tempahan, invois (termasuk Tong sampah), pembayaran, pendapatan dan perbelanjaan, perkhidmatan, peringatan dan notifikasi, profil perniagaan dan tetapan invois, logo perniagaan yang dimuat naik, pautan invois yang dikongsi, borang tempahan dan sebut harga (termasuk butiran yang dihantar oleh pelanggan anda melaluinya), permintaan sokongan dan maklum balas, dan akaun log masuk anda dengan Clerk. Maklumat mungkin dikekalkan di mana undang-undang menghendakinya atau buat sementara di mana ia perlu dari segi teknikal, seperti yang diterangkan dalam seksyen 8. Kami menyimpan rekod bahawa akaun anda telah dipadamkan — pengecam akaun anda dan tarikhnya — selama 30 hari, untuk menyekat sebarang akses selanjutnya kepadanya dan untuk mengesahkan pemadaman jika anda bertanya.',
+          text: 'Memadamkan akaun anda membuang secara kekal data perniagaan BookFlow anda daripada Supabase, penyedia pangkalan data dan storan kami: pelanggan, tempahan, invois (termasuk Tong sampah), pembayaran, pendapatan dan perbelanjaan, perkhidmatan, peringatan dan notifikasi, profil perniagaan dan tetapan invois, logo perniagaan yang dimuat naik, pautan invois yang dikongsi, borang tempahan dan sebut harga (termasuk apa yang dihantar oleh pelanggan anda melaluinya), permintaan sokongan dan maklum balas. Ia juga memadamkan akaun log masuk anda dengan Clerk, penyedia pengesahan kami.',
         },
         {
           type: 'paragraph',
-          text: 'Memadamkan akaun anda tidak memadamkan rekod langganan yang disimpan oleh RevenueCat, penyedia langganan kami: pengecam akaun BookFlow anda dan maklumat pembelian yang diterima oleh RevenueCat daripada Apple App Store atau Google Play, seperti produk serta tarikh pembelian, pembaharuan, tamat tempoh dan pembatalan. Rekod ini disimpan supaya status langganan dan sejarah pembelian kekal tepat, supaya bayaran balik, pembaharuan dan pertanyaan bil dapat dikendalikan, dan untuk memenuhi kewajipan perakaunan dan undang-undang, selama mana RevenueCat menyimpannya atau kewajipan tersebut menghendakinya. Selepas akaun BookFlow anda dipadamkan, pengecam itu tidak lagi dikaitkan dengan mana-mana akaun, nama atau alamat e-mel yang disimpan oleh BookFlow. Untuk meminta rekod ini dipadamkan, hubungi kami sebelum anda memadamkan akaun anda supaya kami dapat mengenal pastinya; selepas akaun dipadamkan, kami mungkin tidak lagi dapat berbuat demikian. Kami akan memadamkannya di mana kami tidak diwajibkan untuk menyimpannya.',
+          text: 'Sebahagian maklumat tidak dipadamkan bersama akaun anda, atau tidak dipadamkan serta-merta. Kami menyimpan rekod minimum bahawa akaun anda telah dipadamkan — hanya pengecam akaun anda dan tarikh pemadaman — selama 30 hari, untuk menyekat sebarang akses selanjutnya kepada akaun itu dan untuk mengesahkan pemadaman jika anda bertanya; selepas itu, rekod tersebut dibuang pada kali berikutnya proses pemadaman kami dijalankan. Salinan dalam sandaran dan log, serta data analitik dan pemantauan ralat, mungkin kekal untuk tempoh terhad seperti yang diterangkan dalam seksyen 8.',
+        },
+        {
+          type: 'paragraph',
+          text: 'Rekod langganan dan pembelian anda disimpan secara berasingan oleh RevenueCat, penyedia langganan kami, dan tidak dipadamkan bersama akaun BookFlow anda: pengecam akaun BookFlow anda dan maklumat pembelian yang diterima oleh RevenueCat daripada Apple App Store atau Google Play, seperti produk serta tarikh pembelian, pembaharuan, tamat tempoh dan pembatalan. Rekod ini digunakan supaya status langganan dan sejarah pembelian kekal tepat, supaya bayaran balik, pembaharuan dan pertanyaan bil dapat dikendalikan, dan untuk memenuhi kewajipan perakaunan dan undang-undang. Rekod ini sepatutnya disimpan hanya selama yang diperlukan untuk tujuan tersebut atau oleh undang-undang, tertakluk kepada amalan pengekalan RevenueCat sendiri dan kepada hak anda untuk meminta pemadaman. Selepas akaun BookFlow anda dipadamkan, pengecam itu tidak lagi dikaitkan dengan mana-mana akaun, nama atau alamat e-mel yang disimpan oleh BookFlow.',
+        },
+        {
+          type: 'paragraph',
+          text: `Anda boleh menghubungi kami di ${SUPPORT_EMAIL} pada bila-bila masa, termasuk selepas akaun anda dipadamkan, mengenai maklumat peribadi yang mungkin masih disimpan oleh kami atau penyedia perkhidmatan kami, dan untuk meminta maklumat itu dipadamkan. Jika anda mahu rekod RevenueCat anda dipadamkan, paling mudah untuk meminta sebelum anda memadamkan akaun anda, semasa kami masih dapat mengenal pastinya. Selepas pemadaman, kami mungkin meminta butiran seperti ID pesanan App Store anda untuk mencarinya, dan kami akan memberitahu anda jika kami tidak dapat mencarinya. Kami akan memadamkannya melainkan kami diwajibkan untuk menyimpannya, dan akan memberitahu anda jika demikian.`,
         },
         {
           type: 'paragraph',

@@ -99,6 +99,11 @@ It was tested only against in-memory PGlite (`tests/booking-offers-security.test
 
 ### Account deletion (`supabase/functions/delete-account`)
 
+> **Superseded by `f5f58ea` (2026-10-26).** Account deletion no longer calls RevenueCat, and no
+> RevenueCat secret key is needed or should be set for it. RevenueCat records are kept and the
+> Privacy Policy says so. The notes below record the earlier investigation only; see
+> `docs/account-deletion-runbook.md` and `supabase/releases/2026-10-26-account-deletion/README.md`.
+
 **Confirmed findings**
 
 - The production app signs in through Clerk instance `clerk.bookflow.my` (`pk_live`, in both `.env.production.local` and the EAS production environment). Development builds use `splendid-pangolin-4730.clerk.accounts.dev`. Supabase third-party auth trusts **both** instances for database access.

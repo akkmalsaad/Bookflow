@@ -88,6 +88,32 @@ test('deletion, export and retention statements match the implementation', () =>
   assert.match(formats, /'xlsx'/);
 });
 
+test('account deletion and booking forms are described the same way in English and Malay', () => {
+  const malay = getPrivacyPolicy('ms-MY');
+  const shape = (document) => Array.from(document.sections,(section) => `${section.id}:${section.blocks.map((block) => block.type).join(',')}`);
+  assert.deepEqual(shape(malay), shape(policy), 'every clause has its counterpart');
+  assert.equal(malay.lastUpdated, policy.lastUpdated);
+
+  const deletion = (document) => flatten({ intro: [], sections: document.sections.filter((section) => section.id === 'choices-deletion') });
+  const en = deletion(policy);
+  const ms = deletion(malay);
+  for (const fact of [/from Supabase/, /sign-in account with Clerk/, /kept separately by RevenueCat/, /for 30 days/, /after your account has been deleted/, /does not cancel a subscription/]) {
+    assert.match(en, fact);
+  }
+  for (const fact of [/daripada Supabase/, /akaun log masuk anda dengan Clerk/, /secara berasingan oleh RevenueCat/, /selama 30 hari/, /selepas akaun anda dipadamkan/, /tidak membatalkan langganan/]) {
+    assert.match(ms, fact);
+  }
+  for (const text of [en, ms]) assert.ok(text.includes('support@bookflow.my'));
+  // RevenueCat records are never said to be deleted with the account.
+  assert.equal(/(deletes?|removes?)[^.]*RevenueCat/i.test(en.replace(/not deleted with your BookFlow account/g, '')), false);
+
+  // What a public booking form collects matches the fields the server accepts.
+  const fields = read('supabase/functions/booking-public/index.ts').match(/submit: \[([^\]]+)\]/)[1];
+  assert.deepEqual(Array.from(fields.match(/'(\w+)'/g)), ["'name'", "'email'", "'phone'", "'customerLocation'", "'location'", "'acceptTerms'", "'termsVersion'", "'version'"]);
+  assert.match(text, /their name, phone number, email address \(if given\), their own location and the event location/);
+  assert.match(flatten(malay), /nama, nombor telefon, alamat e-mel \(jika diberikan\), lokasi mereka sendiri dan lokasi acara/);
+});
+
 test('no unsupported security, payment or certification claims', () => {
   const banned = [/100% secure/i, /completely secure\b(?! ,? and we cannot)/i, /PDPA certified/i, /never be (breached|hacked)/i, /we store your password/i, /we sell/i];
   for (const pattern of banned) {

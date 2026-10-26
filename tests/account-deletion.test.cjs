@@ -117,8 +117,8 @@ test('the dialog and the Privacy Policy never claim RevenueCat records are erase
   }
 
   for (const [file, retained, forms] of [
-    ['lib/legal/privacy-policy.ts', /does not delete the subscription records held by RevenueCat/, /booking forms and quotations/],
-    ['lib/legal/privacy-policy.ms.ts', /tidak memadamkan rekod langganan yang disimpan oleh RevenueCat/, /borang tempahan dan sebut harga/],
+    ['lib/legal/privacy-policy.ts', /kept separately by RevenueCat, our subscription provider, and are not deleted with your BookFlow account/, /booking forms and quotations/],
+    ['lib/legal/privacy-policy.ms.ts', /disimpan secara berasingan oleh RevenueCat, penyedia langganan kami, dan tidak dipadamkan bersama akaun BookFlow anda/, /borang tempahan dan sebut harga/],
   ]) {
     const policy = read(file);
     assert.match(policy, retained, file);
