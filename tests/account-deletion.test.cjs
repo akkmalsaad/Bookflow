@@ -54,15 +54,20 @@ test('every user-owned BookFlow table is covered by the deletion', () => {
   assert.ok(tables.size >= 4);
   const deletesWorkspace = /delete from public\.bookflow_workspaces where user_id = p_user_id;/.test(migration);
   assert.ok(deletesWorkspace, 'the workspace row is not deleted');
+  // Deliberately kept: the record that the account was deleted (only its id and dates), which
+  // blocks stale tokens and is purged 30 days after the login is removed.
+  const RETAINED = new Set(['deleted_accounts']);
+  assert.match(read('supabase/migrations/20261026000000_account_deletion_guard.sql'), /delete from public\.deleted_accounts where login_deleted_at < now\(\) - interval '30 days';/);
   for (const [table, cascades] of tables) {
+    if (RETAINED.has(table)) continue;
     const explicit = new RegExp(`delete from public\\.${table} where user_id = p_user_id;`).test(migration);
     assert.ok(explicit || cascades, `${table} is neither deleted nor cascaded from the workspace`);
   }
 });
 
-test('the erasure request comes first, then storage and database, then the Clerk user', () => {
-  // The RevenueCat erasure owed is recorded before anything is removed; if it cannot be, nothing is.
-  const order = ['await requestErasure(', 'await deleteStorage(', 'await deleteDatabaseRows(', 'await deleteClerkUser(', "await recordErasure(admin, userId, 'account_deleted')", 'await eraseRevenueCatCustomer('];
+test('storage and database first, then the deleted-account record, then the Clerk user', () => {
+  // The account is recorded as deleted (blocking stale tokens) before its login is removed.
+  const order = ['await deleteStorage(', 'await deleteDatabaseRows(', "await recordDeletion(admin, userId, instance, 'data_deleted')", 'await deleteClerkUser(', "await recordDeletion(admin, userId, instance, 'login_deleted')"];
   // The order that matters is the request handler's; helpers defined above it are not steps.
   const handler = edgeFunction.slice(edgeFunction.indexOf('Deno.serve('));
   const positions = order.map((call) => handler.indexOf(call));
@@ -91,21 +96,33 @@ test('the final button stays locked until DELETE is typed, and failures never sh
   assert.equal(/deleteAccount\.done/.test(failureBranch), false, 'no success wording on a failure');
 });
 
-test('success names exactly what is done and what is still scheduled, with the store subscription note', () => {
-  const success = deleteFlow.slice(deleteFlow.indexOf('const erasure: RevenueCatErasure'), deleteFlow.indexOf('await cancelBookingReminderNotifications()'));
-  assert.match(success, /t\(erasure\.status === 'completed' \? 'deleteAccount\.done\.complete' : 'deleteAccount\.done\.pending'\)/);
-  assert.match(success, /t\('deleteAccount\.done\.subscription'\)/);
+test('the dialog and the Privacy Policy never claim RevenueCat records are erased', () => {
+  const success = deleteFlow.slice(deleteFlow.indexOf("Alert.alert(\n      t('deleteAccount.done.title')"), deleteFlow.indexOf('await cancelBookingReminderNotifications()'));
+  assert.match(success, /t\('deleteAccount\.done\.body'\), t\('deleteAccount\.done\.subscription'\)/);
   assert.match(success, /onPress: openStoreSubscriptions/);
-  // A lost answer with the account verifiably gone is reported as pending, never as complete.
-  assert.match(success, /result\.outcome === 'deleted' \? result\.revenuecat : \{ status: 'pending' \}/);
   assert.match(deleteFlow, /'https:\/\/apps\.apple\.com\/account\/subscriptions'/);
-  assert.match(deleteFlow, /Linking\.openURL\(STORE_SUBSCRIPTIONS_URL\)/);
+  assert.match(deleteFlow, /t\('deleteAccount\.retained'\)/);
+  assert.equal(/deleteAccount\.record\.revenuecat/.test(deleteFlow), false, 'RevenueCat is not listed as deleted');
+
   const { loadTs } = require('./helpers/load-ts.cjs');
   const i18n = loadTs('lib/i18n.ts');
-  assert.equal(i18n.translate('en', 'deleteAccount.done.pending'), 'Your BookFlow account and business data have been deleted. Your RevenueCat subscription record is scheduled for deletion within 30 days.');
-  for (const key of ['deleteAccount.done.pending', 'deleteAccount.done.complete', 'deleteAccount.done.subscription', 'deleteAccount.done.reference', 'deleteAccount.partial.title', 'deleteAccount.partial.body', 'deleteAccount.record.revenuecat', 'deleteAccount.record.forms', 'deleteAccount.subscription.manageStore', 'deleteAccount.subscription.openFailed']) {
+  assert.equal(i18n.translate('en', 'deleteAccount.body'), 'Deleting your BookFlow account permanently removes your account and business data. It does not cancel your App Store subscription.');
+  assert.equal(i18n.translate('en', 'deleteAccount.done.body'), 'Your BookFlow account and business data have been deleted.');
+  for (const key of ['deleteAccount.body', 'deleteAccount.done.body', 'deleteAccount.done.subscription', 'deleteAccount.retained', 'deleteAccount.partial.title', 'deleteAccount.partial.body', 'deleteAccount.record.forms', 'deleteAccount.subscription.manageStore']) {
     const en = i18n.translate('en', key);
     const ms = i18n.translate('ms-MY', key);
     assert.ok(en !== key && ms !== key && en !== ms, key);
+    // Nothing the person sees says RevenueCat data was erased.
+    assert.equal(/revenuecat[^.]*(erased|deleted|dipadam)/i.test(en + ms) && !/not deleted|tidak dipadam|ask for it to be erased|meminta ia dipadam/i.test(en + ms), false, key);
+  }
+
+  for (const [file, retained, forms] of [
+    ['lib/legal/privacy-policy.ts', /does not delete the subscription records held by RevenueCat/, /booking forms and quotations/],
+    ['lib/legal/privacy-policy.ms.ts', /tidak memadamkan rekod langganan yang disimpan oleh RevenueCat/, /borang tempahan dan sebut harga/],
+  ]) {
+    const policy = read(file);
+    assert.match(policy, retained, file);
+    assert.match(policy, forms, file);
+    assert.equal(/your subscription record with RevenueCat, and your sign-in account|rekod langganan anda dengan RevenueCat, dan akaun log masuk/.test(policy), false, `${file} still lists RevenueCat as deleted`);
   }
 });

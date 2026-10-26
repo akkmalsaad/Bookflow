@@ -14,7 +14,7 @@ import type { LegalDocument } from '@/lib/legal/types';
  */
 
 export const PRIVACY_POLICY_MS: LegalDocument = {
-  lastUpdated: '2026-09-15',
+  lastUpdated: '2026-10-26',
   language: 'ms-MY',
   intro: [
     {
@@ -268,7 +268,11 @@ export const PRIVACY_POLICY_MS: LegalDocument = {
         },
         {
           type: 'paragraph',
-          text: 'Pemadaman membuang akaun BookFlow anda dan data BookFlow yang berkaitan mengikut proses pemadaman kami: pelanggan, tempahan, invois (termasuk Tong sampah), pembayaran, pendapatan dan perbelanjaan, perkhidmatan, peringatan dan notifikasi, profil perniagaan dan tetapan invois, logo perniagaan yang dimuat naik, pautan invois yang dikongsi, permintaan sokongan dan maklum balas, rekod langganan anda dengan RevenueCat, dan akaun log masuk anda dengan Clerk. Maklumat mungkin dikekalkan di mana undang-undang menghendakinya atau buat sementara di mana ia perlu dari segi teknikal, seperti yang diterangkan dalam seksyen 8.',
+          text: 'Pemadaman membuang akaun BookFlow anda dan data BookFlow yang berkaitan mengikut proses pemadaman kami: pelanggan, tempahan, invois (termasuk Tong sampah), pembayaran, pendapatan dan perbelanjaan, perkhidmatan, peringatan dan notifikasi, profil perniagaan dan tetapan invois, logo perniagaan yang dimuat naik, pautan invois yang dikongsi, borang tempahan dan sebut harga (termasuk butiran yang dihantar oleh pelanggan anda melaluinya), permintaan sokongan dan maklum balas, dan akaun log masuk anda dengan Clerk. Maklumat mungkin dikekalkan di mana undang-undang menghendakinya atau buat sementara di mana ia perlu dari segi teknikal, seperti yang diterangkan dalam seksyen 8. Kami menyimpan rekod bahawa akaun anda telah dipadamkan — pengecam akaun anda dan tarikhnya — selama 30 hari, untuk menyekat sebarang akses selanjutnya kepadanya dan untuk mengesahkan pemadaman jika anda bertanya.',
+        },
+        {
+          type: 'paragraph',
+          text: 'Memadamkan akaun anda tidak memadamkan rekod langganan yang disimpan oleh RevenueCat, penyedia langganan kami: pengecam akaun BookFlow anda dan maklumat pembelian yang diterima oleh RevenueCat daripada Apple App Store atau Google Play, seperti produk serta tarikh pembelian, pembaharuan, tamat tempoh dan pembatalan. Rekod ini disimpan supaya status langganan dan sejarah pembelian kekal tepat, supaya bayaran balik, pembaharuan dan pertanyaan bil dapat dikendalikan, dan untuk memenuhi kewajipan perakaunan dan undang-undang, selama mana RevenueCat menyimpannya atau kewajipan tersebut menghendakinya. Selepas akaun BookFlow anda dipadamkan, pengecam itu tidak lagi dikaitkan dengan mana-mana akaun, nama atau alamat e-mel yang disimpan oleh BookFlow. Untuk meminta rekod ini dipadamkan, hubungi kami sebelum anda memadamkan akaun anda supaya kami dapat mengenal pastinya; selepas akaun dipadamkan, kami mungkin tidak lagi dapat berbuat demikian. Kami akan memadamkannya di mana kami tidak diwajibkan untuk menyimpannya.',
         },
         {
           type: 'paragraph',

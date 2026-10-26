@@ -22,7 +22,7 @@ import { useAuth } from '@/context/auth-context';
 import { useSnackbar } from '@/context/snackbar-context';
 import { useSubscription } from '@/context/subscription-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
-import { requestAccountDeletion, type RevenueCatErasure } from '@/lib/account-deletion';
+import { requestAccountDeletion } from '@/lib/account-deletion';
 import type { TranslationKey } from '@/lib/i18n';
 import { cancelBookingReminderNotifications } from '@/lib/notifications';
 import { useTranslation } from '@/lib/use-translation';
@@ -31,8 +31,8 @@ import { captureEvent } from '@/lib/analytics';
 /**
  * Everything the server-side deletion removes, matching the delete-account Edge Function and
  * delete_bookflow_account_data(): the workspace document's contents, the tables keyed by the
- * account, the logo in Storage and the Clerk sign-in account — and, within 30 days, the RevenueCat
- * customer record, which an administrator erases from the request the deletion records.
+ * account, the logo in Storage and the Clerk sign-in account. RevenueCat's subscription records are
+ * not deleted; the dialog says so (deleteAccount.retained) rather than listing them here.
  */
 const DELETED_RECORD_KEYS: TranslationKey[] = [
   'deleteAccount.record.customers',
@@ -48,7 +48,6 @@ const DELETED_RECORD_KEYS: TranslationKey[] = [
   'deleteAccount.record.forms',
   'deleteAccount.record.support',
   'deleteAccount.record.login',
-  'deleteAccount.record.revenuecat',
 ];
 
 /** Apple's and Google's own subscription settings — the only places a store subscription is cancelled. */
@@ -172,18 +171,11 @@ export function DeleteAccountFlow({ visible, onClose }: { visible: boolean; onCl
       return;
     }
 
-    // The account and its data are confirmed gone. When the answer was lost but the account is
-    // verifiably gone, the server had recorded the RevenueCat erasure before deleting anything.
-    const erasure: RevenueCatErasure = result.outcome === 'deleted' ? result.revenuecat : { status: 'pending' };
-    const reference = result.outcome === 'deleted' ? result.reference : undefined;
-    // A native alert survives the navigation to the signed-out screens, which unmount this component.
+    // The account and its data are confirmed gone. Nothing is said about RevenueCat's records, which
+    // are not deleted. A native alert survives the navigation to the signed-out screens.
     Alert.alert(
       t('deleteAccount.done.title'),
-      [
-        t(erasure.status === 'completed' ? 'deleteAccount.done.complete' : 'deleteAccount.done.pending'),
-        t('deleteAccount.done.subscription'),
-        reference ? t('deleteAccount.done.reference', { reference }) : '',
-      ].filter(Boolean).join('\n\n'),
+      [t('deleteAccount.done.body'), t('deleteAccount.done.subscription')].join('\n\n'),
       [
         { text: t('deleteAccount.subscription.manageStore'), onPress: openStoreSubscriptions },
         { text: t('deleteAccount.done.ok'), style: 'cancel' },
@@ -232,6 +224,7 @@ export function DeleteAccountFlow({ visible, onClose }: { visible: boolean; onCl
                     <Text style={[styles.noticeText, { color: palette.text }]}>
                       {isPro ? t('deleteAccount.subscription.active') : t('deleteAccount.subscription.general')}
                     </Text>
+                    <Text style={[styles.noticeText, { color: palette.muter }]}>{t('deleteAccount.retained')}</Text>
                     {/* Always offered: it opens the store's own subscription settings, the only place a
                         store-billed subscription can be cancelled. */}
                     <Pressable accessibilityRole="link" hitSlop={6} onPress={manageSubscription}>

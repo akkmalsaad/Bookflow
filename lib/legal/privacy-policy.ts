@@ -17,7 +17,7 @@ import type { LegalDocument } from '@/lib/legal/types';
 export { SUPPORT_EMAIL };
 
 const PRIVACY_POLICY_EN: LegalDocument = {
-  lastUpdated: '2026-09-15',
+  lastUpdated: '2026-10-26',
   language: 'en',
   intro: [
     {
@@ -271,7 +271,11 @@ const PRIVACY_POLICY_EN: LegalDocument = {
         },
         {
           type: 'paragraph',
-          text: 'Deletion removes your BookFlow account and associated BookFlow data according to our deletion process: your customers, bookings, invoices (including Dustbin), payments, income and expenses, services, reminders and notifications, business profile and invoice settings, uploaded business logo, shared invoice links, support requests and feedback, your subscription record with RevenueCat, and your sign-in account with Clerk. Information may be retained where the law requires it or temporarily where technically necessary, as described in section 8.',
+          text: 'Deletion removes your BookFlow account and associated BookFlow data according to our deletion process: your customers, bookings, invoices (including Dustbin), payments, income and expenses, services, reminders and notifications, business profile and invoice settings, uploaded business logo, shared invoice links, booking forms and quotations (including details your clients submitted through them), support requests and feedback, and your sign-in account with Clerk. Information may be retained where the law requires it or temporarily where technically necessary, as described in section 8. We keep a record that your account was deleted — your account identifier and the dates — for 30 days, to block any further access to it and to confirm the deletion if you ask.',
+        },
+        {
+          type: 'paragraph',
+          text: 'Deleting your account does not delete the subscription records held by RevenueCat, our subscription provider: your BookFlow account identifier and the purchase information RevenueCat received from the Apple App Store or Google Play, such as the product and the purchase, renewal, expiry and cancellation dates. They are kept so subscription status and purchase history stay correct, so refunds, renewals and billing questions can be handled, and to meet accounting and legal obligations, for as long as RevenueCat retains them or those obligations require. After your BookFlow account is deleted, that identifier is no longer linked to any account, name or email address held by BookFlow. To ask for these records to be erased, contact us before you delete your account, so we can identify them; once the account is deleted we may no longer be able to. We will erase them where we are not required to keep them.',
         },
         {
           type: 'paragraph',

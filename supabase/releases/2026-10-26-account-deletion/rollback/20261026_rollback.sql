@@ -1,11 +1,11 @@
--- ROLLBACK for 20261026000000_revenuecat_erasure_queue. Not a migration: run only to undo it,
+-- ROLLBACK for 20261026000000_account_deletion_guard. Not a migration: run only to undo it,
 -- in one transaction (psql --single-transaction -v ON_ERROR_STOP=1 -f <this file>).
 --
--- Removes the write guards, the erasure functions and the bookflow_admin schema, and restores
+-- Removes the deleted-account write guards and record_account_deletion, and restores
 -- delete_bookflow_account_data exactly as 20260916000000 defined it.
 --
--- The revenuecat_erasure_requests table is deliberately KEPT: its rows are RevenueCat erasures
--- still owed for accounts that were deleted. Export or finish them before ever dropping it.
+-- The deleted_accounts table is kept: it holds only ids of accounts already deleted, which
+-- the previous delete-account function does not use, and it ages out of relevance on its own.
 -- Afterwards: supabase migration repair --status reverted 20261026000000
 
 begin;
@@ -16,11 +16,7 @@ drop trigger if exists public_booking_offers_deleted_account_guard on public.pub
 drop trigger if exists support_requests_deleted_account_guard on public.support_requests;
 drop trigger if exists user_feedback_deleted_account_guard on public.user_feedback;
 drop function if exists public.refuse_writes_for_deleted_accounts();
-drop function if exists public.request_revenuecat_erasure(text, text);
-drop function if exists public.record_revenuecat_erasure_progress(text, text);
-drop function if exists bookflow_admin.revenuecat_erasure_queue(boolean);
-drop function if exists bookflow_admin.complete_revenuecat_erasure(text, text);
-drop schema if exists bookflow_admin;
+drop function if exists public.record_account_deletion(text, text, text);
 
 create or replace function public.delete_bookflow_account_data(p_user_id text)
 returns jsonb
