@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -7,8 +8,16 @@ import { getSoftTokens } from '@/components/settings/tokens';
 import type { PackageOption } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 import { MAX_DEPOSIT_PERCENT, type ServiceDepositType } from '@/lib/service-defaults';
+import { normalizeIncludedServices, parseMoneyInput, type SavedAddOn } from '@/lib/booking-pricing';
 import type { TranslationKey } from '@/lib/i18n';
 import { useTranslation } from '@/lib/use-translation';
+
+type AddOnDraft = { key: string; id?: string; name: string; unitPrice: string; unit: string };
+let addOnSequence = 0;
+const newAddOnDraft = (seed?: Partial<AddOnDraft>): AddOnDraft => {
+  addOnSequence += 1;
+  return { key: `addon-${Date.now()}-${addOnSequence}`, name: '', unitPrice: '', unit: '', ...seed };
+};
 
 export type ServiceFormValues = Omit<PackageOption, 'id'>;
 
@@ -51,6 +60,13 @@ export function ServiceForm({ mode, initialValues, onSubmit, onCancel }: Props) 
     seed.defaultDepositValue ? String(seed.defaultDepositValue) : '',
   );
   const [error, setError] = useState('');
+  const [includedText, setIncludedText] = useState((seed.includedServices ?? []).join('\n'));
+  const [addOns, setAddOns] = useState<AddOnDraft[]>(() =>
+    (seed.addOns ?? []).map((addOn) => newAddOnDraft({ id: addOn.id, name: addOn.name, unitPrice: String(addOn.unitPrice), unit: addOn.unit ?? '' })),
+  );
+  const [bufferText, setBufferText] = useState(seed.bufferMinutes ? String(seed.bufferMinutes) : '');
+  // Optional extras stay folded away unless the service already uses them.
+  const [showExtras, setShowExtras] = useState(Boolean(seed.includedServices?.length || seed.addOns?.length || seed.bufferMinutes));
 
   const handleSubmit = () => {
     const parsedPrice = Number(price);
@@ -78,7 +94,30 @@ export function ServiceForm({ mode, initialValues, onSubmit, onCancel }: Props) 
       }
     }
 
+    const savedAddOns: SavedAddOn[] = [];
+    for (const draft of addOns) {
+      if (!draft.name.trim() && !draft.unitPrice.trim()) continue;
+      const unitPrice = parseMoneyInput(draft.unitPrice);
+      if (!draft.name.trim() || unitPrice === null || unitPrice <= 0) {
+        setShowExtras(true);
+        setError(t('service.addOns.error'));
+        return;
+      }
+      savedAddOns.push({ id: draft.id ?? `addon-${Date.now()}-${savedAddOns.length}`, name: draft.name.trim(), unitPrice, ...(draft.unit.trim() ? { unit: draft.unit.trim() } : {}) });
+    }
+    const buffer = bufferText.trim() ? Number(bufferText) : 0;
+    if (!Number.isFinite(buffer) || buffer < 0 || buffer > 720) {
+      setShowExtras(true);
+      setError(t('service.buffer.error'));
+      return;
+    }
+
     onSubmit({
+      // Prefill-only defaults, like the deposit: a booking copies them when it is made and keeps
+      // its own copy, so editing them here never changes an existing booking, quote or invoice.
+      includedServices: normalizeIncludedServices(includedText),
+      addOns: savedAddOns,
+      bufferMinutes: Math.round(buffer),
       name: name.trim(),
       details: details.trim(),
       duration: duration.trim(),
@@ -151,6 +190,88 @@ export function ServiceForm({ mode, initialValues, onSubmit, onCancel }: Props) 
           placeholderTextColor={palette.muter}
           accessibilityLabel={t('service.duration')}
         />
+
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded: showExtras }}
+          onPress={() => setShowExtras((current) => !current)}
+          style={[styles.extrasButton, { backgroundColor: soft.inset, borderColor: soft.border }, showExtras && { borderColor: palette.accent, backgroundColor: soft.accentSoft }]}>
+          <View style={styles.extrasCopy}>
+            <Text style={[styles.extrasTitle, { color: palette.text }]}>{t('service.extras')}</Text>
+            <Text style={[styles.helperText, styles.extrasHint, { color: palette.muter }]}>{t('service.extras.hint')}</Text>
+          </View>
+          <Ionicons name={showExtras ? 'chevron-up' : 'chevron-down'} size={18} color={palette.text} />
+        </Pressable>
+        {showExtras ? (
+          <View>
+            <Text style={labelStyle}>{t('service.included')}</Text>
+            <TextInput
+              value={includedText}
+              onChangeText={setIncludedText}
+              style={[...inputStyle, styles.multilineInput]}
+              placeholder={t('service.included.placeholder')}
+              placeholderTextColor={palette.muter}
+              accessibilityLabel={t('service.included')}
+              multiline
+              textAlignVertical="top"
+            />
+
+            <Text style={labelStyle}>{t('service.addOns')}</Text>
+            {addOns.map((draft, index) => (
+              <View key={draft.key} style={[styles.addOnRow, { backgroundColor: soft.inset, borderColor: soft.border }]}>
+                <View style={styles.addOnHeader}>
+                  <TextInput
+                    value={draft.name}
+                    onChangeText={(value) => { setAddOns(addOns.map((item) => (item.key === draft.key ? { ...item, name: value } : item))); setError(''); }}
+                    style={[...inputStyle, styles.addOnName, { backgroundColor: soft.surface }]}
+                    placeholder={t('service.addOns.name')}
+                    placeholderTextColor={palette.muter}
+                    accessibilityLabel={`${t('service.addOns.name')} ${index + 1}`}
+                    maxLength={120}
+                  />
+                  <Pressable accessibilityRole="button" accessibilityLabel={`${t('service.addOns.remove')} ${index + 1}`} hitSlop={8} onPress={() => setAddOns(addOns.filter((item) => item.key !== draft.key))} style={styles.addOnRemove}>
+                    <Ionicons name="trash-outline" size={17} color={palette.danger} />
+                  </Pressable>
+                </View>
+                <View style={styles.addOnNumbers}>
+                  <TextInput
+                    value={draft.unitPrice}
+                    onChangeText={(value) => { setAddOns(addOns.map((item) => (item.key === draft.key ? { ...item, unitPrice: value } : item))); setError(''); }}
+                    style={[...inputStyle, styles.flex, { backgroundColor: soft.surface }]}
+                    placeholder={t('service.addOns.price')}
+                    placeholderTextColor={palette.muter}
+                    accessibilityLabel={`${t('service.addOns.price')} ${index + 1}`}
+                    keyboardType="decimal-pad"
+                  />
+                  <TextInput
+                    value={draft.unit}
+                    onChangeText={(value) => setAddOns(addOns.map((item) => (item.key === draft.key ? { ...item, unit: value } : item)))}
+                    style={[...inputStyle, styles.flex, { backgroundColor: soft.surface }]}
+                    placeholder={t('service.addOns.unit')}
+                    placeholderTextColor={palette.muter}
+                    accessibilityLabel={`${t('service.addOns.unit')} ${index + 1}`}
+                    maxLength={24}
+                  />
+                </View>
+              </View>
+            ))}
+            <Pressable accessibilityRole="button" onPress={() => setAddOns([...addOns, newAddOnDraft()])} style={({ pressed }) => [styles.addOnAdd, { borderColor: palette.accent }, pressed && styles.pressed]}>
+              <Ionicons name="add" size={16} color={palette.accent} />
+              <Text style={[styles.addOnAddText, { color: palette.accent }]}>{t('service.addOns.add')}</Text>
+            </Pressable>
+
+            <Text style={labelStyle}>{t('service.buffer')}</Text>
+            <TextInput
+              value={bufferText}
+              onChangeText={(value) => { setBufferText(value); setError(''); }}
+              style={inputStyle}
+              placeholder="0"
+              placeholderTextColor={palette.muter}
+              accessibilityLabel={t('service.buffer')}
+              keyboardType="number-pad"
+            />
+          </View>
+        ) : null}
 
         <Text style={labelStyle}>{t('service.defaultDeposit')}</Text>
         <View style={styles.depositModeRow}>
@@ -287,6 +408,70 @@ const styles = StyleSheet.create({
   depositModeText: {
     fontSize: 12.5,
     fontWeight: '700',
+  },
+  extrasButton: {
+    alignItems: 'center',
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  extrasCopy: {
+    flex: 1,
+  },
+  extrasTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  extrasHint: {
+    marginTop: 2,
+  },
+  addOnRow: {
+    borderRadius: 16,
+    borderWidth: 1,
+    marginBottom: 8,
+    padding: 8,
+  },
+  addOnHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  addOnName: {
+    flex: 1,
+    width: undefined,
+  },
+  addOnRemove: {
+    alignItems: 'center',
+    height: 40,
+    justifyContent: 'center',
+    width: 36,
+  },
+  addOnNumbers: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+  },
+  flex: {
+    flex: 1,
+    width: undefined,
+  },
+  addOnAdd: {
+    alignItems: 'center',
+    borderRadius: 14,
+    borderStyle: 'dashed',
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 6,
+    justifyContent: 'center',
+    paddingVertical: 10,
+  },
+  addOnAddText: {
+    fontSize: 13,
+    fontWeight: '800',
   },
   depositInput: {
     marginTop: 10,

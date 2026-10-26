@@ -23,6 +23,14 @@ export function isInvoiceClosed(invoice: Invoice) {
   return invoice.status === 'Cancelled' || invoice.status === 'Declined' || invoice.status === 'Void';
 }
 
+/**
+ * Whether the owner may edit an invoice. Only a closed or trashed invoice is locked — acceptance is
+ * deliberately not a reason: an accepted invoice stays editable and keeps its acceptance.
+ */
+export function canEditInvoice(invoice: Invoice) {
+  return !invoice.deletedAt && !isInvoiceClosed(invoice);
+}
+
 export function isInvoiceTrashed(invoice: Invoice) {
   return Boolean(invoice.deletedAt);
 }
@@ -84,6 +92,22 @@ export function getInvoiceRemovalAction(invoice: Invoice, payments: InvoicePayme
         : 'cancel';
 
   return { mode, ...REMOVAL_ACTIONS[mode] };
+}
+
+/**
+ * A plain Delete offered beside the default Cancel or Void, whatever the invoice's status — which
+ * also takes its booking out of the calendar, through the same linked-booking rules as any other
+ * Delete. It is still a move to the Dustbin: payments stay on the invoice and come back with it on
+ * restore. Null when the invoice is already trashed, or when Delete is already the default.
+ */
+export function getInvoiceDeleteAction(invoice: Invoice, payments: InvoicePayment[]): InvoiceRemovalAction | null {
+  if (invoice.deletedAt || getInvoiceRemovalAction(invoice, payments).mode === 'delete') return null;
+  return { mode: 'delete', ...REMOVAL_ACTIONS.delete };
+}
+
+/** Deleting an accepted invoice needs a reason; every other removal keeps it optional. */
+export function removalRequiresReason(invoice: Pick<Invoice, 'status'>, mode: InvoiceRemovalMode) {
+  return mode === 'delete' && invoice.status === 'Accepted';
 }
 
 /**

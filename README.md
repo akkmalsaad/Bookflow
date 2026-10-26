@@ -42,6 +42,8 @@ Bookflow is an Expo SDK 54 app. Clerk owns authentication and Supabase stores ea
 
 `public_invoice_links` stores a 30-day capability token and an invoice snapshot. WhatsApp receives an HTTPS Edge Function URL instead of a private app deep link. The Function redirects browsers to the public Expo web route and exposes invoice data only as JSON after validating the capability token. Customers can review, accept, or decline without a Bookflow login; the response updates both the link status and the owner's workspace. Anonymous callers receive no direct table permissions.
 
+`public_booking_offers` holds booking forms, quotations and customer booking pages (`/b?t=...`), served by the `booking-public` Edge Function. Customer responses stay in that table, and the owner's app turns a submission into a customer, booking and invoice exactly once, the next time it opens or refreshes. See [docs/booking-workflows-handoff.md](docs/booking-workflows-handoff.md).
+
 The client never uses Supabase Auth and never receives a database secret. Supabase validates the short-lived Clerk session token supplied to each request, then PostgreSQL RLS enforces ownership.
 
 ## Verification

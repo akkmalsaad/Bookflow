@@ -1,12 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { openBrowserAsync, WebBrowserPresentationStyle } from 'expo-web-browser';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ProBadge } from '@/components/ProBadge';
 import { getSoftTokens } from '@/components/settings/tokens';
+import { useAuth } from '@/context/auth-context';
+import { useSnackbar } from '@/context/snackbar-context';
 import { useSubscription } from '@/context/subscription-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 import { FREE_LIMITS, isLimitKind, LIMIT_COPY } from '@/lib/plan-limits';
@@ -14,8 +17,13 @@ import type { Translate } from '@/lib/i18n';
 import { useTranslation } from '@/lib/use-translation';
 import { describeMonthlyEquivalent, describePackage, isExpoGo, isPurchasesSupported, yearlySavingsPercent } from '@/lib/revenuecat';
 import { captureEvent } from '@/lib/analytics';
+import { confirmProActivation } from '@/lib/pro-activation';
 
 type PlanId = 'monthly' | 'yearly';
+
+// BookFlow Pro is sold under Apple's standard licence agreement, which App Review requires the
+// paywall to link to before purchase. BookFlow's own Terms of Service stay in Settings.
+const APPLE_STANDARD_EULA_URL = 'https://www.apple.com/legal/internet-services/itunes/dev/stdeula/';
 
 /**
  * The Bookflow Pro paywall. Custom-built rather than a RevenueCat-hosted template so it inherits
@@ -71,34 +79,81 @@ export default function PaywallScreen() {
     if (selectedPlan === 'yearly' && !yearlyPackage && monthlyPackage) setSelectedPlan('monthly');
   }, [monthlyPackage, selectedPlan, yearlyPackage]);
 
-  // Entitlement is the source of truth: if it turns active for any reason — this purchase, a
-  // restore, or a renewal syncing in from another device — the paywall has nothing left to sell.
-  useEffect(() => {
-    if (!isPro) return;
+  const { getAccessToken } = useAuth();
+  const { showSnackbar } = useSnackbar();
+  // Set while a purchase or restore started here is being completed, so the screen stays until
+  // BookFlow's server has confirmed Pro rather than closing the moment the device sees it.
+  const activationOwned = useRef(false);
+  const [isActivating, setIsActivating] = useState(false);
+  const isProRef = useRef(isPro);
+  isProRef.current = isPro;
+
+  const leave = useCallback(() => {
+    activationOwned.current = false;
     if (proDestination) {
       router.replace(proDestination);
     } else {
       close();
     }
-  }, [close, isPro, proDestination, router]);
+  }, [close, proDestination, router]);
+
+  /** Lets go of a purchase or restore that did not end in Pro, leaving if Pro arrived anyway. */
+  const releaseActivation = useCallback(() => {
+    activationOwned.current = false;
+    if (isProRef.current) leave();
+  }, [leave]);
+
+  // Entitlement is the source of truth: if it turns active for any reason — this purchase, a
+  // restore, or a renewal syncing in from another device — the paywall has nothing left to sell.
+  useEffect(() => {
+    if (!isPro || activationOwned.current) return;
+    leave();
+  }, [isPro, leave]);
+
+  /**
+   * After the store has verified a purchase or restore: confirms Pro with BookFlow's server, which
+   * is what existing booking-form links check. Success is only announced once the server agrees;
+   * otherwise the owner is told it is still activating and can retry.
+   */
+  const finishActivation = useCallback(async () => {
+    setIsActivating(true);
+    const { outcome, reason } = await confirmProActivation(getAccessToken);
+    setIsActivating(false);
+    // Which failure it was (session, entitlement, server key, network) — a code, never an id.
+    if (__DEV__ && outcome !== 'active') console.warn('[pro-activation]', outcome, reason);
+    if (outcome === 'active') {
+      showSnackbar({ message: t('pro.activation.ready'), tone: 'success' });
+      leave();
+      return;
+    }
+    Alert.alert(t('pro.activation.pendingTitle'), t('pro.activation.pendingBody'), [
+      { text: t('pro.activation.later'), style: 'cancel', onPress: leave },
+      { text: t('pro.activation.retry'), onPress: () => { void finishActivation(); } },
+    ]);
+  }, [getAccessToken, leave, showSnackbar, t]);
 
   // Null unless yearly is genuinely cheaper than twelve monthly payments; a 0% rounds away too.
   const savings = yearlySavingsPercent(monthlyPackage, yearlyPackage);
   const monthlyEquivalent = describeMonthlyEquivalent(yearlyPackage);
 
   const selectedPackage = selectedPlan === 'yearly' ? yearlyPackage : monthlyPackage;
-  const isBusy = isPurchasing || isRestoring;
+  const isBusy = isPurchasing || isRestoring || isActivating;
 
   const handleUpgrade = useCallback(async () => {
     if (!selectedPackage || isBusy) return;
 
+    activationOwned.current = true;
     const outcome = await purchase(selectedPackage);
 
     // Backing out of the store sheet is a decision, not a failure — drop the loading state and
     // leave the customer exactly where they were.
-    if (outcome.status === 'cancelled') return;
+    if (outcome.status === 'cancelled') {
+      releaseActivation();
+      return;
+    }
 
     if (outcome.status === 'error') {
+      releaseActivation();
       Alert.alert(t('paywall.incomplete'), outcome.message);
       return;
     }
@@ -113,6 +168,7 @@ export default function PaywallScreen() {
     if (outcome.status === 'purchased' && !outcome.isPro) {
       // A completed transaction that did not grant the entitlement means the product is not
       // attached to `pro` in the dashboard, or the receipt is still being processed.
+      releaseActivation();
       Alert.alert(
         t('paywall.almost.title'),
         t('paywall.almost.body'),
@@ -121,16 +177,18 @@ export default function PaywallScreen() {
       // The purchase response already contains fresh CustomerInfo; this follow-up also reconciles
       // any store-side entitlement propagation before a gated destination replaces the paywall.
       await refreshSubscription();
+      await finishActivation();
     }
-    // The `isPro` effect above closes the screen once the entitlement lands.
-  }, [isBusy, purchase, refreshSubscription, selectedPackage, selectedPlan, t]);
+  }, [finishActivation, isBusy, purchase, refreshSubscription, releaseActivation, selectedPackage, selectedPlan, t]);
 
   const handleRestore = useCallback(async () => {
     if (isBusy) return;
 
+    activationOwned.current = true;
     const outcome = await restore();
 
     if (outcome.status === 'error') {
+      releaseActivation();
       Alert.alert(t('paywall.restoreFailed'), outcome.message);
       return;
     }
@@ -138,12 +196,34 @@ export default function PaywallScreen() {
       captureEvent('subscription_restored', { entitlement_granted: outcome.isPro });
     }
     if (outcome.status === 'purchased' && !outcome.isPro) {
+      releaseActivation();
       Alert.alert(
         t('paywall.nothingToRestore'),
         t('paywall.nothingToRestore.body'),
       );
+      return;
     }
-  }, [isBusy, restore, t]);
+    if (outcome.status === 'purchased') {
+      await finishActivation();
+      return;
+    }
+    releaseActivation();
+  }, [finishActivation, isBusy, releaseActivation, restore, t]);
+
+  // Opens in an in-app Safari sheet so closing it lands back on the paywall. A quick second tap
+  // would reject while the first sheet is presenting, so ignore it rather than report a failure.
+  const isOpeningEula = useRef(false);
+  const handleOpenEula = useCallback(async () => {
+    if (isOpeningEula.current) return;
+    isOpeningEula.current = true;
+    try {
+      await openBrowserAsync(APPLE_STANDARD_EULA_URL, { presentationStyle: WebBrowserPresentationStyle.AUTOMATIC });
+    } catch {
+      Alert.alert(t('paywall.linkFailed'), t('paywall.linkFailed.body'));
+    } finally {
+      isOpeningEula.current = false;
+    }
+  }, [t]);
 
   // `canPurchase` comes from the subscription context, which knows which store is configured —
   // App Store, Play Store or the development Test Store. A development build purchases normally on
@@ -224,11 +304,14 @@ export default function PaywallScreen() {
             RevenueCat Test Store — this purchase is simulated and costs nothing.
           </Text> : null}
 
-          <Pressable accessibilityRole="button" accessibilityState={{ disabled: !canSubmitPurchase, busy: isPurchasing }}
+          <Pressable accessibilityRole="button" accessibilityState={{ disabled: !canSubmitPurchase, busy: isPurchasing || isActivating }}
             disabled={!canSubmitPurchase} onPress={handleUpgrade}
             style={({ pressed }) => [styles.primaryButton, { backgroundColor: palette.accent, shadowColor: palette.accent },
-              pressed && styles.pressed, !canSubmitPurchase && styles.disabled]}>
-            {isPurchasing ? <ActivityIndicator color="#FFFFFF" /> : <>
+              pressed && styles.pressed, !canSubmitPurchase && !isActivating && styles.disabled]}>
+            {isActivating ? <>
+              <ActivityIndicator color="#FFFFFF" />
+              <Text style={styles.primaryButtonText}>{t('pro.activation.activating')}</Text>
+            </> : isPurchasing ? <ActivityIndicator color="#FFFFFF" /> : <>
               <Text style={styles.primaryButtonText}>{t('paywall.continuePro')}</Text>
               <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
             </>}
@@ -241,10 +324,10 @@ export default function PaywallScreen() {
             <Text style={[styles.stayText, { color: palette.muter }]}>{t('paywall.stayFree')}</Text>
           </Pressable>
           <View style={[styles.legal, { borderTopColor: soft.divider }]}>
-            <Pressable accessibilityRole="link" disabled={isBusy} style={styles.legalLink} onPress={() => router.push('/settings/terms')}>
-              <Text style={[styles.legalText, { color: palette.muter }]}>{t('paywall.terms')}</Text>
+            <Pressable accessibilityRole="link" disabled={isBusy} hitSlop={LEGAL_HIT_SLOP} style={styles.legalLink} onPress={handleOpenEula}>
+              <Text style={[styles.legalText, { color: palette.muter }]}>{t('paywall.eula')}</Text>
             </Pressable>
-            <Pressable accessibilityRole="link" disabled={isBusy} style={styles.legalLink} onPress={() => router.push('/settings/privacy')}>
+            <Pressable accessibilityRole="link" disabled={isBusy} hitSlop={LEGAL_HIT_SLOP} style={styles.legalLink} onPress={() => router.push('/settings/privacy')}>
               <Text style={[styles.legalText, { color: palette.muter }]}>{t('paywall.privacy')}</Text>
             </Pressable>
           </View>
@@ -332,6 +415,10 @@ function PlanSkeleton({ isDarkMode, stack, styles }: { isDarkMode: boolean; stac
   </View>;
 }
 
+// Grows the compact legal links to a 44pt touch target; half the row's column/row gap each side so
+// neighbouring targets meet without overlapping.
+const LEGAL_HIT_SLOP = { top: 6, bottom: 6, left: 9, right: 9 };
+
 // Use the measured modal viewport: an iOS sheet is shorter than the device window.
 const createStyles = (viewportHeight: number) => {
   const compact = viewportHeight < 740;
@@ -391,9 +478,10 @@ const createStyles = (viewportHeight: number) => {
   renewal: { fontSize: 10, lineHeight: 14, textAlign: 'center', marginTop: 4 },
   stayButton: { minHeight: 32, justifyContent: 'center', paddingHorizontal: 12, paddingVertical: 6 },
   stayText: { fontSize: 12, fontWeight: '600' },
-  legal: { alignSelf: 'stretch', flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', columnGap: 18, borderTopWidth: StyleSheet.hairlineWidth },
-  legalLink: { minHeight: 32 + 8 * breathingRoom, justifyContent: 'center' },
-  legalText: { fontSize: 11, fontWeight: '500' },
+  // Wraps onto two lines at large text sizes; a long label wraps within its own link.
+  legal: { alignSelf: 'stretch', flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', columnGap: 18, rowGap: 12, borderTopWidth: StyleSheet.hairlineWidth },
+  legalLink: { minHeight: 32 + 8 * breathingRoom, maxWidth: '100%', justifyContent: 'center' },
+  legalText: { fontSize: 11, fontWeight: '500', textAlign: 'center' },
   pressed: { opacity: 0.82 },
   disabled: { opacity: 0.55 },
   });

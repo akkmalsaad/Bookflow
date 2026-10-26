@@ -144,7 +144,7 @@ export default function FinanceScreen() {
             <View style={[styles.entryAccent, { backgroundColor: item.type === 'income' ? palette.success : palette.danger }]} />
             <View style={styles.entryCopy}>
               <Text style={[styles.entryCategory, { color: palette.text }]} numberOfLines={1}>{item.category}</Text>
-              <Text style={[styles.entryDescription, { color: palette.muter }]} numberOfLines={2}>{item.description}</Text>
+              {item.description?.trim() ? <Text style={[styles.entryDescription, { color: palette.muter }]} numberOfLines={2}>{item.description}</Text> : null}
             </View>
             <View style={styles.entryRight}>
               <Text

@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Linking from 'expo-linking';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -51,7 +51,7 @@ function getProfileValueWith(value: string, fallback: string) {
 
 export default function CustomerProfileScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ customerId?: string }>();
+  const params = useLocalSearchParams<{ customerId?: string; edit?: string }>();
   const { isDarkMode } = useTheme();
   const {
     customers,
@@ -136,6 +136,15 @@ export default function CustomerProfileScreen() {
     setShowMenu(false);
     setShowEditor(true);
   };
+
+  // `?edit=1` opens the editor straight away — e.g. from a booking link that needs a phone number.
+  useEffect(() => {
+    if (params.edit !== '1' || !customer) return;
+    openEditor();
+    router.setParams({ edit: '' });
+    // Only when asked; the editor's own state is not a reason to reopen it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.edit, customer?.id]);
 
   const handleSaveCustomer = () => {
     if (!customer) return;

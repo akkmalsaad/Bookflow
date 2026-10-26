@@ -3,37 +3,63 @@ import { getSupabaseFunctionUrl, isSupabaseConfigured } from '@/lib/supabase';
 const REQUEST_TIMEOUT_MS = 45_000;
 
 /**
+ * deleted  — the server confirmed the whole deletion finished.
+ * failed   — the server answered and said it did not delete the account (with a reason code).
+ * unknown  — no answer arrived (offline, timeout), so the deletion may or may not have finished.
+ *
+ * Reasons are short codes from the server or from this function — never tokens, emails or the
+ * server's own error text — so they are safe to log and to send to analytics.
+ */
+export type AccountDeletionOutcome =
+  | { outcome: 'deleted' }
+  | { outcome: 'failed'; reason: string }
+  | { outcome: 'unknown'; reason: string };
+
+function readReason(body: unknown, fallback: string) {
+  if (!body || typeof body !== 'object') return fallback;
+  const { reason, step, error } = body as { reason?: unknown; step?: unknown; error?: unknown };
+  const code = [reason, step, error].find((value) => typeof value === 'string' && /^[a-z_]{1,40}$/.test(value));
+  return typeof code === 'string' ? code : fallback;
+}
+
+/**
  * Asks the `delete-account` Edge Function to delete the signed-in account. The server works out
  * who is being deleted from the Clerk session token; nothing identifying is sent in the body.
- *
- * Resolves true only when the server confirms the whole deletion finished. Every failure —
- * offline, timeout, auth, server — resolves false, and the server's reasons never reach the UI.
  */
-export async function requestAccountDeletion(getAccessToken: () => Promise<string | null>): Promise<boolean> {
-  if (!isSupabaseConfigured) return false;
+export async function requestAccountDeletion(getAccessToken: () => Promise<string | null>): Promise<AccountDeletionOutcome> {
+  if (!isSupabaseConfigured) return { outcome: 'failed', reason: 'not_configured' };
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
     // Fetched fresh: Clerk session tokens are short-lived and the server rejects expired ones.
     const token = await getAccessToken();
-    if (!token) return false;
+    if (!token) return { outcome: 'failed', reason: 'no_session' };
 
-    const response = await fetch(getSupabaseFunctionUrl('delete-account'), {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${token}`,
-        apikey: process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? '',
-        'content-type': 'application/json',
-      },
-      body: '{}',
-      signal: controller.signal,
-    });
-    if (!response.ok) return false;
+    let response: Response;
+    try {
+      response = await fetch(getSupabaseFunctionUrl('delete-account'), {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${token}`,
+          apikey: process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? '',
+          'content-type': 'application/json',
+        },
+        body: '{}',
+        signal: controller.signal,
+      });
+    } catch {
+      // The request may have reached the server and finished; only the answer was lost.
+      return { outcome: 'unknown', reason: controller.signal.aborted ? 'timeout' : 'network' };
+    }
+
     const body = (await response.json().catch(() => null)) as { deleted?: unknown } | null;
-    return body?.deleted === true;
+    if (response.ok && body?.deleted === true) return { outcome: 'deleted' };
+    // A gateway error page or a 5xx without a body is not a definite "no".
+    if (!body && response.status >= 500) return { outcome: 'unknown', reason: `http_${response.status}` };
+    return { outcome: 'failed', reason: readReason(body, `http_${response.status}`) };
   } catch {
-    return false;
+    return { outcome: 'failed', reason: 'client_error' };
   } finally {
     clearTimeout(timeout);
   }

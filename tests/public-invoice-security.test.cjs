@@ -67,3 +67,14 @@ test('public projection removes hidden data in every copy and drops unrecognized
  const input={status:'Sent',invoice:{id:'a',status:'Sent',amount:100,dueDate:'2026-10-01'},payments:[{invoiceId:'a',amount:30,kind:'deposit'}],payload:{secret:hidden,currency:'MYR',invoice:{id:hidden,terms:hidden,dueDate:hidden},businessProfile:{address:hidden},render:{design:{visibility,thankYouMessage:hidden},business:{address:hidden},client:{address:hidden},invoice:{dueOn:hidden},payment:{bankName:hidden,accountNumber:hidden},paymentInstructions:hidden,terms:hidden,thankYouMessage:hidden,unknown:hidden,items:[{description:'Service'}]}}};
  const result=publicInvoiceResponse(input);assert.ok(!JSON.stringify(result).includes(hidden));assert.equal(result.payload.render.totals.amountPaid,'RM 30.00');assert.equal(result.payload.render.totals.balance,'RM 70.00');assert.equal(result.status,'Partially Paid');
 });
+test('multi-line invoices show each line amount and a deposit due derived from current payments',()=>{
+ const input={status:'Sent',invoice:{id:'a',status:'Sent',amount:375,depositDue:112.5,dueDate:'2026-10-01'},payments:[{invoiceId:'a',amount:50,kind:'deposit'}],payload:{currency:'MYR',invoice:{id:'a'},render:{design:{},items:[{description:'Wedding',amountCents:32000},{description:'Parking',detail:'2 × RM 25.00',amountCents:5000},{description:'Accommodation',amountCents:999999999}]}}};
+ const result=publicInvoiceResponse(input);
+ const ws=v=>String(v).replace(/\s/g,' ');const labels=result.payload.render.items.map(item=>ws(item.amountLabel));
+ assert.equal(labels[0],'RM 320.00');assert.equal(labels[1],'RM 50.00');
+ // An amount larger than the invoice is never trusted; it falls back to the total.
+ assert.equal(labels[2],'RM 375.00');
+ assert.equal(ws(result.payload.render.totals.depositDue),'RM 62.50');assert.equal(result.payload.render.totals.hasDepositDue,true);
+ const legacy=publicInvoiceResponse({...input,invoice:{id:'a',status:'Sent',amount:375},payload:{currency:'MYR',invoice:{id:'a'},render:{design:{},items:[{description:'Wedding',amountCents:100}]}}});
+ assert.equal(ws(legacy.payload.render.items[0].amountLabel),'RM 375.00');assert.equal(legacy.payload.render.totals.depositDue,undefined);
+});

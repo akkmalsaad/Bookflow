@@ -411,9 +411,11 @@ export default function ExpenseScreen() {
                     </View>
                     <View style={styles.entryCopy}>
                       <Text style={[styles.entryCategory, { color: palette.text }]}>{item.category}</Text>
-                      <Text style={[styles.entryDescription, { color: palette.muter }]} numberOfLines={1}>
-                        {item.description}
-                      </Text>
+                      {item.description?.trim() ? (
+                        <Text style={[styles.entryDescription, { color: palette.muter }]} numberOfLines={1}>
+                          {item.description}
+                        </Text>
+                      ) : null}
                     </View>
                   </View>
                   <View style={styles.entryRight}>

@@ -221,8 +221,8 @@ export function InvoicePreview({ data }: { data: InvoiceRenderData }) {
               AMOUNT
             </Text>
           </View>
-          {data.items.map((item) => (
-            <View key={item.description} style={[styles.itemRow, { borderBottomColor: tokens.border }]}>
+          {data.items.map((item, index) => (
+            <View key={`${index}-${item.description}`} style={[styles.itemRow, { borderBottomColor: tokens.border }]}>
               <View style={styles.itemCopy}>
                 <Text style={[styles.itemName, { color: tokens.text }]}>{item.description}</Text>
                 {has(item.detail) ? (
@@ -243,6 +243,12 @@ export function InvoicePreview({ data }: { data: InvoiceRenderData }) {
             <View style={[styles.totalRow, proNarrow && styles.narrowTotalRow]}>
               <Text style={[styles.totalLabel, { color: tokens.muted }]}>{L.depositPaid}</Text>
               <Text style={[styles.totalValue, proNarrow && styles.narrowTotalValue, { color: tokens.text }]}>{totals.depositPaid}</Text>
+            </View>
+          ) : null}
+          {totals.hasDepositDue && totals.depositDue ? (
+            <View style={[styles.totalRow, proNarrow && styles.narrowTotalRow]}>
+              <Text style={[styles.totalLabel, { color: tokens.muted }]}>{L.depositDue || 'Deposit due'}</Text>
+              <Text style={[styles.totalValue, proNarrow && styles.narrowTotalValue, { color: tokens.text }]}>{totals.depositDue}</Text>
             </View>
           ) : null}
           <View style={[styles.totalRow, proNarrow && styles.narrowTotalRow]}>

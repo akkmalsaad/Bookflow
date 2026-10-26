@@ -67,10 +67,13 @@ export function submitSupportRequest(
   );
 }
 
-/** Stores in-app feedback. Feedback carries no OS version — it is not needed to act on it. */
+/**
+ * Stores in-app feedback. Feedback carries no OS version — it is not needed to act on it.
+ * `contactAllowed` is sent only when the form asks; the column defaults to "do not contact".
+ */
 export function submitUserFeedback(
   client: BookFlowSupabase | null,
-  feedback: { id: string; category: FeedbackCategory; message: string },
+  feedback: { id: string; category: FeedbackCategory; message: string; contactAllowed?: boolean },
 ): Promise<SubmitResult> {
   if (!client) return Promise.resolve({ ok: false, reason: 'unavailable' });
   const { app_version, platform } = getSupportDiagnostics();
@@ -81,6 +84,7 @@ export function submitUserFeedback(
       message: feedback.message.trim(),
       app_version,
       platform,
+      ...(feedback.contactAllowed === undefined ? {} : { contact_allowed: feedback.contactAllowed }),
     }),
   );
 }

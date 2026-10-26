@@ -4,7 +4,7 @@ import { Animated, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, Vi
 import { useRouter } from 'expo-router';
 import { SuccessFeedback } from '@/components/feedback/SuccessFeedback';
 import { useConfirmedSave } from '@/components/feedback/useConfirmedSave';
-import { getCurrencyFormatter, useAppData } from '@/context/app-data-context';
+import { getCurrencyFormatter, useAppData, type Booking, type Invoice, type PackageOption } from '@/context/app-data-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
 import { DatePickerField } from '@/components/DatePickerField';
 import { KeyboardDoneButton } from '@/components/KeyboardDoneButton';
@@ -13,7 +13,29 @@ import { useResponsive } from '@/lib/responsive';
 import { useTranslation } from '@/lib/use-translation';
 import { captureEvent } from '@/lib/analytics';
 import { getServiceDepositDefault, resolveServiceDepositAmount } from '@/lib/service-defaults';
-import { addMinutesToTime, findBookingTimeConflict, normalizeBookingTime, parsePackageDurationMinutes } from '@/lib/booking-conflicts';
+import { addMinutesToTime, findBookingConflicts, normalizeBookingTime, normalizeBufferMinutes, parsePackageDurationMinutes } from '@/lib/booking-conflicts';
+import {
+  calculateBookingTotals,
+  getBookingBasePrice,
+  getBookingDepositTerms,
+  normalizeCharges,
+  resolveBookingMoney,
+  validateChargeDraft,
+  type BookingCharge,
+  type DepositTerms,
+  type DepositType,
+} from '@/lib/booking-pricing';
+import type { BookingOffer, OfferDetails } from '@/lib/booking-offers';
+import { getInvoiceEditSource } from '@/lib/invoice-edit';
+import { getInvoicePaymentSummary } from '@/lib/invoice-payments';
+import type { TranslationKey } from '@/lib/i18n';
+import { BookingChargesEditor, newChargeRow, type ChargeDraftRow } from '@/components/booking/BookingChargesEditor';
+import { BookingMoneySummary } from '@/components/booking/BookingMoneySummary';
+import { ScheduleConflictNotice } from '@/components/booking/ScheduleConflictNotice';
+import { LinkReadyPanel } from '@/components/booking/LinkReadyPanel';
+import { bookingFormStyles as f } from '@/components/booking/booking-form-styles';
+import { useSubscription } from '@/context/subscription-context';
+import { canUseWorkflowFeature } from '@/lib/workflow-entitlements';
 import {
   formatTime,
   getSuggestedEndTime,
@@ -43,6 +65,34 @@ function formatDisplayDate(dateString: string) {
   }).format(date);
 }
 
+function addDays(dateKey: string, days: number) {
+  const date = new Date(`${dateKey}T12:00:00`);
+  date.setDate(date.getDate() + days);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+/** Today in the device's own timezone — never UTC, which is a day behind in Malaysia before 8am. */
+function todayKey() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
+/** A light format check for the customer's email; the field itself stays the existing one. */
+function isEmailAddress(value: string) {
+  return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value.trim());
+}
+const SOURCE_PACKAGE_ID = '__source-package';
+
+/**
+ * create: a new booking from the Schedule (unchanged behaviour, plus the optional sections).
+ * edit: the same form, prefilled, saving over the booking.
+ * duplicate: prefilled from another booking; payments, numbers, links, terms acceptance and
+ *   delivery progress are never copied, and the date and time must be reviewed before saving.
+ * quote: the same form, saving a draft quotation instead of a booking.
+ * form: prefilled from a booking form, saving its next version. The form's customer is kept as is.
+ * edit with `sourceInvoice` and `onSaveInvoice`: the invoice form, prefilled, saving over the invoice.
+ */
+export type BookingModalMode = 'create' | 'edit' | 'duplicate' | 'quote' | 'form';
 
 type Props = {
   selectedDate: string;
@@ -51,58 +101,153 @@ type Props = {
   onDueDateChange?: (date: string) => void;
   initialCustomerId?: string;
   onClose: () => void;
-  onSaveInvoice?: (input: BookingInvoiceInput) => { ok: true } | { ok: false; error: string };
+  /** `bookingId` is the booking the invoice reserved, when it made one. */
+  onSaveInvoice?: (input: BookingInvoiceInput) => { ok: true; bookingId?: string } | { ok: false; error: string };
+  mode?: BookingModalMode;
+  /** The booking being edited or duplicated. */
+  sourceBooking?: Booking;
+  /** The quotation or booking form being revised. */
+  sourceOffer?: BookingOffer;
+  /** The invoice being edited (mode 'edit' with onSaveInvoice). */
+  sourceInvoice?: Invoice;
 };
 
 export type BookingInvoiceInput = {
   customerId?: string;
   newCustomer?: { name: string; email: string; phone: string; location: string; notes: string };
   packageId: string;
+  /** The booking total: package price plus additional charges. */
   price: number;
+  /** The package price before additional charges. */
+  basePrice?: number;
+  charges?: BookingCharge[];
   location: string;
   depositAmount?: number;
+  depositType?: DepositType;
+  depositValue?: number;
+  depositDueDate?: string;
+  bufferMinutes?: number;
+  terms?: string;
+  allowConflict?: boolean;
   notes: string;
   date: string;
   startTime: string;
   endTime: string;
 };
 
-export function AddBookingModal({ selectedDate, onDateChange, dueDate, onDueDateChange, initialCustomerId, onClose, onSaveInvoice }: Props) {
+export function AddBookingModal({ selectedDate, onDateChange, dueDate, onDueDateChange, initialCustomerId, onClose, onSaveInvoice, mode = 'create', sourceBooking, sourceOffer, sourceInvoice }: Props) {
   const showComposer = true;
   const setShowComposer = (visible: boolean) => { if (!visible) onClose(); };
   const router = useRouter();
   const { isDarkMode } = useTheme();
-  const { packages, bookings, customers, checkPlanLimit, createBooking, currency } = useAppData();
+  const {
+    packages, bookings, customers, invoices, payments, checkPlanLimit, createBooking, updateBooking,
+    updateCustomer, saveQuotation, createBookingForm, reviseBookingForm, currency,
+  } = useAppData();
   const { t } = useTranslation();
+  const { isPro } = useSubscription();
   const palette = getThemePalette(isDarkMode);
   const { sheetStyle } = useResponsive();
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const dropdownAnim = useRef(new Animated.Value(0)).current;
   const feedback = useConfirmedSave(showComposer);
-  const [draftNotes, setDraftNotes] = useState('');
-  const [selectedCustomerId, setSelectedCustomerId] = useState(initialCustomerId ?? customers[0]?.id ?? '');
-  const [customerMode, setCustomerMode] = useState<'existing' | 'new'>(initialCustomerId || customers.length ? 'existing' : 'new');
+
+  const isEdit = mode === 'edit';
+  const isDuplicate = mode === 'duplicate';
+  const isQuote = mode === 'quote';
+  const isFormEdit = mode === 'form';
+  const isInvoiceEdit = isEdit && Boolean(sourceInvoice && onSaveInvoice);
+  // An invoice is read into the same shape a booking is, so the form needs no second prefill path.
+  const invoiceSource = useMemo(
+    () => (sourceInvoice ? getInvoiceEditSource(sourceInvoice, bookings.find((item) => item.id === sourceInvoice.bookingId)) : undefined),
+    [bookings, sourceInvoice],
+  );
+  const source: Booking | undefined = isEdit || isDuplicate ? (isInvoiceEdit ? invoiceSource : sourceBooking) : undefined;
+  const sourceDetails: OfferDetails | undefined = isQuote || isFormEdit ? sourceOffer?.details : undefined;
+  const sourcePackageId = source?.packageId ?? sourceDetails?.packageId;
+  const sourcePackageName = source?.packageName ?? sourceDetails?.packageName;
+  const seedPackage = (sourcePackageId ? packages.find((item) => item.id === sourcePackageId) : undefined)
+    ?? (sourcePackageName ? packages.find((item) => item.name === sourcePackageName) : undefined);
+  const seedBasePrice = source ? getBookingBasePrice(source) : sourceDetails?.basePrice;
+  // A booking whose service has since been deleted keeps its own package name and price rather than
+  // being silently moved onto another service.
+  // An invoice raised for a custom amount has no service at all; it keeps that rather than being
+  // given the first service in the list.
+  const sourcePackage = useMemo<PackageOption | null>(() => {
+    if (seedPackage || (!sourcePackageName && !isInvoiceEdit)) return null;
+    return { id: SOURCE_PACKAGE_ID, name: sourcePackageName || t('invoices.customAmount'), details: sourceDetails?.packageDetails ?? '', duration: '', price: seedBasePrice ?? 0, info: '' };
+  }, [isInvoiceEdit, seedBasePrice, seedPackage, sourceDetails?.packageDetails, sourcePackageName, t]);
+  const packageOptions = useMemo(() => (sourcePackage ? [sourcePackage, ...packages] : packages), [packages, sourcePackage]);
+  const initialPackage = seedPackage ?? sourcePackage ?? packages[0];
+  const initialPrice = seedBasePrice ?? initialPackage?.price ?? 0;
+  // The deposit the booking (or quotation) already has. It is kept exactly as stored — a percentage
+  // stays a percentage, a due date stays — unless the owner types a new amount into the field.
+  const sourceDeposit: DepositTerms | null = source ? getBookingDepositTerms(source) : sourceDetails?.deposit ?? null;
+  const initialDepositDraft = source || sourceDetails
+    ? formatDepositDraft(source?.depositAmount ?? (sourceDeposit?.type === 'fixed' ? sourceDeposit.value : null))
+    : formatDepositDraft(resolveServiceDepositAmount(initialPackage, initialPrice));
+
+  const [draftNotes, setDraftNotes] = useState(source?.notes ?? sourceDetails?.notes ?? '');
+  const sourceCustomerId = source?.customerId ?? (isQuote ? sourceOffer?.customerId : undefined);
+  const [selectedCustomerId, setSelectedCustomerId] = useState(sourceCustomerId ?? initialCustomerId ?? customers[0]?.id ?? '');
+  const [customerMode, setCustomerMode] = useState<'existing' | 'new'>(sourceCustomerId || initialCustomerId || customers.length ? 'existing' : 'new');
   const [customerQuery, setCustomerQuery] = useState('');
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [newCustomerName, setNewCustomerName] = useState('');
   const [newCustomerEmail, setNewCustomerEmail] = useState('');
   const [newCustomerPhone, setNewCustomerPhone] = useState('');
   const [newCustomerLocation, setNewCustomerLocation] = useState('');
-  const [selectedPackageId, setSelectedPackageId] = useState(packages[0]?.id ?? '');
+  const [selectedPackageId, setSelectedPackageId] = useState(initialPackage?.id ?? '');
   const [showPackageDropdown, setShowPackageDropdown] = useState(false);
-  const [draftPrice, setDraftPrice] = useState(String(packages[0]?.price ?? 0));
-  const [draftDeposit, setDraftDeposit] = useState(formatDepositDraft(resolveServiceDepositAmount(packages[0], packages[0]?.price ?? 0)));
+  const [draftPrice, setDraftPrice] = useState(String(initialPrice));
+  const [draftDeposit, setDraftDeposit] = useState(initialDepositDraft);
   // Mirrors isEndTimeManual: once the deposit is typed by hand it stops tracking the service and
-  // the price, until a different service is chosen.
-  const [isDepositManual, setIsDepositManual] = useState(false);
-  const [draftStartTime, setDraftStartTime] = useState('10:00');
-  const [draftEndTime, setDraftEndTime] = useState((addMinutesToTime('10:00', parsePackageDurationMinutes(packages[0]?.duration) ?? 60)) ?? '11:00');
+  // the price, until a different service is chosen. A prefilled booking's deposit is its own.
+  const [isDepositManual, setIsDepositManual] = useState(Boolean(source || sourceDetails));
+  // True once the owner types into the deposit field; until then a stored deposit is kept as-is.
+  const [depositEdited, setDepositEdited] = useState(false);
+  const sourceStart = normalizeBookingTime(source?.startTime ?? source?.time ?? sourceDetails?.startTime);
+  const sourceEnd = normalizeBookingTime(source?.endTime ?? sourceDetails?.endTime);
+  const [draftStartTime, setDraftStartTime] = useState(sourceStart ?? '10:00');
+  const [draftEndTime, setDraftEndTime] = useState(sourceEnd ?? (addMinutesToTime('10:00', parsePackageDurationMinutes(initialPackage?.duration) ?? 60)) ?? '11:00');
   // Once the finish time is dialled in by hand it stops following the package, until it is reset.
-  const [isEndTimeManual, setIsEndTimeManual] = useState(false);
+  const [isEndTimeManual, setIsEndTimeManual] = useState(Boolean(sourceEnd));
   const [activeTimePicker, setActiveTimePicker] = useState<ActiveTimePicker>(null);
   const isTimePickerOpen = activeTimePicker !== null;
-  const [draftLocation, setDraftLocation] = useState('');
+  const [draftLocation, setDraftLocation] = useState(source?.location ?? sourceDetails?.location ?? '');
   const [formError, setFormError] = useState('');
+  // The date is the Schedule's selected day for a new booking, exactly as before. Edits, duplicates
+  // and quotations carry their own date, so the field becomes editable for them.
+  const [localDate, setLocalDate] = useState(source?.date ?? sourceDetails?.date ?? selectedDate);
+  const effectiveDate = onDateChange || mode === 'create' ? selectedDate : localDate;
+  const changeDate = onDateChange ?? (mode === 'create' ? undefined : setLocalDate);
+  const [chargeRows, setChargeRows] = useState<ChargeDraftRow[]>(() =>
+    normalizeCharges(source?.charges ?? sourceDetails?.charges).map((charge) =>
+      newChargeRow({ description: charge.description, quantity: String(charge.quantity), unitPrice: String(charge.unitPrice), unit: charge.unit, addOnId: charge.addOnId }),
+    ),
+  );
+  const [showCharges, setShowCharges] = useState(chargeRows.length > 0);
+  const [chargeError, setChargeError] = useState('');
+  // No longer edited in this modal; a booking keeps its own buffer and a new one takes the service's.
+  const [bufferMinutes, setBufferMinutes] = useState(normalizeBufferMinutes(source?.bufferMinutes ?? sourceDetails?.bufferMinutes ?? initialPackage?.bufferMinutes));
+  const [terms, setTerms] = useState(source?.terms ?? sourceDetails?.terms ?? initialPackage?.info ?? '');
+  // For an existing customer saved without an email, the owner can add it here.
+  const [existingCustomerEmail, setExistingCustomerEmail] = useState('');
+  const [emailError, setEmailError] = useState('');
+  const [allowConflict, setAllowConflict] = useState(false);
+  // The booking this form has just saved. It stays on screen while the save is confirmed (and on a
+  // retry), and must never be reported as clashing with itself.
+  const [savedBookingId, setSavedBookingId] = useState<string | null>(null);
+  // A duplicate keeps its source's date and time only once the owner has looked at them.
+  const [scheduleReviewed, setScheduleReviewed] = useState(!isDuplicate);
+  const [validUntil, setValidUntil] = useState(sourceOffer?.validUntil ?? addDays(todayKey(), 30));
+  const [sendingForm, setSendingForm] = useState(false);
+  // Blocks a second tap that lands before `sendingForm` has re-rendered the button, so one tap
+  // publishes one form.
+  const sendingFormRef = useRef(false);
+  const [formLink, setFormLink] = useState<{ url: string; expiresAt: string } | null>(null);
+  const [unchangedInvoices, setUnchangedInvoices] = useState<string[]>([]);
+
   const selectedCustomer = customers.find((customer) => customer.id === selectedCustomerId) ?? null;
   const filteredCustomers = customers.filter((customer) => {
     const searchTerm = customerQuery.trim().toLowerCase();
@@ -118,7 +263,7 @@ export function AddBookingModal({ selectedDate, onDateChange, dueDate, onDueDate
     }).start();
   }, [dropdownAnim, showCustomerDropdown]);
 
-  const selectedPackage = packages.find((item) => item.id === selectedPackageId) ?? packages[0];
+  const selectedPackage = packageOptions.find((item) => item.id === selectedPackageId) ?? packageOptions[0];
   const packageDurationMinutes = parsePackageDurationMinutes(selectedPackage?.duration);
 
   /**
@@ -129,7 +274,7 @@ export function AddBookingModal({ selectedDate, onDateChange, dueDate, onDueDate
     (durationMinutes ? addMinutesToTime(startTime, durationMinutes) : null) ?? getSuggestedEndTime(startTime);
 
   const handlePackageSelection = (packageId: string) => {
-    const chosenPackage = packages.find((item) => item.id === packageId);
+    const chosenPackage = packageOptions.find((item) => item.id === packageId);
     const nextPrice = chosenPackage?.price ?? 0;
     setSelectedPackageId(packageId);
     setDraftPrice(String(nextPrice));
@@ -140,6 +285,12 @@ export function AddBookingModal({ selectedDate, onDateChange, dueDate, onDueDate
     // the one case where overwriting what was typed is what the user is asking for.
     setDraftDeposit(formatDepositDraft(resolveServiceDepositAmount(chosenPackage, nextPrice)));
     setIsDepositManual(false);
+    setDepositEdited(true);
+    setBufferMinutes(normalizeBufferMinutes(chosenPackage?.bufferMinutes));
+    // A new package can move the finish time and the buffer, so an earlier "Book anyway" no longer
+    // describes the slot being booked.
+    setAllowConflict(false);
+    setTerms(chosenPackage?.info ?? '');
     setShowPackageDropdown(false);
   };
 
@@ -157,7 +308,13 @@ export function AddBookingModal({ selectedDate, onDateChange, dueDate, onDueDate
   const resetEndTimeToPackage = () => {
     setIsEndTimeManual(false);
     setDraftEndTime(getPackageEndTime(draftStartTime));
+    setAllowConflict(false);
     setFormError('');
+  };
+
+  const markScheduleChanged = () => {
+    setScheduleReviewed(true);
+    setAllowConflict(false);
   };
 
   const updateTimePart = (part: TimePart, value: number | string) => {
@@ -183,6 +340,7 @@ export function AddBookingModal({ selectedDate, onDateChange, dueDate, onDueDate
       setDraftEndTime(nextTime);
       setIsEndTimeManual(true);
     }
+    markScheduleChanged();
     setFormError('');
   };
 
@@ -197,112 +355,358 @@ export function AddBookingModal({ selectedDate, onDateChange, dueDate, onDueDate
     setShowPackageDropdown(false);
   };
 
+  // ------------------------------------------------------------------ live money and schedule
+  const parsedRows = useMemo(() => chargeRows.map((row) => validateChargeDraft(row, () => row.key)), [chargeRows]);
+  const validCharges = parsedRows.flatMap((result) => (result.ok ? [result.charge] : []));
+  const numericPrice = Number(draftPrice);
+  const trimmedDeposit = draftDeposit.trim();
+  // A stored deposit (percentage, due date and all) is kept until the owner types a new amount.
+  const keepsStoredDeposit = Boolean(sourceDeposit) && !depositEdited;
+  const storedDueDate = sourceDeposit?.dueDate;
+  const depositTerms: DepositTerms | null = keepsStoredDeposit
+    ? sourceDeposit
+    : trimmedDeposit && Number(trimmedDeposit) > 0
+      ? { type: 'fixed', value: Number(trimmedDeposit), ...(storedDueDate ? { dueDate: storedDueDate } : {}) }
+      : null;
+  const linkedInvoices = isInvoiceEdit && sourceInvoice ? [sourceInvoice] : source && isEdit ? invoices.filter((invoice) => invoice.bookingId === source.id) : [];
+  const paidCents = linkedInvoices.reduce((sum, invoice) => sum + Math.round(getInvoicePaymentSummary(invoice, payments).amountPaid * 100), 0);
+  const totals = calculateBookingTotals({
+    basePrice: Number.isFinite(numericPrice) && numericPrice > 0 ? numericPrice : 0,
+    charges: validCharges,
+    deposit: depositTerms,
+    paidCents,
+  });
+  const showSummary = chargeRows.length > 0 || totals.depositDueCents > 0 || isEdit;
+
+  const startTimeKey = normalizeBookingTime(draftStartTime);
+  const endTimeKey = normalizeBookingTime(draftEndTime);
+  // Excluded by id: the booking being edited, or the one this form has already saved. A duplicate's
+  // original is a different booking and still counts.
+  const ownBookingId = isEdit ? source?.id : savedBookingId ?? undefined;
+  const conflicts = useMemo(
+    () => (startTimeKey && endTimeKey
+      ? findBookingConflicts(bookings, { date: effectiveDate, startTime: startTimeKey, endTime: endTimeKey, bufferMinutes }, ownBookingId)
+      : []),
+    [bookings, bufferMinutes, effectiveDate, endTimeKey, ownBookingId, startTimeKey],
+  );
+  const hasOverlap = conflicts.some((item) => item.kind === 'overlap');
+
+  const depositErrorKey = (error: string): TranslationKey => {
+    if (error === 'deposit_percent') return 'bm.error.depositPercent';
+    if (error === 'deposit_too_high') return 'bm.error.depositTotal';
+    if (error === 'charges') return 'bm.error.charges';
+    if (error === 'price') return 'bookings.error.fields';
+    return 'bookings.error.deposit';
+  };
+
+  /**
+   * Everything the save paths share: the charges, the deposit, the schedule and the conflict
+   * decision, validated once. Returns null (with the error shown) when anything needs attention.
+   */
+  const collectForm = () => {
+    if (!scheduleReviewed) {
+      setFormError(t('bm.error.reviewSchedule'));
+      return null;
+    }
+    const startTime = normalizeBookingTime(draftStartTime);
+    const endTime = normalizeBookingTime(draftEndTime);
+    if (!selectedPackage || Number.isNaN(numericPrice) || numericPrice <= 0 || !startTime || !endTime || endTime <= startTime) {
+      setFormError(t('bookings.error.fields'));
+      return null;
+    }
+
+    const firstInvalid = parsedRows.find((result) => !result.ok);
+    if (firstInvalid && !firstInvalid.ok) {
+      setShowCharges(true);
+      setChargeError(t(firstInvalid.error === 'description' ? 'bm.charges.error.description' : firstInvalid.error === 'quantity' ? 'bm.charges.error.quantity' : 'bm.charges.error.price'));
+      setFormError(t('bm.error.charges'));
+      return null;
+    }
+    setChargeError('');
+
+    // Blank means no deposit, which is a perfectly normal booking — only a typed value is checked.
+    const numericDeposit = !keepsStoredDeposit && trimmedDeposit ? Number(trimmedDeposit) : 0;
+    if (!keepsStoredDeposit && trimmedDeposit && (Number.isNaN(numericDeposit) || numericDeposit < 0)) {
+      setFormError(t('bookings.error.deposit'));
+      return null;
+    }
+    if (numericDeposit > totals.totalCents / 100) {
+      setFormError(t('bookings.error.depositTooHigh'));
+      return null;
+    }
+    // An untouched stored deposit is passed back exactly; a typed amount is a plain deposit amount,
+    // as it was before deposit types existed. A stored due date is never dropped.
+    // A booking saved with a plain amount (no deposit type) stays a plain amount.
+    const sourceHasTypedDeposit = source ? Boolean(source.depositType) : true;
+    const depositInput = keepsStoredDeposit && sourceDeposit
+      ? sourceHasTypedDeposit
+        ? { depositType: sourceDeposit.type, depositValue: sourceDeposit.value, ...(storedDueDate ? { depositDueDate: storedDueDate } : {}) }
+        : { depositAmount: sourceDeposit.value, ...(storedDueDate ? { depositDueDate: storedDueDate } : {}) }
+      : numericDeposit > 0
+        ? { depositAmount: numericDeposit, ...(storedDueDate ? { depositDueDate: storedDueDate } : {}) }
+        : {};
+    const money = resolveBookingMoney({ price: numericPrice, basePrice: numericPrice, charges: validCharges, ...depositInput });
+    if (!money.ok) {
+      setFormError(t(depositErrorKey(money.error)));
+      return null;
+    }
+    // A plain booking (no charges) is stored exactly as before: its price is the package price.
+    const fields = validCharges.length ? money.fields : { ...money.fields, basePrice: undefined };
+
+    if (hasOverlap && !allowConflict && !isQuote) {
+      setFormError(t('bm.conflict.hint'));
+      return null;
+    }
+
+    const isSourcePackage = selectedPackage.id === SOURCE_PACKAGE_ID;
+    // A booking keeps the deliverables it was agreed with while its package is unchanged.
+    const keepsSourceServices = Boolean(source) && (isSourcePackage || selectedPackage.id === source?.packageId || selectedPackage.name === source?.packageName);
+    const includedServices = keepsSourceServices ? source?.includedServices ?? selectedPackage.includedServices : selectedPackage.includedServices;
+
+    return {
+      startTime,
+      endTime,
+      fields,
+      packageId: isSourcePackage ? undefined : selectedPackage.id,
+      includedServices: includedServices?.length ? includedServices : undefined,
+      details: {
+        title: selectedPackage.name,
+        ...(isSourcePackage ? {} : { packageId: selectedPackage.id }),
+        packageName: selectedPackage.name,
+        packageDetails: selectedPackage.details || undefined,
+        includedServices: includedServices ?? [],
+        basePrice: numericPrice,
+        charges: validCharges,
+        deposit: depositTerms,
+        date: effectiveDate,
+        startTime,
+        endTime,
+        bufferMinutes,
+        location: draftLocation.trim(),
+        notes: draftNotes.trim(),
+        terms: terms.trim(),
+        acceptedConflictIds: allowConflict ? conflicts.map((item) => item.booking.id) : [],
+      } satisfies OfferDetails,
+    };
+  };
+
+  const newCustomerInput = (notes: string) => ({
+    name: newCustomerName,
+    email: newCustomerEmail.trim(),
+    phone: newCustomerPhone,
+    location: newCustomerLocation,
+    notes,
+  });
+
+  // A new booking (or an invoice made with one) needs the customer's email. Editing and quotations
+  // never block on it, so older records without one stay editable.
+  const requiresEmail = !isEdit && !isQuote;
+  const existingCustomerMissingEmail = customerMode === 'existing' && Boolean(selectedCustomer) && !selectedCustomer?.email.trim();
+
+  /**
+   * Checks the email the save will use. Returns the email to add to an existing customer that has
+   * none (or '' when nothing needs adding), or null with the inline error shown.
+   */
+  const checkCustomerEmail = (): string | null => {
+    const typed = customerMode === 'new' ? newCustomerEmail.trim() : existingCustomerMissingEmail ? existingCustomerEmail.trim() : '';
+    const hasEmail = customerMode === 'new' ? Boolean(typed) : !existingCustomerMissingEmail || Boolean(typed);
+    const error = !hasEmail
+      ? (requiresEmail ? t('bm.email.required') : '')
+      : typed && !isEmailAddress(typed) ? t('bm.email.invalid') : '';
+    setEmailError(error);
+    if (error) {
+      setFormError(error);
+      return null;
+    }
+    return customerMode === 'existing' && existingCustomerMissingEmail ? typed : '';
+  };
+
+  /** Saves the email the owner just supplied onto the existing customer, before the booking is made. */
+  const addEmailToExistingCustomer = (email: string) => {
+    if (!email || !selectedCustomerId) return true;
+    if (updateCustomer(selectedCustomerId, { email })) return true;
+    setFormError(t('bookings.error.save'));
+    return false;
+  };
+
   const handleAddBooking = () => feedback.run(() => {
-    const numericPrice = Number(draftPrice);
+    const limitKind = onSaveInvoice ? 'invoices' : 'bookings';
     // The same gate the mutation enforces; checked here only to route into the upgrade flow.
-    if (!checkPlanLimit(onSaveInvoice ? 'invoices' : 'bookings').allowed) {
+    // Editing and quotations create no booking, so they never meet it.
+    if ((mode === 'create' || isDuplicate) && !checkPlanLimit(limitKind).allowed) {
       setShowComposer(false);
-      router.push({ pathname: '/paywall', params: { reason: onSaveInvoice ? 'invoices' : 'bookings', returnTo: onSaveInvoice ? '/invoices' : '/bookings' } });
+      router.push({ pathname: '/paywall', params: { reason: limitKind, returnTo: onSaveInvoice ? '/invoices' : '/bookings' } });
       // `false` leaves useConfirmedSave untouched: nothing was mutated, so nothing awaits a save.
       return false;
     }
 
+    // A booking form keeps the customer it was prepared for (or none), so only its details are saved.
+    if (isFormEdit) {
+      const form = collectForm();
+      if (!form || !sourceOffer) return false;
+      const result = reviseBookingForm(sourceOffer.id, form.details);
+      if (!result.ok) {
+        setFormError(result.error ?? t('bookings.error.save'));
+        return false;
+      }
+      captureEvent('booking_form_revised', { has_charges: validCharges.length > 0, change_requested: sourceOffer.status === 'change_requested' });
+      return true;
+    }
+
     const isNewCustomerValid = Boolean(newCustomerName.trim());
     const hasValidCustomer = customerMode === 'existing' ? Boolean(selectedCustomerId) : isNewCustomerValid;
-    const startTime = normalizeBookingTime(draftStartTime);
-    const endTime = normalizeBookingTime(draftEndTime);
-    const hasValidTimeRange = Boolean(startTime && endTime && endTime > startTime);
-
-    if (!selectedPackage || !hasValidCustomer || Number.isNaN(numericPrice) || numericPrice <= 0 || !startTime || !endTime || !hasValidTimeRange) {
-      setFormError(t('bookings.error.fields'));
+    if (!hasValidCustomer) {
+      setFormError(t(isQuote ? 'bm.quote.customerRequired' : 'bookings.error.fields'));
       return false;
     }
 
-    const conflictingBooking = findBookingTimeConflict(bookings, selectedDate, startTime, endTime);
-    if (conflictingBooking) {
-      const conflictStart = normalizeBookingTime(conflictingBooking.startTime ?? conflictingBooking.time);
-      const conflictEnd = normalizeBookingTime(conflictingBooking.endTime);
-      const conflictTime = conflictStart
-        ? `${formatTime(conflictStart)}${conflictEnd ? ` – ${formatTime(conflictEnd)}` : ''}`
-        : t('bookings.error.selectedTime');
-      setFormError(
-        t('bookings.error.conflict', {
-          title: conflictingBooking.title,
-          date: formatDisplayDate(selectedDate),
-          time: conflictTime,
-        }),
-      );
-      return false;
-    }
+    const emailToAdd = checkCustomerEmail();
+    if (emailToAdd === null) return false;
 
-    // Blank means no deposit, which is a perfectly normal booking — only a typed value is checked.
-    const trimmedDeposit = draftDeposit.trim();
-    const numericDeposit = trimmedDeposit ? Number(trimmedDeposit) : 0;
-    if (trimmedDeposit && (Number.isNaN(numericDeposit) || numericDeposit < 0)) {
-      setFormError(t('bookings.error.deposit'));
-      return false;
-    }
-    if (numericDeposit > numericPrice) {
-      setFormError(t('bookings.error.depositTooHigh'));
-      return false;
+    const form = collectForm();
+    if (!form) return false;
+    if (!addEmailToExistingCustomer(emailToAdd)) return false;
+    const { startTime, endTime, fields, details } = form;
+    // An edited invoice keeps an empty location empty rather than gaining the placeholder.
+    const location = draftLocation.trim() || (isInvoiceEdit ? '' : 'Client location');
+    const hasDeposit = Boolean(fields.depositAmount && fields.depositAmount > 0);
+
+    if (isQuote) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(validUntil)) {
+        setFormError(t('bookings.error.fields'));
+        return false;
+      }
+      const result = saveQuotation({
+        offerId: sourceOffer?.id,
+        customerId: customerMode === 'existing' ? selectedCustomerId : undefined,
+        newCustomer: customerMode === 'new' ? newCustomerInput('Created while preparing a quotation.') : undefined,
+        details,
+        validUntil,
+      });
+      if (!result.ok) {
+        if (result.error === 'limit') {
+          setShowComposer(false);
+          router.push({ pathname: '/paywall', params: { reason: 'customers', returnTo: '/offers' } });
+          return false;
+        }
+        setFormError(result.error);
+        return false;
+      }
+      captureEvent('quotation_saved', { revised: Boolean(sourceOffer), has_charges: validCharges.length > 0 });
+      return true;
     }
 
     // Invoice submissions must use the invoice mutation, never createBooking.
     if (onSaveInvoice) {
       const result = onSaveInvoice({
         customerId: customerMode === 'existing' ? selectedCustomerId : undefined,
-        newCustomer: customerMode === 'new' ? {
-          name: newCustomerName, email: newCustomerEmail, phone: newCustomerPhone,
-          location: newCustomerLocation, notes: 'Created from invoice form',
-        } : undefined,
+        newCustomer: customerMode === 'new' ? newCustomerInput('Created from invoice form') : undefined,
         packageId: selectedPackage.id,
-        price: numericPrice,
-        location: draftLocation.trim() || 'Client location',
-        depositAmount: numericDeposit > 0 ? numericDeposit : undefined,
+        price: fields.price,
+        basePrice: fields.basePrice,
+        charges: fields.charges,
+        location,
+        depositAmount: fields.depositAmount,
+        depositType: fields.depositType,
+        depositValue: fields.depositValue,
+        depositDueDate: fields.depositDueDate,
+        bufferMinutes,
+        terms: terms.trim() || undefined,
+        allowConflict,
         notes: draftNotes.trim(),
-        date: selectedDate,
+        date: effectiveDate,
         startTime,
         endTime,
       });
-      if (!result.ok) setFormError(result.error);
-      return result.ok;
+      if (!result.ok) {
+        setFormError(result.error);
+        return false;
+      }
+      if (result.bookingId) setSavedBookingId(result.bookingId);
+      return true;
     }
 
-    const result = createBooking({
+    const input = {
       customerId: customerMode === 'existing' ? selectedCustomerId : undefined,
-      newCustomer: customerMode === 'new' ? {
-        name: newCustomerName,
-        email: newCustomerEmail,
-        phone: newCustomerPhone,
-        location: newCustomerLocation,
-        notes: 'Created while adding a booking.',
-      } : undefined,
+      newCustomer: customerMode === 'new' ? newCustomerInput(isEdit ? 'Created while editing a booking.' : 'Created while adding a booking.') : undefined,
       title: selectedPackage.name,
-      date: selectedDate,
+      date: effectiveDate,
       time: startTime,
       startTime,
       endTime,
-      location: draftLocation.trim() || 'Client location',
+      location,
       packageName: selectedPackage.name,
-      price: numericPrice,
-      // The value finally on the form, not the service's — editing the service later must never
+      ...(form.packageId ? { packageId: form.packageId } : {}),
+      // The values finally on the form, not the service's — editing the service later must never
       // reach back into this booking.
-      depositAmount: numericDeposit > 0 ? numericDeposit : undefined,
-      status: 'Inquiry',
+      ...fields,
+      ...(bufferMinutes ? { bufferMinutes } : {}),
+      ...(form.includedServices ? { includedServices: form.includedServices } : {}),
+      ...(terms.trim() ? { terms: terms.trim() } : {}),
+      allowConflict,
+      status: 'Inquiry' as const,
       notes: draftNotes.trim() || 'New booking created from quick add.',
-    });
+    };
+
+    if (isEdit && source) {
+      const result = updateBooking(source.id, { ...input, status: source.status, notes: draftNotes.trim() || source.notes });
+      if (!result.ok) {
+        if (result.error === 'limit') {
+          setShowComposer(false);
+          router.push({ pathname: '/paywall', params: { reason: 'customers', returnTo: '/bookings' } });
+          return false;
+        }
+        setFormError(result.error ?? t('bookings.error.save'));
+        return false;
+      }
+      setUnchangedInvoices(result.unchangedInvoiceNumbers ?? []);
+      captureEvent('booking_edited', { has_charges: validCharges.length > 0, has_deposit: hasDeposit });
+      return true;
+    }
+
+    const result = createBooking(input);
 
     if (!result) {
       setFormError(t('bookings.error.save'));
       return false;
     }
+    setSavedBookingId(result.booking.id);
 
-    captureEvent('booking_created', {
+    captureEvent(isDuplicate ? 'booking_duplicated' : 'booking_created', {
       customer_source: customerMode,
-      has_deposit: numericDeposit > 0,
+      has_deposit: hasDeposit,
+      has_charges: validCharges.length > 0,
+      conflict_override: allowConflict,
     });
     return true;
   });
+
+  /** Publishes a booking form from what is on the form. Nothing is booked and no number is used. */
+  const handleSendForm = async () => {
+    if (sendingForm || sendingFormRef.current || feedback.saving) return;
+    setFormError('');
+    const form = collectForm();
+    if (!form) return;
+    sendingFormRef.current = true;
+    setSendingForm(true);
+    try {
+      const result = await createBookingForm({
+        details: form.details,
+        customerId: customerMode === 'existing' && selectedCustomerId ? selectedCustomerId : undefined,
+        // The customer always gives an email on the form, so sending it never waits on one here.
+        requireEmail: true,
+      });
+      if (!result.ok) {
+        setFormError(result.error);
+        return;
+      }
+      captureEvent('booking_form_sent', { has_charges: validCharges.length > 0, has_deposit: Boolean(depositTerms) });
+      setFormLink({ url: result.url, expiresAt: result.expiresAt });
+    } finally {
+      sendingFormRef.current = false;
+      setSendingForm(false);
+    }
+  };
 
   const completeBooking = () => {
     setShowComposer(false);
@@ -310,11 +714,6 @@ export function AddBookingModal({ selectedDate, onDateChange, dueDate, onDueDate
     setDraftNotes('');
     setCustomerQuery('');
     setShowCustomerDropdown(false);
-    if (selectedPackage) {
-      setDraftPrice(String(selectedPackage.price));
-      setDraftDeposit(formatDepositDraft(resolveServiceDepositAmount(selectedPackage, selectedPackage.price)));
-    }
-    setIsDepositManual(false);
     setFormError('');
   };
 
@@ -324,18 +723,33 @@ export function AddBookingModal({ selectedDate, onDateChange, dueDate, onDueDate
   const softShadow = isDarkMode ? '#020617' : '#A7B4C8';
   const accentSoft = isDarkMode ? '#29284B' : '#E9E8FF';
   const timePickerColors = { palette, softInset, softBorder, accentSoft };
+  const formColors = { palette, softSurface, softInset, softBorder, accentSoft };
+
+  const eyebrowKey: TranslationKey = isInvoiceEdit ? 'invoices.edit.eyebrow' : onSaveInvoice ? 'invoices.create.eyebrow' : isEdit ? 'bm.edit.eyebrow' : isDuplicate ? 'bm.duplicate.eyebrow' : isQuote ? 'bm.quote.eyebrow' : isFormEdit ? 'bm.formEdit.eyebrow' : 'bookings.create.eyebrow';
+  const titleKey: TranslationKey = isInvoiceEdit ? 'invoices.edit.title' : onSaveInvoice ? 'invoices.create.title' : isEdit ? 'bm.edit.title' : isDuplicate ? 'bm.duplicate.title' : isQuote ? (sourceOffer ? 'bm.quote.editTitle' : 'bm.quote.title') : isFormEdit ? 'bm.formEdit.title' : 'bookings.create.title';
+  const saveKey: TranslationKey = isInvoiceEdit ? 'bm.edit.save' : onSaveInvoice ? 'invoices.save' : isEdit ? 'bm.edit.save' : isQuote ? 'bm.quote.save' : isFormEdit ? 'bm.formEdit.save' : 'bookings.save';
+  const successTitleKey: TranslationKey = isInvoiceEdit ? 'invoices.edit.saved.title' : onSaveInvoice ? 'invoices.created.title' : isEdit ? 'bm.edit.saved.title' : isQuote ? 'bm.quote.saved.title' : isFormEdit ? 'bm.formEdit.saved.title' : 'bookings.created.title';
+  const successBody = isInvoiceEdit
+    ? t('invoices.edit.saved.body')
+    : onSaveInvoice
+    ? t('invoices.created.body')
+    : isEdit
+      ? unchangedInvoices.length ? t('bm.edit.invoiceUnchanged', { number: unchangedInvoices.join(', ') }) : t('bm.edit.saved.body')
+      : isQuote ? t('bm.quote.saved.body') : isFormEdit ? t('bm.formEdit.saved.body') : t('bookings.created.body');
+  const canSendForm = mode === 'create' && !onSaveInvoice && canUseWorkflowFeature('bookingForms', isPro);
+  const busy = feedback.saving || feedback.success || sendingForm;
 
   return (
-      <Modal visible={showComposer} transparent animationType="slide" onRequestClose={() => { if (!feedback.saving && !feedback.success) setShowComposer(false); }}>
+      <Modal visible={showComposer} transparent animationType="slide" onRequestClose={() => { if (!busy) setShowComposer(false); }}>
         <View style={styles.modalBackdrop}>
           <View style={[styles.modalCard, sheetStyle, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }, feedback.success && { display: 'none' }]}>
             <View style={[styles.modalHandle, { backgroundColor: palette.border }]} />
             <View accessibilityElementsHidden={feedback.success} importantForAccessibility={feedback.success ? 'no-hide-descendants' : 'auto'} style={styles.modalHeader}>
-              <View>
-                <Text style={[styles.modalEyebrow, { color: palette.accent }]}>{t(onSaveInvoice ? 'invoices.create.eyebrow' : 'bookings.create.eyebrow')}</Text>
-                <Text style={[styles.modalTitle, { color: palette.text }]}>{t(onSaveInvoice ? 'invoices.create.title' : 'bookings.create.title')}</Text>
+              <View style={styles.headerCopy}>
+                <Text style={[styles.modalEyebrow, { color: palette.accent }]}>{t(eyebrowKey)}</Text>
+                <Text style={[styles.modalTitle, { color: palette.text }]}>{formLink ? t('bm.sendForm.title') : t(titleKey)}</Text>
               </View>
-              <Pressable disabled={feedback.saving || feedback.success} hitSlop={8} onPress={() => setShowComposer(false)} style={[styles.closeButton, { backgroundColor: softInset }]}>
+              <Pressable disabled={busy} hitSlop={8} accessibilityRole="button" accessibilityLabel={t('of.cancel')} onPress={() => setShowComposer(false)} style={[styles.closeButton, { backgroundColor: softInset }]}>
                 <Ionicons name="close" size={24} color={palette.text} />
               </Pressable>
             </View>
@@ -349,7 +763,19 @@ export function AddBookingModal({ selectedDate, onDateChange, dueDate, onDueDate
               scrollEnabled={!isTimePickerOpen}
               contentContainerStyle={styles.modalScrollContent}>
 
-            <View pointerEvents={feedback.pending ? 'none' : 'auto'}>
+            {formLink ? (
+              <LinkReadyPanel
+                title={t('bm.sendForm.title')}
+                body={t('bm.sendForm.body')}
+                url={formLink.url}
+                expiresAt={formLink.expiresAt}
+                phone={customerMode === 'existing' ? selectedCustomer?.phone : newCustomerPhone}
+                colors={formColors}
+                onDone={() => setShowComposer(false)}
+              />
+            ) : (
+            <>
+            <View pointerEvents={feedback.pending || sendingForm ? 'none' : 'auto'}>
             <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('bookings.package')}</Text>
             <Pressable
               accessibilityRole="button"
@@ -367,7 +793,7 @@ export function AddBookingModal({ selectedDate, onDateChange, dueDate, onDueDate
                 <Text style={[styles.packageSelectedName, { color: palette.text }]}>{selectedPackage?.name ?? 'Choose a package'}</Text>
                 {selectedPackage ? (
                   <Text style={[styles.packageSelectedMeta, { color: palette.muter }]}>
-                    {selectedPackage.duration} · {currencyFormatter.format(selectedPackage.price)}
+                    {[selectedPackage.duration, currencyFormatter.format(selectedPackage.price)].filter(Boolean).join(' · ')}
                   </Text>
                 ) : null}
               </View>
@@ -377,7 +803,7 @@ export function AddBookingModal({ selectedDate, onDateChange, dueDate, onDueDate
             {showPackageDropdown && (
               <View style={[styles.packageDropdownPanel, { backgroundColor: softInset, borderColor: softBorder }]}>
                 <ScrollView showsVerticalScrollIndicator={false} nestedScrollEnabled keyboardShouldPersistTaps="handled" style={styles.packageDropdownScroll}>
-                  {packages.map((item) => (
+                  {packageOptions.map((item) => (
                     <Pressable
                       key={item.id}
                       onPress={() => handlePackageSelection(item.id)}
@@ -391,7 +817,7 @@ export function AddBookingModal({ selectedDate, onDateChange, dueDate, onDueDate
                         {selectedPackageId === item.id ? <Ionicons name="checkmark" size={17} color={palette.accent} /> : null}
                       </View>
                       <Text style={[styles.packageOptionMeta, { color: palette.muter }]}>
-                        {item.duration} · {currencyFormatter.format(item.price)}
+                        {[item.duration, currencyFormatter.format(item.price)].filter(Boolean).join(' · ')}
                       </Text>
                     </Pressable>
                   ))}
@@ -399,6 +825,14 @@ export function AddBookingModal({ selectedDate, onDateChange, dueDate, onDueDate
               </View>
             )}
 
+            {selectedPackage?.includedServices?.length ? (
+              <Text style={[f.hint, styles.includedHint, { color: palette.muter }]}>
+                {t('bd.included')}: {selectedPackage.includedServices.join(' · ')}
+              </Text>
+            ) : null}
+
+            {isFormEdit ? null : (
+            <>
             <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('bookings.customerSource')}</Text>
             <View style={styles.modeRow}>
               <Pressable
@@ -479,6 +913,8 @@ export function AddBookingModal({ selectedDate, onDateChange, dueDate, onDueDate
                             setSelectedCustomerId(customer.id);
                             setCustomerQuery('');
                             setShowCustomerDropdown(false);
+                            setExistingCustomerEmail('');
+                            setEmailError('');
                           }}
                           style={[styles.selectOption, { backgroundColor: softSurface, borderColor: softBorder }, selectedCustomerId === customer.id && { backgroundColor: accentSoft, borderColor: palette.accent }]}>
                           <Text style={[styles.selectText, { color: palette.text }]}>{customer.name}</Text>
@@ -490,6 +926,29 @@ export function AddBookingModal({ selectedDate, onDateChange, dueDate, onDueDate
                     )}
                   </ScrollView>
                 </Animated.View>
+
+                {existingCustomerMissingEmail ? (
+                  <>
+                    <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('bookings.field.customerEmail')}</Text>
+                    <TextInput
+                      value={existingCustomerEmail}
+                      onChangeText={(value) => {
+                        setExistingCustomerEmail(value);
+                        setEmailError('');
+                        setFormError('');
+                      }}
+                      placeholder="siti@example.my"
+                      placeholderTextColor={palette.muter}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      style={[styles.input, { backgroundColor: softInset, borderColor: emailError ? '#DC2626' : softBorder, color: palette.text }]}
+                    />
+                    <Text accessibilityRole={emailError ? 'alert' : undefined} style={[styles.depositHint, { color: emailError ? '#DC2626' : palette.muter }]}>
+                      {emailError || t('bm.email.missing')}
+                    </Text>
+                  </>
+                ) : null}
               </>
             ) : (
               <>
@@ -505,13 +964,19 @@ export function AddBookingModal({ selectedDate, onDateChange, dueDate, onDueDate
                 <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('bookings.field.customerEmail')}</Text>
                 <TextInput
                   value={newCustomerEmail}
-                  onChangeText={setNewCustomerEmail}
+                  onChangeText={(value) => {
+                    setNewCustomerEmail(value);
+                    setEmailError('');
+                    setFormError('');
+                  }}
                   placeholder="siti@example.my"
                   placeholderTextColor={palette.muter}
                   keyboardType="email-address"
                   autoCapitalize="none"
-                  style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
+                  autoCorrect={false}
+                  style={[styles.input, { backgroundColor: softInset, borderColor: emailError ? '#DC2626' : softBorder, color: palette.text }]}
                 />
+                {emailError ? <Text accessibilityRole="alert" style={[styles.depositHint, { color: '#DC2626' }]}>{emailError}</Text> : null}
 
                 <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('bookings.field.customerPhone')}</Text>
                 <TextInput
@@ -533,16 +998,18 @@ export function AddBookingModal({ selectedDate, onDateChange, dueDate, onDueDate
                 />
               </>
             )}
+            </>
+            )}
 
             <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('bookings.price')}</Text>
             <TextInput
               value={draftPrice}
               onChangeText={(value) => {
                 setDraftPrice(value);
-                // A percentage deposit follows the price it is a percentage of, right up until the
-                // deposit is typed by hand.
+                // The service's deposit follows the price until it is typed by hand.
                 if (!isDepositManual) {
                   setDraftDeposit(formatDepositDraft(resolveServiceDepositAmount(selectedPackage, Number(value))));
+                  setDepositEdited(true);
                 }
               }}
               keyboardType="numeric"
@@ -551,12 +1018,30 @@ export function AddBookingModal({ selectedDate, onDateChange, dueDate, onDueDate
               style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
             />
 
+            {canUseWorkflowFeature('additionalCharges', isPro) ? (
+            <BookingChargesEditor
+              rows={chargeRows}
+              onChange={(rows) => {
+                setChargeRows(rows);
+                setChargeError('');
+                setFormError('');
+              }}
+              addOns={selectedPackage?.addOns}
+              expanded={showCharges}
+              onToggle={() => setShowCharges((current) => !current)}
+              formatter={currencyFormatter}
+              colors={formColors}
+              error={chargeError}
+            />
+            ) : null}
+
             <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('bookings.deposit')}</Text>
             <TextInput
               value={draftDeposit}
               onChangeText={(value) => {
                 setDraftDeposit(value);
                 setIsDepositManual(true);
+                setDepositEdited(true);
                 setFormError('');
               }}
               keyboardType="numeric"
@@ -566,12 +1051,26 @@ export function AddBookingModal({ selectedDate, onDateChange, dueDate, onDueDate
               style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
             />
             <Text style={[styles.depositHint, { color: palette.muter }]}>
-              {depositHint}
+              {keepsStoredDeposit && sourceDeposit?.type === 'percent'
+                ? t('bm.deposit.percentHint', { value: sourceDeposit.value, amount: currencyFormatter.format(totals.depositDueCents / 100) })
+                : depositHint}
             </Text>
 
+            {showSummary ? (
+              <BookingMoneySummary totals={totals} formatter={currencyFormatter} colors={formColors} showPayments={isEdit} depositDueDate={depositTerms?.dueDate} charges={validCharges} />
+            ) : null}
+
             <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('bookings.eventDate')}</Text>
-            {onDateChange ? (
-              <DatePickerField value={selectedDate} onChange={onDateChange} isDarkMode={isDarkMode} palette={palette} />
+            {changeDate ? (
+              <DatePickerField
+                value={effectiveDate}
+                onChange={(date) => {
+                  changeDate(date);
+                  markScheduleChanged();
+                }}
+                isDarkMode={isDarkMode}
+                palette={palette}
+              />
             ) : (
             <TextInput
               value={selectedDate}
@@ -599,7 +1098,7 @@ export function AddBookingModal({ selectedDate, onDateChange, dueDate, onDueDate
                       accessibilityRole="button"
                       accessibilityLabel={t('bookings.auto.label')}
                       accessibilityHint={
-                        selectedPackage ? `Sets it from ${selectedPackage.duration}` : undefined
+                        selectedPackage?.duration ? `Sets it from ${selectedPackage.duration}` : undefined
                       }
                       hitSlop={8}
                       onPress={resetEndTimeToPackage}
@@ -634,6 +1133,29 @@ export function AddBookingModal({ selectedDate, onDateChange, dueDate, onDueDate
               />
             ) : null}
 
+            {!scheduleReviewed ? (
+              <View accessibilityRole="alert" style={[styles.reviewNotice, { backgroundColor: accentSoft, borderColor: palette.accent }]}>
+                <Ionicons name="calendar-outline" size={18} color={palette.accent} />
+                <View style={styles.reviewCopy}>
+                  <Text style={[styles.invoiceNoticeText, styles.reviewText, { color: palette.text }]}>{t('bm.duplicate.review')}</Text>
+                  <Pressable accessibilityRole="button" hitSlop={6} onPress={() => { setScheduleReviewed(true); setFormError(''); }}>
+                    <Text style={[f.textLink, { color: palette.accent }]}>{t('bm.duplicate.keep')}</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : null}
+
+            <ScheduleConflictNotice
+              conflicts={conflicts}
+              override={allowConflict}
+              onOverrideChange={(value) => {
+                setAllowConflict(value);
+                setFormError('');
+              }}
+              colors={formColors}
+              formatDate={formatDisplayDate}
+            />
+
             <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('bookings.eventLocation')}</Text>
             <TextInput
               value={draftLocation}
@@ -643,6 +1165,9 @@ export function AddBookingModal({ selectedDate, onDateChange, dueDate, onDueDate
               style={[styles.input, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
             />
 
+            {/* Notes belong to the booking; an invoice has none of its own to edit. */}
+            {isInvoiceEdit ? null : (
+            <>
             <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('bookings.notes')}</Text>
             <TextInput
               value={draftNotes}
@@ -650,6 +1175,19 @@ export function AddBookingModal({ selectedDate, onDateChange, dueDate, onDueDate
               placeholder={t('bookings.notes.placeholder')}
               placeholderTextColor={palette.muter}
               multiline
+              style={[styles.input, styles.notesInput, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
+            />
+            </>
+            )}
+
+            <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('bm.terms')}</Text>
+            <TextInput
+              value={terms}
+              onChangeText={setTerms}
+              placeholder={t('bm.terms.placeholder')}
+              placeholderTextColor={palette.muter}
+              multiline
+              maxLength={8000}
               style={[styles.input, styles.notesInput, { backgroundColor: softInset, borderColor: softBorder, color: palette.text }]}
             />
 
@@ -666,20 +1204,52 @@ export function AddBookingModal({ selectedDate, onDateChange, dueDate, onDueDate
               </>
             ) : null}
 
-            <View style={[styles.invoiceNotice, { backgroundColor: accentSoft, borderColor: palette.accent }]}>
-              <Ionicons name="document-text-outline" size={18} color={palette.accent} />
-              <Text style={[styles.invoiceNoticeText, { color: palette.text }]}>{t('bookings.invoiceNotice')}</Text>
-            </View>
+            {isQuote ? (
+              <>
+                <Text style={[styles.fieldLabel, { color: palette.muter }]}>{t('bm.quote.validUntil')}</Text>
+                <DatePickerField value={validUntil} onChange={setValidUntil} isDarkMode={isDarkMode} palette={palette} />
+              </>
+            ) : null}
+
+            {isEdit ? null : (
+              <View style={[styles.invoiceNotice, { backgroundColor: accentSoft, borderColor: palette.accent }]}>
+                <Ionicons name={isQuote ? 'pricetag-outline' : isFormEdit ? 'link-outline' : 'document-text-outline'} size={18} color={palette.accent} />
+                <Text style={[styles.invoiceNoticeText, { color: palette.text }]}>{t(isQuote ? 'bm.quote.notice' : isFormEdit ? 'bm.formEdit.notice' : 'bookings.invoiceNotice')}</Text>
+              </View>
+            )}
 
             </View>
             {formError || feedback.error ? <Text accessibilityRole="alert" style={styles.formError}>{feedback.error || formError}</Text> : null}
 
-            <Pressable style={[styles.submitButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]} disabled={feedback.saving || feedback.success} onPress={handleAddBooking}>
-              <Text style={styles.submitButtonText}>{feedback.saving ? t('bookings.saving') : feedback.pending ? t('bookings.retry') : t(onSaveInvoice ? 'invoices.save' : 'bookings.save')}</Text>
+            <Pressable accessibilityRole="button" style={[styles.submitButton, { backgroundColor: palette.accent, shadowColor: palette.accent }]} disabled={busy} onPress={handleAddBooking}>
+              <Text style={styles.submitButtonText}>{feedback.saving ? t('bookings.saving') : feedback.pending ? t('bookings.retry') : t(saveKey)}</Text>
             </Pressable>
+            {isInvoiceEdit ? (
+              // Closes without saving: nothing is written until Save changes is pressed.
+              <Pressable
+                accessibilityRole="button"
+                disabled={busy}
+                onPress={() => setShowComposer(false)}
+                style={({ pressed }) => [styles.secondaryButton, { borderColor: palette.border }, pressed && styles.autoTagPressed, busy && styles.disabledButton]}>
+                <Text style={[styles.secondaryButtonText, { color: palette.text }]}>{t('of.cancel')}</Text>
+              </Pressable>
+            ) : null}
+            {canSendForm ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityHint={t('bm.sendForm.body')}
+                disabled={busy || feedback.pending}
+                onPress={handleSendForm}
+                style={({ pressed }) => [styles.secondaryButton, { borderColor: palette.accent }, pressed && styles.autoTagPressed, (busy || feedback.pending) && styles.disabledButton]}>
+                <Ionicons name="paper-plane-outline" size={17} color={palette.accent} />
+                <Text style={[styles.secondaryButtonText, { color: palette.accent }]}>{sendingForm ? t('bm.sendForm.sending') : t('bm.sendForm')}</Text>
+              </Pressable>
+            ) : null}
+            </>
+            )}
             </ScrollView>
           </View>
-          <SuccessFeedback visible={feedback.success} title={t(onSaveInvoice ? 'invoices.created.title' : 'bookings.created.title')} message={t(onSaveInvoice ? 'invoices.created.body' : 'bookings.created.body')} onComplete={completeBooking} />
+          <SuccessFeedback visible={feedback.success} title={t(successTitleKey)} message={successBody} onComplete={completeBooking} />
 
           <KeyboardDoneButton />
         </View>
@@ -688,6 +1258,47 @@ export function AddBookingModal({ selectedDate, onDateChange, dueDate, onDueDate
 }
 
 const styles = StyleSheet.create({
+  headerCopy: {
+    flex: 1,
+    marginRight: 12,
+  },
+  includedHint: {
+    marginTop: 0,
+    marginBottom: 2,
+  },
+  reviewNotice: {
+    borderWidth: 1,
+    borderRadius: 17,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginTop: 12,
+  },
+  reviewCopy: {
+    flex: 1,
+    gap: 8,
+  },
+  reviewText: {
+    marginLeft: 8,
+  },
+  secondaryButton: {
+    marginTop: 10,
+    borderRadius: 17,
+    borderWidth: 1,
+    paddingVertical: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  secondaryButtonText: {
+    fontWeight: '800',
+    fontSize: 14.5,
+  },
+  disabledButton: {
+    opacity: 0.55,
+  },
   depositHint: {
     fontSize: 11.5,
     fontWeight: '500',

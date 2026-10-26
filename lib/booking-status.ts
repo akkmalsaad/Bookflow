@@ -1,6 +1,7 @@
 import type { Ionicons } from '@expo/vector-icons';
 
-import type { Booking, Invoice, InvoicePayment } from '@/context/app-data-context';
+import type { Booking, Invoice } from '@/context/app-data-context';
+import type { TranslationKey } from '@/lib/i18n';
 
 /**
  * The job's lifecycle. Deliberately separate from invoice status and payment status: nothing about
@@ -12,15 +13,25 @@ import type { Booking, Invoice, InvoicePayment } from '@/context/app-data-contex
  */
 export type BookingStatus = Booking['status'];
 
-/** Presentation order for pickers and legends — the natural progression of a job. */
+/** The job stages a person can pick, in the natural progression of a job. */
 export const BOOKING_STATUS_ORDER: readonly BookingStatus[] = [
   'Inquiry',
   'Confirmed',
-  'Deposit Paid',
   'In Progress',
   'Completed',
   'Cancelled',
 ] as const;
+
+/**
+ * Stored values that are no longer job stages. 'Deposit Paid' was payment information; the card's
+ * payment badge shows it now. Bookings that hold it keep it, shown as legacy, until someone picks a
+ * stage — nothing converts them automatically.
+ */
+const LEGACY_BOOKING_STATUSES: readonly BookingStatus[] = ['Deposit Paid'] as const;
+
+export function isLegacyBookingStatus(status: string | null | undefined) {
+  return LEGACY_BOOKING_STATUSES.some((candidate) => candidate === status);
+}
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -114,7 +125,13 @@ export const DEFAULT_BOOKING_STATUS: BookingStatus = 'Inquiry';
  * screen can never rewrite history. A record is only corrected when someone picks a status.
  */
 export function resolveBookingStatus(status: string | null | undefined): BookingStatus {
-  return BOOKING_STATUS_ORDER.find((candidate) => candidate === status) ?? DEFAULT_BOOKING_STATUS;
+  return [...BOOKING_STATUS_ORDER, ...LEGACY_BOOKING_STATUSES].find((candidate) => candidate === status) ?? DEFAULT_BOOKING_STATUS;
+}
+
+/** The translated label for a stored status. The stored value itself is never changed. */
+export function getBookingStatusLabelKey(status: string | null | undefined): TranslationKey {
+  const resolved = resolveBookingStatus(status);
+  return isLegacyBookingStatus(resolved) ? 'jobStatus.legacyDepositPaid' : `status.booking.${resolved}`;
 }
 
 export function getBookingStatusConfig(status: string | null | undefined) {
@@ -130,12 +147,12 @@ export function getBookingStatusVisual(status: string | null | undefined, isDark
 /**
  * The lane the automatic synchronisation may walk a booking along, in order. Cancelled is
  * deliberately absent: it is terminal, reached only by a person, and nothing derived from an
- * invoice or a payment may enter or leave it.
+ * invoice may enter or leave it. A legacy 'Deposit Paid' is off the lane too, so it is left exactly
+ * as stored until someone picks a stage.
  */
 const AUTOMATIC_PROGRESSION: readonly BookingStatus[] = [
   'Inquiry',
   'Confirmed',
-  'Deposit Paid',
   'In Progress',
   'Completed',
 ] as const;
@@ -154,69 +171,37 @@ export function advanceBookingStatus(
   const currentRank = AUTOMATIC_PROGRESSION.indexOf(status);
   const targetRank = AUTOMATIC_PROGRESSION.indexOf(target);
 
-  // Cancelled sits off the lane (rank -1) and so never moves.
+  // Cancelled and a legacy status sit off the lane (rank -1) and so never move.
   if (currentRank === -1 || targetRank === -1) return status;
   return targetRank > currentRank ? target : status;
 }
 
-/** What a booking's linked invoices say has actually happened, from the persisted records alone. */
-type BookingSignals = {
-  /** At least one live linked invoice the customer has accepted. */
-  accepted: boolean;
-  /** At least one deposit payment recorded against a live linked invoice. */
-  deposit: boolean;
-};
-
 /**
- * The status a booking should hold given its own stored status and its invoices' real state.
+ * Reconciles every booking against its invoices' acceptance. A live linked invoice the customer has
+ * accepted confirms the booking; that is the only automatic move.
  *
- * Forward-only by construction, so a manual 'In Progress', 'Completed' or 'Cancelled' is never
- * pulled back by an invoice that was accepted earlier in the job's life.
+ * Payments are deliberately not read: recording, editing or removing a payment never changes job
+ * progress — payment state lives on the invoice and is shown beside the job status, not in it. (No
+ * payment write sets an invoice to Accepted, so payments cannot reach this through acceptance.)
+ *
+ * Forward-only, so a manual 'In Progress', 'Completed' or 'Cancelled' is never pulled back by an
+ * invoice accepted earlier in the job's life. Returns the array it was given when nothing moved, so
+ * callers can hand the result straight to setState without causing a render.
  */
-function syncedBookingStatus(stored: string | null | undefined, signals: BookingSignals): BookingStatus {
-  let status = resolveBookingStatus(stored);
-  if (signals.accepted) status = advanceBookingStatus(status, 'Confirmed');
-  if (signals.deposit) status = advanceBookingStatus(status, 'Deposit Paid');
-  return status;
-}
-
-/**
- * Reconciles every booking against the invoices and payments actually on record.
- *
- * Acceptance is read from the invoice's own status and a deposit from an InvoicePayment of kind
- * 'deposit' — the records BookFlow already persists — so nothing here depends on a screen having
- * been open, and a workspace loaded from Supabase normalises on the first pass.
- *
- * Returns the array it was given when nothing moved, so callers can hand the result straight to
- * setState without causing a render.
- */
-export function syncBookingStatuses(
-  bookings: Booking[],
-  invoices: Invoice[],
-  payments: InvoicePayment[],
-): Booking[] {
-  const depositedInvoiceIds = new Set(
-    payments.filter((payment) => payment.kind === 'deposit' && payment.amount > 0).map((payment) => payment.invoiceId),
-  );
-
-  const signalsByBooking = new Map<string, BookingSignals>();
+export function syncBookingStatuses(bookings: Booking[], invoices: Invoice[]): Booking[] {
+  const acceptedBookingIds = new Set<string>();
   for (const invoice of invoices) {
     // A trashed invoice's link is closed, so it stops being evidence of anything new. Bookings it
     // already moved forward stay where they are — this pass only ever advances.
     if (!invoice.bookingId || invoice.deletedAt) continue;
-
-    const signals = signalsByBooking.get(invoice.bookingId) ?? { accepted: false, deposit: false };
-    if (invoice.status === 'Accepted') signals.accepted = true;
-    if (depositedInvoiceIds.has(invoice.id)) signals.deposit = true;
-    signalsByBooking.set(invoice.bookingId, signals);
+    if (invoice.status === 'Accepted') acceptedBookingIds.add(invoice.bookingId);
   }
 
   let changed = false;
   const next = bookings.map((booking) => {
-    const signals = signalsByBooking.get(booking.id);
-    if (!signals) return booking;
+    if (!acceptedBookingIds.has(booking.id)) return booking;
 
-    const synced = syncedBookingStatus(booking.status, signals);
+    const synced = advanceBookingStatus(booking.status, 'Confirmed');
     // Compared against the *resolved* status so a legacy or unknown value is only ever rewritten
     // by a real advance, never by the display fallback.
     if (synced === resolveBookingStatus(booking.status)) return booking;

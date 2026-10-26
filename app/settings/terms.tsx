@@ -2,7 +2,10 @@ import { LegalDocumentScreen } from '@/components/legal/LegalDocumentScreen';
 import { getTermsOfService } from '@/lib/legal/terms-of-service';
 import { useTranslation } from '@/lib/use-translation';
 
-/** The one Terms of Service screen. Settings, Security & privacy and the paywall all open this route. */
+/**
+ * The one Terms of Service screen, opened from Settings and Security & privacy. The paywall links to
+ * Apple's standard EULA instead, which governs the Pro subscription.
+ */
 export default function TermsScreen() {
   const { t, locale } = useTranslation();
 

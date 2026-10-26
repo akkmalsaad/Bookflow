@@ -1,12 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useRef, useState } from 'react';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { SuccessFeedback } from '@/components/feedback/SuccessFeedback';
 import { SignOutDialog } from '@/components/settings/AccountDialogs';
 import { BusinessProfileModal } from '@/components/settings/BusinessProfileModal';
+import { FeedbackSheet } from '@/components/settings/FeedbackSheet';
 import { ServicesManagerModal } from '@/components/settings/ServicesManagerModal';
 import { SettingsRow, SettingsSection } from '@/components/settings/SettingsList';
 import {
@@ -17,8 +19,10 @@ import {
 import { useAppData } from '@/context/app-data-context';
 import { LOCALES } from '@/lib/i18n';
 import { useAuth } from '@/context/auth-context';
+import { useSnackbar } from '@/context/snackbar-context';
 import { useSubscription } from '@/context/subscription-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { isAppStoreReviewSupported, openAppStoreReviewPage } from '@/lib/app-store-review';
 import { useResponsive } from '@/lib/responsive';
 import type { TranslationKey } from '@/lib/i18n';
 import { useTranslation } from '@/lib/use-translation';
@@ -37,6 +41,15 @@ export default function SettingsScreen() {
   const [showProfileEditor, setShowProfileEditor] = useState(false);
   const [showServicesManager, setShowServicesManager] = useState(false);
   const [showSignOut, setShowSignOut] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
+  // The thank-you appears once the feedback sheet has finished closing, so the two never overlap.
+  const [showFeedbackThanks, setShowFeedbackThanks] = useState(false);
+  const feedbackSent = useRef(false);
+  const { showSnackbar } = useSnackbar();
+
+  const openStoreReview = async () => {
+    if (!(await openAppStoreReviewPage())) showSnackbar({ message: t('settings.rate.error'), tone: 'danger' });
+  };
 
   const appVersion = Constants.expoConfig?.version ?? 'Unknown';
   const buildNumber = Constants.expoConfig?.ios?.buildNumber ?? Constants.expoConfig?.android?.versionCode;
@@ -132,7 +145,23 @@ export default function SettingsScreen() {
 
         <SettingsSection title={t('settings.section.support')}>
           <SettingsRow icon="help-circle-outline" title={t('settings.help')} onPress={() => router.push('/settings/help')} />
-          <SettingsRow icon="chatbubble-ellipses-outline" title={t('settings.feedback')} onPress={() => router.push('/settings/feedback')} />
+        </SettingsSection>
+
+        <SettingsSection title={t('settings.section.helpFeedback')}>
+          {isAppStoreReviewSupported ? (
+            <SettingsRow
+              icon="star-half-outline"
+              title={t('settings.rate')}
+              subtitle={t('settings.rate.subtitle')}
+              onPress={openStoreReview}
+            />
+          ) : null}
+          <SettingsRow
+            icon="chatbubble-ellipses-outline"
+            title={t('settings.feedback')}
+            subtitle={t('settings.feedback.subtitle')}
+            onPress={() => setShowFeedback(true)}
+          />
         </SettingsSection>
 
         <SettingsSection title={t('settings.section.about')}>
@@ -165,6 +194,29 @@ export default function SettingsScreen() {
 
       <BusinessProfileModal visible={showProfileEditor} onClose={() => setShowProfileEditor(false)} />
       <ServicesManagerModal visible={showServicesManager} onClose={() => setShowServicesManager(false)} />
+      <FeedbackSheet
+        visible={showFeedback}
+        onClose={() => setShowFeedback(false)}
+        onSent={() => {
+          feedbackSent.current = true;
+          setShowFeedback(false);
+        }}
+        onClosed={() => {
+          if (!feedbackSent.current) return;
+          feedbackSent.current = false;
+          setShowFeedbackThanks(true);
+        }}
+      />
+      {/* The same presentation the Calendar uses for "Status saved". */}
+      <Modal visible={showFeedbackThanks} transparent animationType="fade" onRequestClose={() => {}}>
+        <View style={styles.successBackdrop}>
+          <SuccessFeedback
+            visible={showFeedbackThanks}
+            title={t('feedbackSheet.sent')}
+            onComplete={() => setShowFeedbackThanks(false)}
+          />
+        </View>
+      </Modal>
       <SignOutDialog
         visible={showSignOut}
         onCancel={() => setShowSignOut(false)}
@@ -248,5 +300,9 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.8,
+  },
+  successBackdrop: {
+    backgroundColor: 'rgba(15, 23, 42, 0.58)',
+    flex: 1,
   },
 });

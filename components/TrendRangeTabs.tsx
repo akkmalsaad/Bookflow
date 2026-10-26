@@ -62,3 +62,49 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
 });
+
+/**
+ * The same tab row with caller-supplied options, for lists that filter by something other than a
+ * date range (e.g. Schedule / Deliveries). Identical look and touch behaviour to TrendRangeTabs.
+ */
+export function FilterTabs<T extends string>({
+  value,
+  onChange,
+  options,
+  color,
+  isDarkMode,
+}: {
+  value: T;
+  onChange: (value: T) => void;
+  options: { key: T; label: string }[];
+  color: string;
+  isDarkMode: boolean;
+}) {
+  const inactiveBackground = isDarkMode ? '#141E33' : '#EEF2FA';
+  const inactiveText = isDarkMode ? '#8792AD' : '#6B7686';
+
+  return (
+    <View style={styles.row} accessibilityRole="tablist">
+      {options.map((option) => {
+        const isActive = option.key === value;
+        return (
+          <Pressable
+            key={option.key}
+            onPress={() => onChange(option.key)}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: isActive }}
+            accessibilityLabel={option.label}
+            style={[
+              styles.tab,
+              {
+                backgroundColor: isActive ? `${color}1F` : inactiveBackground,
+                borderColor: isActive ? color : 'transparent',
+              },
+            ]}>
+            <Text style={[styles.tabText, { color: isActive ? color : inactiveText }]}>{option.label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}

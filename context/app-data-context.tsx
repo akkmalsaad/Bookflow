@@ -1,31 +1,44 @@
-import { createPublicInvoiceUrl } from '@/lib/public-invoice-url';
+import { createPublicBookingUrl, createPublicInvoiceUrl, readInvoiceTokenFromUrl } from '@/lib/public-invoice-url';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, Platform } from 'react-native';
 
 import { useAuth, type AuthUser } from '@/context/auth-context';
 import { useSubscription } from '@/context/subscription-context';
+import { findBookingConflicts, findBookingTimeConflict, normalizeBookingTime, normalizeBufferMinutes } from '@/lib/booking-conflicts';
+import { normalizeFulfilment, type BookingFulfilment } from '@/lib/booking-fulfilment';
 import {
-  createClerkSupabaseClient,
-  isSupabaseConfigured,
-  type Json,
-} from '@/lib/supabase';
-import { findBookingTimeConflict, normalizeBookingTime } from '@/lib/booking-conflicts';
-import { syncBookingStatuses } from '@/lib/booking-status';
+  buildBookingFromOffer,
+  buildInvoiceFieldsFromBooking,
+  buildOfferSnapshot,
+  canReviseOffer,
+  detailsFromSnapshot,
+  getRespondedDetails,
+  matchSubmissionCustomer,
+  nextQuotationNumber,
+  normalizeOffers,
+  offerRecordIds,
+  reviseOffer,
+  type BookingOffer,
+  type OfferDetails,
+  type OfferKind,
+  type OfferResponse,
+  type OfferSnapshot,
+  type OfferStatus,
+} from '@/lib/booking-offers';
+import {
+  buildPricedLines,
+  normalizeIncludedServices,
+  normalizeSavedAddOns,
+  resolveBookingMoney,
+  type BookingCharge,
+  type DepositType,
+  type PricedLine,
+  type SavedAddOn,
+} from '@/lib/booking-pricing';
 import { materialiseDueBookingNotifications } from '@/lib/booking-reminders';
-import {
-  canCreateBooking,
-  canCreateCustomer,
-  canCreateInvoice,
-  getPlanUsage,
-  type LimitCheck,
-  type LimitKind,
-  type PlanUsage,
-} from '@/lib/plan-limits';
-import { onNotificationReceived } from '@/lib/notifications';
+import { syncBookingStatuses } from '@/lib/booking-status';
 import { DEFAULT_LOCALE, getInvoiceDocumentLabels, isLocale, translate, type Locale, type TranslationKey } from '@/lib/i18n';
-import { fromCents, resolveInvoiceStatus, sumPaymentsInCents, toCents } from '@/lib/invoice-payments';
-import { DEFAULT_INVOICE_NUMBER_FORMAT, getInvoiceNumber, nextAvailableInvoiceNumber } from '@/lib/invoice-numbering';
-import { getExpiredDustbinInvoiceIds } from '@/lib/invoice-lifecycle';
+import { purgeLinkedBookings, reconcileLinkedBookings, removalTakesLinkedBooking, removeLinkedBooking, restoreLinkedBooking } from '@/lib/invoice-booking-link';
 import {
   backfillInvoiceCustomerSnapshots,
   createInvoiceCustomerSnapshot,
@@ -43,7 +56,27 @@ import {
   type InvoiceBankDetails,
   type InvoiceDesign,
 } from '@/lib/invoice-design';
+import { applyInvoiceEdit, syncLinkedBookingSchedule, type InvoiceEditInput } from '@/lib/invoice-edit';
+import { getExpiredDustbinInvoiceIds, removalRequiresReason } from '@/lib/invoice-lifecycle';
+import { DEFAULT_INVOICE_NUMBER_FORMAT, getInvoiceNumber, nextAvailableInvoiceNumber } from '@/lib/invoice-numbering';
+import { fromCents, resolveInvoiceStatus, sumPaymentsInCents, toCents } from '@/lib/invoice-payments';
+import { onNotificationReceived, presentOwnerNotification } from '@/lib/notifications';
+import {
+  canCreateBooking,
+  canCreateCustomer,
+  canCreateInvoice,
+  getPlanUsage,
+  type LimitCheck,
+  type LimitKind,
+  type PlanUsage,
+} from '@/lib/plan-limits';
 import { normalizeServiceDeposit, type ServiceDepositType } from '@/lib/service-defaults';
+import {
+  createClerkSupabaseClient,
+  isSupabaseConfigured,
+  type Json,
+} from '@/lib/supabase';
+import { materialiseWorkflowNotifications } from '@/lib/workflow-reminders';
 import {
   mergeWorkspaceBackup,
   type BookflowBackup,
@@ -68,6 +101,12 @@ export type PackageOption = {
    */
   defaultDepositType?: ServiceDepositType;
   defaultDepositValue?: number;
+  /** Deliverables included in the package ("200 edited photos"). Copied onto each booking. */
+  includedServices?: string[];
+  /** Optional add-ons offered with this package, each with a default price and unit. */
+  addOns?: SavedAddOn[];
+  /** Default preparation/travel buffer in minutes for bookings of this package. */
+  bufferMinutes?: number;
 };
 
 export type BusinessProfile = {
@@ -127,6 +166,32 @@ export type Booking = {
    */
   depositAmount?: number;
   /**
+   * How the deposit was agreed. `depositAmount` above stays the resolved figure (so older app
+   * versions keep reading it); these record whether it was fixed or a percentage, and when it is due.
+   */
+  depositType?: DepositType;
+  depositValue?: number;
+  depositDueDate?: string;
+  /**
+   * The agreed package price before additional charges. Absent on bookings saved before charges
+   * existed, where `price` itself is the package price. When present, `price` is the booking total.
+   */
+  basePrice?: number;
+  /** The service the booking was made from. Informational: editing the service never reaches back. */
+  packageId?: string;
+  /** Additional customer charges (transport, extra hours…). Revenue, never expenses. */
+  charges?: BookingCharge[];
+  /** Deliverables copied from the package when the booking was made. */
+  includedServices?: string[];
+  /** Booking terms agreed for this job, when they were set on the booking itself. */
+  terms?: string;
+  /** Optional preparation/travel buffer in minutes, used by conflict warnings. */
+  bufferMinutes?: number;
+  /** Delivery tracking, separate from both the job status and payment state. */
+  fulfilment?: BookingFulfilment;
+  /** The booking form or quotation this booking came from. */
+  sourceOfferId?: string;
+  /**
    * The job's own lifecycle, deliberately separate from Invoice['status'] (invoice state) and from
    * the InvoicePayment records (payment state). Nothing about billing belongs in here.
    */
@@ -172,6 +237,8 @@ export type Invoice = {
    */
   deletedAt?: string | null;
   deletionReason?: string | null;
+  /** The signed-in owner (user id) who moved it to Dustbin. Cleared on restore, like the reason. */
+  deletedBy?: string | null;
   /** Set only when the invoice was voided rather than plainly deleted. Survives a restore. */
   voidedAt?: string | null;
   voidReason?: string | null;
@@ -181,6 +248,22 @@ export type Invoice = {
    * this and stays Void.
    */
   statusBeforeTrash?: Invoice['status'] | null;
+  /**
+   * The priced lines frozen at creation: the package plus any additional charges. Absent on invoices
+   * raised before charges existed, which render as the single service line they always had.
+   */
+  lineItems?: PricedLine[];
+  /** Deposit due on this invoice when it was raised, and its optional due date. Not a payment. */
+  depositDue?: number;
+  depositDueDate?: string;
+  /** The booking form or quotation this invoice came from. */
+  sourceOfferId?: string;
+  /**
+   * The booking that deleting this invoice took out of the bookings list, kept here so restoring the
+   * invoice puts it back. Only a plain Delete sets it (never Cancel or Void). Released app versions
+   * preserve it untouched. See lib/invoice-booking-link.
+   */
+  removedBooking?: Booking | null;
 };
 
 /** Invoice-specific defaults, applied to new invoices and snapshotted onto each one. */
@@ -244,12 +327,28 @@ export type InvoiceEventSchedule = {
   endTime: string;
   depositAmount?: number;
   notes?: string;
+  /** Booking-side detail from the booking form: package price, charges and deposit terms. */
+  basePrice?: number;
+  charges?: BookingCharge[];
+  depositType?: DepositType;
+  depositValue?: number;
+  depositDueDate?: string;
+  bufferMinutes?: number;
+  packageId?: string;
+  terms?: string;
+  /** The owner chose to keep an overlapping booking after seeing the warning. */
+  allowConflict?: boolean;
 };
 
 export type AddInvoiceResult =
   | { ok: true; invoiceId: string; bookingId: string }
   /** `limit` is set when the Free plan's monthly allowance is what stopped it. */
   | { ok: false; error: string; limit?: LimitCheck };
+
+export type UpdateInvoiceResult =
+  /** `sharedLink` settles once the customer-facing copy, when there is one, has been refreshed. */
+  | { ok: true; sharedLink: Promise<void> }
+  | { ok: false; error: string };
 
 export type RecordInvoicePaymentInput = {
   invoiceId: string;
@@ -273,13 +372,15 @@ export type InvoiceRemovalMode = 'delete' | 'cancel' | 'void';
 export type TrashInvoiceInput = {
   invoiceId: string;
   mode: InvoiceRemovalMode;
-  /** Always optional — nothing is ever blocked on the user picking one. */
+  /** Optional, except when deleting an accepted invoice (see removalRequiresReason). */
   reason?: string;
 };
 
 export type InvoiceMutationResult = {
   ok: boolean;
   error?: string;
+  /** What the operation did to the invoice's linked booking, when it has one. */
+  linkedBooking?: 'removed' | 'kept_shared' | 'restored';
 };
 
 export type FinanceEntry = {
@@ -332,7 +433,42 @@ export type InvoiceDraftPrefill = {
 export type CreateBookingInput = Omit<Booking, 'id' | 'customerId'> & {
   customerId?: string;
   newCustomer?: Omit<Customer, 'id'>;
+  /**
+   * The owner saw the schedule conflict warning and chose to keep both bookings. Without it, an
+   * overlapping booking is still refused exactly as before.
+   */
+  allowConflict?: boolean;
 };
+
+export type UpdateBookingResult = {
+  ok: boolean;
+  error?: string;
+  /** Linked invoices left as they were because they had already been sent or paid. */
+  unchangedInvoiceNumbers?: string[];
+};
+
+export type SaveQuotationInput = {
+  /** Present when revising an existing quotation. */
+  offerId?: string;
+  customerId?: string;
+  newCustomer?: Omit<Customer, 'id'>;
+  details: OfferDetails;
+  validUntil?: string;
+};
+
+export type SaveOfferResult = { ok: true; offerId: string } | { ok: false; error: string };
+
+export type CreateBookingFormInput = {
+  details: OfferDetails;
+  customerId?: string;
+  requireEmail?: boolean;
+};
+
+export type OfferLinkResult = { ok: true; url: string; offerId: string; expiresAt: string } | { ok: false; error: string };
+
+export type ConvertOfferResult =
+  | { ok: true; bookingId: string; invoiceId: string }
+  | { ok: false; error: string; conflictTitle?: string; limit?: LimitCheck };
 
 export type BookingMutationResult = {
   ok: boolean;
@@ -421,11 +557,49 @@ type AppDataContextValue = {
   /** Updates only the job status. Every other field on the booking is left untouched. */
   updateBookingStatus: (bookingId: string, status: Booking['status']) => BookingMutationResult;
   /**
+   * Saves an edited booking. Its id, creation date, job status, delivery tracking and origin are
+   * kept; a linked invoice follows only while it is still an unsent, unpaid draft.
+   */
+  updateBooking: (bookingId: string, input: CreateBookingInput) => UpdateBookingResult;
+  /** Sets or clears delivery tracking. Separate from job status and payments. */
+  setBookingFulfilment: (bookingId: string, fulfilment: BookingFulfilment | null) => BookingMutationResult;
+  /** Replaces only this booking's notes; every other field is kept exactly as stored. */
+  setBookingNotes: (bookingId: string, notes: string) => BookingMutationResult;
+  /** Quotations and booking forms, newest first. */
+  offers: BookingOffer[];
+  saveQuotation: (input: SaveQuotationInput) => SaveOfferResult;
+  createBookingForm: (input: CreateBookingFormInput) => Promise<OfferLinkResult>;
+  /**
+   * Saves new details onto an existing booking form as its next version. Local only, like a
+   * quotation revision: the customer sees it once the link is shared again.
+   */
+  reviseBookingForm: (offerId: string, details: OfferDetails) => InvoiceMutationResult;
+  /** (Re)publishes an offer's current version and returns its private link. */
+  shareOffer: (offerId: string) => Promise<OfferLinkResult>;
+  revokeOffer: (offerId: string) => Promise<InvoiceMutationResult>;
+  deleteOfferDraft: (offerId: string) => void;
+  /**
+   * Deletes a booking form: its link (and any customer page of the booking it became) stops working,
+   * and that booking leaves the bookings list. Customers, invoices and payments are kept. Resolves
+   * once the change is saved; safe to call again after a failure.
+   */
+  deleteBookingForm: (offerId: string) => Promise<InvoiceMutationResult>;
+  /** Pulls customer responses and turns submitted booking forms into records, exactly once. */
+  refreshOffers: () => Promise<void>;
+  convertQuotation: (offerId: string, options?: { allowConflict?: boolean }) => ConvertOfferResult;
+  createCustomerPageLink: (bookingId: string) => Promise<OfferLinkResult>;
+  revokeCustomerPageLink: (bookingId: string) => Promise<InvoiceMutationResult>;
+  /**
    * Creates an invoice and, when an event schedule is given and the invoice is not already linked
    * to a booking, the one booking that reserves that slot. Both land together or not at all.
    */
   addInvoice: (invoice: Omit<Invoice, 'id'>, schedule?: InvoiceEventSchedule) => AddInvoiceResult;
   createInvoiceShareLink: (invoiceId: string) => Promise<string>;
+  /**
+   * Saves an edit over the same invoice: id, number, status, acceptance and payments are kept, and
+   * an existing shared link is refreshed in place (same token, same status).
+   */
+  updateInvoice: (invoiceId: string, input: InvoiceEditInput) => UpdateInvoiceResult;
   refreshInvoiceStatuses: () => Promise<void>;
   setInvoiceDraft: (draft: InvoiceDraftPrefill | null) => void;
   updateInvoiceStatus: (invoiceId: string, status: Invoice['status']) => void;
@@ -513,6 +687,8 @@ type PersistedAppData = {
   /** Interface language. Absent on workspaces saved before it existed, which read as English. */
   language?: Locale;
   invoiceSettings: InvoiceSettings;
+  /** Quotations and booking forms. Absent on workspaces saved before they existed. */
+  offers?: BookingOffer[];
 };
 
 export const DEFAULT_INVOICE_SETTINGS: InvoiceSettings = {
@@ -786,6 +962,7 @@ function createFreshWorkspace(user: AuthUser): PersistedAppData {
     currency: 'MYR',
     language: DEFAULT_LOCALE,
     invoiceSettings: { ...DEFAULT_INVOICE_SETTINGS },
+    offers: [],
   };
 }
 
@@ -811,7 +988,14 @@ function parseWorkspace(value: Json, user: AuthUser): PersistedAppData {
   );
   const parsedBookings = normalizeBookingCreationDates(
     Array.isArray(data.bookings) ? (data.bookings as Booking[]) : fallback.bookings,
-  );
+  ).map((booking) => {
+    // Delivery tracking is read tolerantly; a malformed value is dropped rather than shown.
+    if (booking.fulfilment === undefined) return booking;
+    const fulfilment = normalizeFulfilment(booking.fulfilment);
+    if (fulfilment) return { ...booking, fulfilment };
+    const { fulfilment: _dropped, ...rest } = booking;
+    return rest;
+  });
   const parsedPayments = migrateInvoicePayments(
     parsedInvoices,
     Array.isArray(data.payments) ? (data.payments as InvoicePayment[]) : [],
@@ -844,6 +1028,7 @@ function parseWorkspace(value: Json, user: AuthUser): PersistedAppData {
     currency: currency === 'MYR' || currency === 'IDR' || currency === 'USD' ? currency : fallback.currency,
     language: isLocale(data.language) ? data.language : fallback.language,
     invoiceSettings: normalizeInvoiceSettings(savedSettings, parsedInvoices),
+    offers: normalizeOffers(data.offers),
   };
 }
 
@@ -859,10 +1044,17 @@ function sweepExpiredDustbinInvoices(workspace: PersistedAppData, now = new Date
   const expiredIds = new Set(getExpiredDustbinInvoiceIds(workspace.invoices, now));
   if (expiredIds.size === 0) return { workspace, expiredIds };
 
+  // A booking an expired invoice's deletion removed goes with it, unless another invoice still
+  // references it — then it is put back (active invoice) or handed over (Dustbin invoice).
+  const linked = purgeLinkedBookings(expiredIds, workspace.invoices, workspace.bookings);
+  const remainingInvoices = workspace.invoices
+    .filter((invoice) => !expiredIds.has(invoice.id))
+    .map((invoice) => (linked.handOver.has(invoice.id) ? { ...invoice, removedBooking: linked.handOver.get(invoice.id) } : invoice));
   return {
     workspace: {
       ...workspace,
-      invoices: workspace.invoices.filter((invoice) => !expiredIds.has(invoice.id)),
+      invoices: remainingInvoices,
+      bookings: linked.bookings,
       payments: workspace.payments.filter((payment) => !expiredIds.has(payment.invoiceId)),
       financeEntries: workspace.financeEntries.filter(
         (entry) => !entry.invoiceId || !expiredIds.has(entry.invoiceId),
@@ -922,6 +1114,21 @@ function normalizeBusinessProfile(value: unknown, fallback: BusinessProfile): Bu
   };
 }
 
+/**
+ * A service's optional extras, stored only when present so services saved before they existed — and
+ * older app versions reading them — see exactly the record they always did.
+ */
+function normalizePackageExtras(service: Pick<PackageOption, 'includedServices' | 'addOns' | 'bufferMinutes'>) {
+  const includedServices = normalizeIncludedServices(service.includedServices);
+  const addOns = normalizeSavedAddOns(service.addOns);
+  const bufferMinutes = normalizeBufferMinutes(service.bufferMinutes);
+  return {
+    ...(includedServices.length ? { includedServices } : { includedServices: undefined }),
+    ...(addOns.length ? { addOns } : { addOns: undefined }),
+    ...(bufferMinutes ? { bufferMinutes } : { bufferMinutes: undefined }),
+  };
+}
+
 function normalizeInvoiceSettings(value: unknown, invoices: Invoice[]): InvoiceSettings {
   const saved = value && !Array.isArray(value) && typeof value === 'object' ? (value as Partial<InvoiceSettings>) : {};
   const numberFormat = typeof saved.numberFormat === 'string' && saved.numberFormat.trim()
@@ -960,6 +1167,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [notificationsClearedAt, setNotificationsClearedAt] = useState<string | undefined>(undefined);
+  const [offers, setOffers] = useState<BookingOffer[]>([]);
+  const offersRef = useRef<BookingOffer[]>([]);
+  offersRef.current = offers;
   const [invoiceDraft, setInvoiceDraft] = useState<InvoiceDraftPrefill | null>(null);
   const [businessProfile, setBusinessProfile] = useState<BusinessProfile>({
     name: '',
@@ -1007,6 +1217,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
   const customersRef = useRef<Customer[]>([]);
   const invoicesRef = useRef<Invoice[]>([]);
+  const paymentsRef = useRef<InvoicePayment[]>([]);
+  paymentsRef.current = allPayments;
 
   useEffect(() => {
     bookingsRef.current = bookings;
@@ -1036,7 +1248,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   );
 
   /**
-   * The one place invoice acceptance and recorded deposits reach a booking's own status.
+   * The one place invoice acceptance reaches a booking's own status. Payments never do: they are
+   * not an input, so no payment path can move job progress.
    *
    * Both screens already render `bookings` straight from here, so reconciling the workspace itself
    * — rather than deriving a status per screen — is what keeps the dashboard, the schedule and the
@@ -1048,8 +1261,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
    * running it on every load can normalise historic records without ever undoing a manual status.
    */
   useEffect(() => {
-    setBookings((current) => syncBookingStatuses(current, allInvoices, allPayments));
-  }, [allInvoices, allPayments, bookings]);
+    setBookings((current) => syncBookingStatuses(current, allInvoices));
+  }, [allInvoices, bookings]);
 
   /**
    * Turns booking reminders that have come due into the in-app records the bell and the
@@ -1062,12 +1275,15 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
    */
   useEffect(() => {
     const materialise = () => {
+      const clearedAt = notificationsClearedAt ? new Date(notificationsClearedAt).getTime() : null;
       setNotifications((current) =>
-        materialiseDueBookingNotifications(
+        materialiseWorkflowNotifications(
           bookingsRef.current,
-          current,
-          Date.now(),
-          notificationsClearedAt ? new Date(notificationsClearedAt).getTime() : null,
+          invoicesRef.current,
+          paymentsRef.current,
+          materialiseDueBookingNotifications(bookingsRef.current, current, Date.now(), clearedAt),
+          getLocalTodayKey(),
+          clearedAt,
         ),
       );
     };
@@ -1128,7 +1344,13 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
       const parsed = row ? parseWorkspace(row.data, user) : createFreshWorkspace(user);
       const swept = sweepExpiredDustbinInvoices(parsed);
-      const workspace = swept.workspace;
+      // Repairs what an older app version could leave behind: an invoice it restored without putting
+      // back the booking that deleting it had removed.
+      const reconciled = reconcileLinkedBookings(swept.workspace.invoices, swept.workspace.bookings);
+      const bookingLinksRepaired = reconciled.invoices !== swept.workspace.invoices || reconciled.bookings !== swept.workspace.bookings;
+      const workspace = bookingLinksRepaired
+        ? { ...swept.workspace, invoices: reconciled.invoices, bookings: reconciled.bookings }
+        : swept.workspace;
       const shouldPersistFinanceMigration = Boolean(row && needsFinanceSourceMigration(row.data));
       const shouldPersistInsightsMigration = Boolean(row && needsInsightsDateMigration(row.data));
 
@@ -1156,11 +1378,13 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       setCurrency(workspace.currency);
       setLanguage(workspace.language ?? DEFAULT_LOCALE);
       setInvoiceSettings(workspace.invoiceSettings);
+      offersRef.current = workspace.offers ?? [];
+      setOffers(workspace.offers ?? []);
       setInvoiceDraft(null);
       // Let the normal save queue persist source metadata, legacy payment reconciliation and any
       // dustbin sweep once. Blanking the snapshot is what makes the save effect see a change.
       lastQueuedSnapshotRef.current =
-        shouldPersistFinanceMigration || shouldPersistInsightsMigration || swept.expiredIds.size > 0
+        shouldPersistFinanceMigration || shouldPersistInsightsMigration || swept.expiredIds.size > 0 || bookingLinksRepaired
           ? ''
           : JSON.stringify(workspace);
       canSaveRef.current = true;
@@ -1219,6 +1443,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       businessProfile,
       currency,
       language,
+      offers,
     };
     const serialized = JSON.stringify(workspace);
 
@@ -1253,7 +1478,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           waiters.forEach(({ reject }) => reject(failure));
         }
       });
-  }, [allFinanceEntries, allInvoices, allPayments, bookings, businessProfile, confirmationRevision, currency, customers, invoiceSettings, language, notifications, notificationsClearedAt, packages, reminders, supabase, syncRetryKey, user]);
+  }, [allFinanceEntries, allInvoices, allPayments, bookings, businessProfile, confirmationRevision, currency, customers, invoiceSettings, language, notifications, notificationsClearedAt, offers, packages, reminders, supabase, syncRetryKey, user]);
 
   /**
    * The single place Dustbin is filtered out. Every screen, selector and finance calculation reads
@@ -1490,6 +1715,138 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     [writePublicInvoiceLinkStatus],
   );
 
+  /**
+   * The frozen customer-facing copy of an invoice, as its public link stores it. Shared by sending an
+   * invoice and by editing one, so an edited invoice reads exactly as a freshly sent one would.
+   */
+  const buildPublicInvoicePayload = useCallback(
+    (
+      invoice: Invoice,
+      client: ReturnType<typeof resolveInvoiceCustomer>,
+      publicStatus: 'Sent' | 'Accepted' | 'Declined' | 'Paid' | 'Cancelled' | 'Void',
+      locale: Locale,
+    ) => {
+      const booking = bookings.find((item) => item.id === invoice.bookingId);
+      const serviceName = invoice.serviceName ?? booking?.packageName;
+      const packageOption = packages.find((item) => item.name === serviceName);
+      const hasLogoSnapshot = invoice.snapshot
+        ? Object.prototype.hasOwnProperty.call(invoice.snapshot, 'businessLogoUrl')
+        : false;
+      const logoUrl = isPro
+        ? hasLogoSnapshot
+          ? invoice.snapshot?.businessLogoUrl ?? undefined
+          : businessProfile.logoUrl
+        : undefined;
+      const invoiceBusinessProfile = {
+        name: invoice.snapshot?.businessName ?? businessProfile.name,
+        ssmRegistrationNo:
+          invoice.snapshot?.businessRegistrationNumber ?? businessProfile.ssmRegistrationNo,
+        phone: invoice.snapshot?.businessPhone ?? businessProfile.phone,
+        email: invoice.snapshot?.businessEmail ?? businessProfile.email,
+        address: invoice.snapshot?.businessAddress ?? businessProfile.address,
+        logoUrl,
+      };
+      // The customer's page renders from this frozen model rather than recalculating anything of
+      // its own, so the figures, template, accent and hidden sections they see are exactly the
+      // ones the invoice was issued with. Older links have no `render` and keep their old layout.
+      const presentation = resolveInvoicePresentation(
+        { ...invoice, status: publicStatus },
+        {
+          design: invoiceSettings.design,
+          business: businessProfile,
+          paymentDetails: normalizeBankDetails(businessProfile.paymentDetails),
+          paymentInstructions: invoiceSettings.paymentInstructions,
+          termsAndConditions: invoiceSettings.termsAndConditions,
+          allowBusinessLogo: isPro,
+        },
+      );
+      const render = buildInvoiceRenderData({
+        // Resolved at share time: the document keeps the wording it was sent with, even if the
+        // owner later switches the app to another language.
+        labels: getInvoiceDocumentLabels(locale),
+        invoice: { ...invoice, status: publicStatus },
+        client,
+        payments: allPayments,
+        currency,
+        design: presentation.design,
+        business: presentation.business,
+        paymentDetails: presentation.paymentDetails,
+        paymentInstructions: presentation.paymentInstructions,
+        termsAndConditions: presentation.termsAndConditions,
+        serviceName,
+        packageDetails: invoice.packageDetails ?? packageOption?.details,
+        eventLocation: invoice.eventLocation ?? booking?.location,
+        eventDate: invoice.eventDate ?? booking?.date,
+        eventStartTime: invoice.eventStartTime ?? booking?.startTime ?? invoice.eventTime ?? booking?.time,
+        eventEndTime: invoice.eventEndTime ?? booking?.endTime,
+      });
+
+      return {
+        render,
+        // Travels with the link so the customer's page reads in the language it was sent in.
+        locale,
+        invoice: {
+          id: invoice.id,
+          invoiceNumber: getInvoiceNumber(invoice),
+          amount: invoice.amount,
+          depositPaid: invoice.depositPaid,
+          dueDate: invoice.dueDate,
+          sentAt: invoice.sentAt,
+          status: publicStatus,
+          terms: invoice.terms,
+        },
+        customer: {
+          name: client.name,
+          email: client.email,
+          phone: client.phone,
+        },
+        businessProfile: invoiceBusinessProfile,
+        currency,
+        serviceName,
+        packageDetails: invoice.packageDetails ?? packageOption?.details,
+        eventLocation: invoice.eventLocation ?? booking?.location,
+        eventDate: invoice.eventDate ?? booking?.date,
+        eventStartTime: invoice.eventStartTime ?? booking?.startTime ?? invoice.eventTime ?? booking?.time,
+        eventEndTime: invoice.eventEndTime ?? booking?.endTime,
+      };
+    },
+    [allPayments, bookings, businessProfile, currency, invoiceSettings, isPro, packages],
+  );
+
+  /**
+   * Rewrites an edited invoice's shared copy in place. Only the payload changes: the token, the
+   * link's status (and with it the customer's acceptance) and its expiry stay exactly as they were,
+   * and the copy keeps the language it was sent in. An invoice that was never shared has no link.
+   */
+  const refreshPublicInvoicePayload = useCallback(
+    async (invoice: Invoice, client: ReturnType<typeof resolveInvoiceCustomer>) => {
+      if (!supabase || !user) return;
+
+      const { data, error } = await supabase
+        .from('public_invoice_links')
+        .select('status,payload')
+        .eq('user_id', user.id)
+        .eq('invoice_id', invoice.id)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) return;
+
+      const stored = data.payload && typeof data.payload === 'object' && !Array.isArray(data.payload)
+        ? (data.payload as Record<string, unknown>)
+        : null;
+      const locale = isLocale(stored?.locale) ? stored.locale : language;
+      const payload = buildPublicInvoicePayload(invoice, client, data.status as Parameters<typeof buildPublicInvoicePayload>[2], locale);
+
+      const { error: updateError } = await supabase
+        .from('public_invoice_links')
+        .update({ payload: payload as unknown as Json, updated_at: new Date().toISOString() })
+        .eq('user_id', user.id)
+        .eq('invoice_id', invoice.id);
+      if (updateError) throw updateError;
+    },
+    [buildPublicInvoicePayload, language, supabase, user],
+  );
+
   /** The public status an active invoice should present, mirroring createInvoiceShareLink. */
   const getPublicLinkStatus = useCallback((invoice: Invoice) => {
     if (
@@ -1528,11 +1885,22 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
       const now = new Date().toISOString();
       const trimmedReason = reason?.trim() || null;
+      // Checked here as well as in the sheet, so no caller can delete an accepted invoice unexplained.
+      if (removalRequiresReason(invoice, mode) && !trimmedReason) {
+        return { ok: false, error: translate(languageRef.current, 'invoice.delete.reasonRequired') };
+      }
       const isVoid = mode === 'void';
       const nextStatus: Invoice['status'] =
         isVoid ? 'Void' : mode === 'cancel' ? 'Cancelled' : invoice.status;
 
-      setInvoices((current) =>
+      // Only a plain Delete takes the invoice's booking with it (found through its stored
+      // bookingId, and kept unless another active invoice still uses it). Cancel and Void leave the
+      // booking exactly as they always have.
+      const linked = removalTakesLinkedBooking(mode)
+        ? removeLinkedBooking(invoice, allInvoices, bookingsRef.current)
+        : { impact: { kind: 'none' as const }, bookings: bookingsRef.current, removedBooking: null };
+
+      const trash = (current: Invoice[]) =>
         current.map((item) =>
           item.id === invoiceId
             ? {
@@ -1541,23 +1909,36 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
                 statusBeforeTrash: nextStatus === item.status ? null : item.status,
                 deletedAt: now,
                 deletionReason: trimmedReason,
+                deletedBy: user?.id ?? null,
                 ...(isVoid ? { voidedAt: item.voidedAt ?? now, voidReason: trimmedReason } : null),
+                // Kept on the invoice so it travels through the Dustbin and comes back on restore.
+                ...(linked.removedBooking ? { removedBooking: linked.removedBooking } : null),
               }
             : item,
-        ),
-      );
+        );
+      // Kept in step like bookingsRef, so a rollback that runs before the next render still finds
+      // the trashed invoice and the booking it holds.
+      invoicesRef.current = trash(invoicesRef.current);
+      setInvoices(trash);
+      // Same tick as the invoice change, so both land in the same workspace save.
+      if (linked.bookings !== bookingsRef.current) {
+        bookingsRef.current = linked.bookings;
+        setBookings(linked.bookings);
+      }
+      const linkedBooking = linked.impact.kind === 'remove' ? 'removed' as const : linked.impact.kind === 'keep_shared' ? 'kept_shared' as const : undefined;
 
       try {
         await setPublicInvoiceLinkStatus(invoiceId, isVoid ? 'Void' : 'Cancelled');
-        return { ok: true };
+        return { ok: true, linkedBooking };
       } catch {
         return {
           ok: true,
+          linkedBooking,
           error: 'The invoice was moved to the Dustbin, but its shared link could not be closed. Try again from the Dustbin.',
         };
       }
     },
-    [allInvoices, setPublicInvoiceLinkStatus],
+    [allInvoices, setPublicInvoiceLinkStatus, user?.id],
   );
 
   /**
@@ -1570,7 +1951,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
    */
   const restoreInvoice = useCallback(
     async (invoiceId: string): Promise<InvoiceMutationResult> => {
-      const invoice = allInvoices.find((item) => item.id === invoiceId);
+      // Read live: a failed Delete's rollback and the Undo snackbar call this through a closure taken
+      // before the invoice was trashed, whose render-time list would still show it as active.
+      const currentInvoices = invoicesRef.current;
+      const invoice = currentInvoices.find((item) => item.id === invoiceId);
       if (!invoice) {
         return { ok: false, error: 'This invoice could no longer be found.' };
       }
@@ -1589,20 +1973,38 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         voidReason: null,
         deletedAt: null,
         deletionReason: null,
+        deletedBy: null,
       };
-      setInvoices((current) => current.map((item) => (item.id === invoiceId ? restored : item)));
+      // Puts back the booking that deleting this invoice (or another invoice of the same booking)
+      // took out; nothing else is ever revived.
+      const linked = restoreLinkedBooking(invoice, currentInvoices, bookingsRef.current);
+      const clear = new Set(linked.clearOn);
+      const untrash = (current: Invoice[]) =>
+        current.map((item) =>
+          item.id === invoiceId
+            ? { ...restored, ...(clear.has(item.id) ? { removedBooking: null } : null) }
+            : clear.has(item.id) ? { ...item, removedBooking: null } : item,
+        );
+      invoicesRef.current = untrash(invoicesRef.current);
+      setInvoices(untrash);
+      if (linked.bookings !== bookingsRef.current) {
+        bookingsRef.current = linked.bookings;
+        setBookings(linked.bookings);
+      }
+      const linkedBooking = linked.restored ? 'restored' as const : undefined;
 
       try {
         await setPublicInvoiceLinkStatus(invoiceId, getPublicLinkStatus(restored));
-        return { ok: true };
+        return { ok: true, linkedBooking };
       } catch {
         return {
           ok: true,
+          linkedBooking,
           error: 'The invoice was restored, but its shared link could not be reopened. Send it again to refresh the link.',
         };
       }
     },
-    [allInvoices, allPayments, getPublicLinkStatus, setPublicInvoiceLinkStatus],
+    [allPayments, getPublicLinkStatus, setPublicInvoiceLinkStatus],
   );
 
   /**
@@ -1642,9 +2044,20 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      setInvoices((current) => current.filter((item) => item.id !== invoiceId));
+      // A booking this invoice's deletion removed goes for good with it — unless another invoice
+      // still references it, in which case it is put back or handed to that invoice.
+      const linked = purgeLinkedBookings([invoiceId], allInvoices, bookingsRef.current);
+      setInvoices((current) =>
+        current
+          .filter((item) => item.id !== invoiceId)
+          .map((item) => (linked.handOver.has(item.id) ? { ...item, removedBooking: linked.handOver.get(item.id) } : item)),
+      );
       setPayments((current) => current.filter((payment) => payment.invoiceId !== invoiceId));
       setFinanceEntries((current) => current.filter((entry) => entry.invoiceId !== invoiceId));
+      if (linked.bookings !== bookingsRef.current) {
+        bookingsRef.current = linked.bookings;
+        setBookings(linked.bookings);
+      }
       return { ok: true };
     },
     [allInvoices, supabase, user],
@@ -1735,6 +2148,760 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     if (error) throw describeStorageError(error);
   }, [businessProfile.logoPath, supabase, user, userMessage]);
 
+  // ---------------------------------------------------------------------------------------------
+  // Booking forms, quotations and customer booking pages
+  //
+  // The workspace keeps the owner's record of each offer; the shared link and every customer
+  // response live in `public_booking_offers` (see supabase/migrations/20261016000000_booking_offers.sql).
+  // A submitted form becomes a customer, booking and invoice here, in the owner's app, under ids
+  // derived from the offer — so however many times this runs, there is only ever one of each.
+  // ---------------------------------------------------------------------------------------------
+
+  /** The latest context value, for async work that resumes after a save has re-rendered it. */
+  const valueRef = useRef<AppDataContextValue | null>(null);
+  const stampRef = useRef(stampNewInvoice);
+  stampRef.current = stampNewInvoice;
+  const refreshOffersRef = useRef<Promise<void> | null>(null);
+  // Booking forms deleted in this session. A sync that is already running, or that read the link
+  // just before it was deleted, must never turn one of them into records.
+  const deletedOfferIdsRef = useRef<Set<string>>(new Set());
+
+  const ownerTimeZone = useCallback(() => {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    } catch {
+      return 'UTC';
+    }
+  }, []);
+
+  const buildSnapshotFor = useCallback(
+    (kind: OfferKind, version: number, details: OfferDetails, extra: { validUntil?: string; requireEmail?: boolean; customerName?: string }) =>
+      buildOfferSnapshot({
+        kind,
+        version,
+        details,
+        currency,
+        locale: language,
+        timeZone: ownerTimeZone(),
+        business: {
+          name: businessProfile.name,
+          phone: businessProfile.phone,
+          email: businessProfile.email,
+          // The logo is a Pro feature everywhere else, so it is here too.
+          logoUrl: isPro ? businessProfile.logoUrl ?? null : null,
+        },
+        ...extra,
+      }),
+    [businessProfile, currency, isPro, language, ownerTimeZone],
+  );
+
+  /** How long a link stays open: a form two weeks, a quotation until it lapses, a booking page past the event. */
+  const linkExpiry = useCallback((kind: OfferKind, details: { date: string }, validUntil?: string) => {
+    const day = 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const cap = now + 119 * day;
+    if (kind === 'booking_form') return new Date(Math.min(cap, now + 14 * day)).toISOString();
+    if (kind === 'quotation') {
+      const until = validUntil ? new Date(`${validUntil}T23:59:59`).getTime() : now + 30 * day;
+      return new Date(Math.min(cap, Math.max(now + day, Number.isFinite(until) ? until : now + 30 * day))).toISOString();
+    }
+    const event = new Date(`${details.date}T00:00:00`).getTime();
+    return new Date(Math.min(cap, Math.max(now + 30 * day, Number.isFinite(event) ? event + 60 * day : now + 30 * day))).toISOString();
+  }, []);
+
+  /**
+   * Says why a customer link could not be written, instead of calling every failure a connection
+   * problem. Only the error code and message are logged in development — never the offer, its
+   * token or any customer details.
+   */
+  const offerError = useCallback((error: unknown) => {
+    const failure = error && typeof error === 'object' ? (error as { code?: unknown; message?: unknown; status?: unknown }) : {};
+    const code = typeof failure.code === 'string' ? failure.code : '';
+    const message = typeof failure.message === 'string' ? failure.message : error instanceof Error ? error.message : '';
+    if (__DEV__) console.warn('[booking-offers] request failed', code || 'no code', message);
+    const key: TranslationKey =
+      // The table (or its migration) is not on the server yet.
+      code === 'PGRST205' || code === '42P01' || /could not find the table/i.test(message) ? 'offer.error.notSetUp'
+        // The signed-in session was refused by the database.
+        : code === 'PGRST301' || code === 'PGRST302' || code === 'PGRST303' || /jwt|token is expired/i.test(message) ? 'offer.error.session'
+          : code === '42501' ? 'offer.error.denied'
+            // The workspace row the link belongs to has not reached the server yet.
+            : code === '23503' ? 'offer.error.workspace'
+              : code === '22023' || code === '23514' ? 'offer.error.invalid'
+                : /network request failed|failed to fetch|network|timed? ?out/i.test(message) || error instanceof TypeError ? 'bm.sendForm.failed'
+                  : 'offer.error.generic';
+    return translate(languageRef.current, key);
+  }, []);
+
+  /**
+   * Writes the customer, booking and invoice an offer becomes, using deterministic ids. Returns null
+   * when the booking already exists — the records are never written twice.
+   */
+  const createRecordsFromOffer = useCallback(
+    (input: { offerId: string; details: OfferDetails; customer: Customer; isNewCustomer: boolean; response?: OfferResponse; noteLabel: string }) => {
+      const ids = offerRecordIds(input.offerId);
+      if (bookingsRef.current.some((item) => item.id === ids.bookingId)) return null;
+
+      const today = getLocalTodayKey();
+      const booking = buildBookingFromOffer({
+        offerId: input.offerId,
+        details: input.details,
+        customerId: input.customer.id,
+        response: input.response,
+        createdAt: today,
+        noteLabel: input.noteLabel,
+      });
+      const existingInvoice = invoicesRef.current.find((item) => item.id === ids.invoiceId);
+      let invoice: Invoice | null = null;
+      if (!existingInvoice) {
+        const stamp = stampRef.current(invoicesRef.current);
+        invoice = {
+          id: ids.invoiceId,
+          bookingId: booking.id,
+          customerId: input.customer.id,
+          customerSnapshot: createInvoiceCustomerSnapshot(input.customer),
+          invoiceNumber: stamp.invoiceNumber,
+          snapshot: stamp.snapshot,
+          ...buildInvoiceFieldsFromBooking(booking, input.details, getInvoiceDueDate(booking.date), today),
+        };
+      }
+
+      if (input.isNewCustomer && !customersRef.current.some((item) => item.id === input.customer.id)) {
+        customersRef.current = [...customersRef.current, input.customer];
+        setCustomers((current) => (current.some((item) => item.id === input.customer.id) ? current : [...current, input.customer]));
+      }
+      const nextBookings = [booking, ...bookingsRef.current];
+      bookingsRef.current = nextBookings;
+      setBookings(nextBookings);
+      if (invoice) {
+        const created = invoice;
+        invoicesRef.current = [created, ...invoicesRef.current];
+        setInvoices((current) => (current.some((item) => item.id === created.id) ? current : [created, ...current]));
+      }
+      return { booking, invoiceId: ids.invoiceId };
+    },
+    [],
+  );
+
+  /** Publishes an offer's link row and returns its token. */
+  const publishOfferRow = useCallback(
+    async (row: {
+      offerId: string;
+      kind: OfferKind;
+      version: number;
+      snapshot: OfferSnapshot;
+      status: 'sent' | 'converted';
+      customerId?: string;
+      expiresAt: string;
+      bookingId?: string;
+      invoiceId?: string;
+      invoiceToken?: string | null;
+    }) => {
+      if (!supabase || !user) throw new Error(translate(languageRef.current, 'app.error.connection'));
+      const { data, error } = await supabase
+        .from('public_booking_offers')
+        .upsert(
+          {
+            user_id: user.id,
+            offer_id: row.offerId,
+            kind: row.kind,
+            version: row.version,
+            offer: row.snapshot as unknown as Json,
+            status: row.status,
+            customer_id: row.customerId ?? null,
+            owner_plan: isPro ? 'pro' : 'free',
+            expires_at: row.expiresAt,
+            updated_at: new Date().toISOString(),
+            ...(row.bookingId ? { booking_id: row.bookingId } : {}),
+            ...(row.invoiceId ? { invoice_id: row.invoiceId } : {}),
+            ...(row.invoiceToken ? { invoice_token: row.invoiceToken } : {}),
+          },
+          { onConflict: 'user_id,offer_id' },
+        )
+        .select('token, expires_at')
+        .single();
+      if (error || !data) throw error ?? new Error('No link returned');
+      return data;
+    },
+    [isPro, supabase, user],
+  );
+
+  const createBookingForm = useCallback(
+    async (input: CreateBookingFormInput): Promise<OfferLinkResult> => {
+      const now = new Date();
+      const offerId = `ofr-${now.getTime()}-${Math.random().toString(36).slice(2, 7)}`;
+      const customer = input.customerId ? customersRef.current.find((item) => item.id === input.customerId) : undefined;
+      const expiresAt = linkExpiry('booking_form', input.details);
+      try {
+        const snapshot = buildSnapshotFor('booking_form', 1, input.details, { requireEmail: input.requireEmail });
+        const row = await publishOfferRow({ offerId, kind: 'booking_form', version: 1, snapshot, status: 'sent', customerId: customer?.id, expiresAt });
+        const offer: BookingOffer = {
+          id: offerId,
+          kind: 'booking_form',
+          createdAt: getLocalTodayKey(now),
+          ...(customer ? { customerId: customer.id } : {}),
+          status: 'sent',
+          version: 1,
+          details: input.details,
+          requireEmail: Boolean(input.requireEmail),
+          sharedAt: now.toISOString(),
+          sharedVersion: 1,
+          linkExpiresAt: row.expires_at,
+        };
+        offersRef.current = [offer, ...offersRef.current];
+        setOffers((current) => [offer, ...current]);
+        return { ok: true, url: createPublicBookingUrl(row.token), offerId, expiresAt: row.expires_at };
+      } catch (error) {
+        return { ok: false, error: offerError(error) };
+      }
+    },
+    [buildSnapshotFor, linkExpiry, offerError, publishOfferRow],
+  );
+
+  const reviseBookingForm = useCallback((offerId: string, details: OfferDetails): InvoiceMutationResult => {
+    const existing = offersRef.current.find((item) => item.id === offerId);
+    if (!existing || existing.kind !== 'booking_form') return { ok: false, error: translate(languageRef.current, 'bm.formEdit.missing') };
+    if (!canReviseOffer(existing)) {
+      return { ok: false, error: translate(languageRef.current, 'of.lockedNote', { version: existing.respondedVersion ?? existing.version }) };
+    }
+    // The same form, one version on — its status (and any change request) is untouched until it is
+    // shared again, so nothing about the request is resolved by saving.
+    const revised = reviseOffer(existing, details, new Date().toISOString());
+    offersRef.current = offersRef.current.map((item) => (item.id === offerId ? revised : item));
+    setOffers(offersRef.current);
+    return { ok: true };
+  }, []);
+
+  const saveQuotation = useCallback(
+    (input: SaveQuotationInput): SaveOfferResult => {
+      let customer = input.customerId ? customersRef.current.find((item) => item.id === input.customerId) ?? null : null;
+      if (!customer && input.newCustomer?.name.trim()) {
+        if (!checkPlanLimit('customers').allowed) return { ok: false, error: 'limit' };
+        const createdAt = Date.now();
+        customer = {
+          ...input.newCustomer,
+          id: `cust-${createdAt}`,
+          createdAt: getLocalTodayKey(new Date(createdAt)),
+          name: input.newCustomer.name.trim(),
+          email: input.newCustomer.email.trim(),
+          phone: input.newCustomer.phone.trim(),
+          location: input.newCustomer.location.trim(),
+          notes: input.newCustomer.notes.trim(),
+        };
+        const created = customer;
+        customersRef.current = [...customersRef.current, created];
+        setCustomers((current) => [...current, created]);
+      }
+      if (!customer) return { ok: false, error: translate(languageRef.current, 'bm.quote.customerRequired') };
+
+      if (input.offerId) {
+        const existing = offersRef.current.find((item) => item.id === input.offerId);
+        if (!existing) return { ok: false, error: 'This quotation could no longer be found.' };
+        if (!canReviseOffer(existing)) {
+          return { ok: false, error: translate(languageRef.current, 'of.lockedNote', { version: existing.respondedVersion ?? existing.version }) };
+        }
+        const revised: BookingOffer = {
+          ...reviseOffer(existing, input.details, new Date().toISOString()),
+          customerId: customer.id,
+          ...(input.validUntil ? { validUntil: input.validUntil } : {}),
+        };
+        offersRef.current = offersRef.current.map((item) => (item.id === revised.id ? revised : item));
+        setOffers(offersRef.current);
+        return { ok: true, offerId: revised.id };
+      }
+
+      const now = new Date();
+      const offer: BookingOffer = {
+        id: `ofr-${now.getTime()}-${Math.random().toString(36).slice(2, 7)}`,
+        kind: 'quotation',
+        number: nextQuotationNumber(offersRef.current),
+        createdAt: getLocalTodayKey(now),
+        customerId: customer.id,
+        status: 'draft',
+        version: 1,
+        details: input.details,
+        ...(input.validUntil ? { validUntil: input.validUntil } : {}),
+      };
+      offersRef.current = [offer, ...offersRef.current];
+      setOffers(offersRef.current);
+      return { ok: true, offerId: offer.id };
+    },
+    [checkPlanLimit],
+  );
+
+  const shareOffer = useCallback(
+    async (offerId: string): Promise<OfferLinkResult> => {
+      const offer = offersRef.current.find((item) => item.id === offerId);
+      if (!offer || !supabase || !user) return { ok: false, error: translate(languageRef.current, 'app.error.connection') };
+      try {
+        // Once the customer has responded, the link is re-shared exactly as it stands.
+        if (offer.status === 'submitted' || offer.status === 'accepted' || offer.status === 'converted') {
+          const { data, error } = await supabase
+            .from('public_booking_offers')
+            .select('token, expires_at')
+            .eq('user_id', user.id)
+            .eq('offer_id', offerId)
+            .maybeSingle();
+          if (error || !data) throw error ?? new Error('Link not found');
+          return { ok: true, url: createPublicBookingUrl(data.token), offerId, expiresAt: data.expires_at };
+        }
+        // Publishing marks the link `sent`, which would wipe a change request the customer is waiting
+        // on. While the version they asked about is still the one on their link (nothing has been
+        // edited since), the link is handed out again exactly as it stands. Checked against the
+        // server, because this copy may not have heard about the request yet.
+        if (offer.sharedAt && (offer.status === 'sent' || offer.status === 'change_requested')) {
+          const { data: current, error: currentError } = await supabase
+            .from('public_booking_offers')
+            .select('token, expires_at, status, version')
+            .eq('user_id', user.id)
+            .eq('offer_id', offerId)
+            .maybeSingle();
+          if (currentError) throw currentError;
+          if (current?.status === 'change_requested' && current.version === offer.version) {
+            if (offer.status !== 'change_requested') valueRef.current?.refreshOffers().catch(() => {});
+            return { ok: true, url: createPublicBookingUrl(current.token), offerId, expiresAt: current.expires_at };
+          }
+        }
+        const customer = offer.customerId ? customersRef.current.find((item) => item.id === offer.customerId) : undefined;
+        const snapshot = buildSnapshotFor(offer.kind, offer.version, offer.details, {
+          validUntil: offer.validUntil,
+          requireEmail: offer.requireEmail,
+          customerName: offer.kind === 'quotation' ? customer?.name : undefined,
+        });
+        const row = await publishOfferRow({
+          offerId,
+          kind: offer.kind,
+          version: offer.version,
+          snapshot,
+          status: 'sent',
+          customerId: offer.customerId,
+          expiresAt: linkExpiry(offer.kind, offer.details, offer.validUntil),
+        });
+        const shared: BookingOffer = {
+          ...offer,
+          status: offer.status === 'draft' || offer.status === 'revoked' || offer.status === 'declined' || offer.status === 'change_requested' ? 'sent' : offer.status,
+          sharedAt: new Date().toISOString(),
+          sharedVersion: offer.version,
+          linkExpiresAt: row.expires_at,
+        };
+        offersRef.current = offersRef.current.map((item) => (item.id === offerId ? shared : item));
+        setOffers(offersRef.current);
+        return { ok: true, url: createPublicBookingUrl(row.token), offerId, expiresAt: row.expires_at };
+      } catch (error) {
+        // Most likely the customer responded in the meantime; pull that in so the screen shows it.
+        valueRef.current?.refreshOffers().catch(() => {});
+        return { ok: false, error: offerError(error) };
+      }
+    },
+    [buildSnapshotFor, linkExpiry, offerError, publishOfferRow, supabase, user],
+  );
+
+  const revokeOffer = useCallback(
+    async (offerId: string): Promise<InvoiceMutationResult> => {
+      const offer = offersRef.current.find((item) => item.id === offerId);
+      if (!offer) return { ok: false, error: 'This link could no longer be found.' };
+      if (supabase && user && offer.sharedAt) {
+        const { error } = await supabase
+          .from('public_booking_offers')
+          .update({ status: 'revoked', updated_at: new Date().toISOString() })
+          .eq('user_id', user.id)
+          .eq('offer_id', offerId);
+        if (error) return { ok: false, error: offerError(error) };
+      }
+      offersRef.current = offersRef.current.map((item) => (item.id === offerId && item.status !== 'converted' ? { ...item, status: 'revoked' as OfferStatus } : item));
+      setOffers(offersRef.current);
+      return { ok: true };
+    },
+    [offerError, supabase, user],
+  );
+
+  const deleteOfferDraft = useCallback((offerId: string) => {
+    offersRef.current = offersRef.current.filter((item) => !(item.id === offerId && item.status === 'draft' && !item.sharedAt));
+    setOffers(offersRef.current);
+  }, []);
+
+  /**
+   * Takes a deleted booking form out of the workspace: the form itself and the booking it became,
+   * matched only by that booking's id. Customers, invoices, payments and expenses stay. A Dustbin
+   * invoice that was holding the booking stops holding it, so restoring the invoice cannot bring
+   * the booking back.
+   */
+  const removeBookingFormLocally = useCallback((offerId: string, bookingIds: string[]) => {
+    const removed = new Set(bookingIds);
+    if (offersRef.current.some((item) => item.id === offerId)) {
+      offersRef.current = offersRef.current.filter((item) => item.id !== offerId);
+      setOffers(offersRef.current);
+    }
+    if (bookingsRef.current.some((item) => removed.has(item.id))) {
+      const nextBookings = bookingsRef.current.filter((item) => !removed.has(item.id));
+      bookingsRef.current = nextBookings;
+      setBookings(nextBookings);
+    }
+    const holds = (item: Invoice) => Boolean(item.removedBooking && removed.has(item.removedBooking.id));
+    if (invoicesRef.current.some(holds)) {
+      invoicesRef.current = invoicesRef.current.map((item) => (holds(item) ? { ...item, removedBooking: null } : item));
+      setInvoices((current) => current.map((item) => (holds(item) ? { ...item, removedBooking: null } : item)));
+    }
+  }, []);
+
+  const deleteBookingForm = useCallback(
+    async (offerId: string): Promise<InvoiceMutationResult> => {
+      const failed = translate(languageRef.current, 'of.deleteForm.failed');
+      const offer = offersRef.current.find((item) => item.id === offerId);
+      if (offer && offer.kind !== 'booking_form') return { ok: false, error: failed };
+      if (!supabase || !user) return { ok: false, error: translate(languageRef.current, 'app.error.connection') };
+      // The booking a form becomes always has the id derived from the form; a recorded one is the same.
+      const bookingIds = [...new Set([offerRecordIds(offerId).bookingId, ...(offer?.bookingId ? [offer.bookingId] : [])])];
+
+      // No sync may convert this form from here on; one already running is allowed to finish first,
+      // so whatever it created is removed below rather than landing afterwards.
+      deletedOfferIdsRef.current.add(offerId);
+      if (refreshOffersRef.current) await refreshOffersRef.current.catch(() => {});
+
+      // The link stops working for the customer: the row is removed (deleting rows already gone is
+      // a no-op, so a retry is safe), together with any customer page of the booking it became.
+      const { error } = await supabase
+        .from('public_booking_offers')
+        .delete()
+        .eq('user_id', user.id)
+        .in('offer_id', [offerId, ...bookingIds.map((id) => `page-${id}`)]);
+      if (error) {
+        deletedOfferIdsRef.current.delete(offerId);
+        return { ok: false, error: offerError(error) };
+      }
+
+      removeBookingFormLocally(offerId, bookingIds);
+      try {
+        await confirmWorkspaceSave();
+      } catch (failure) {
+        return { ok: false, error: failure instanceof Error && failure.message ? failure.message : failed };
+      }
+      return { ok: true };
+    },
+    [confirmWorkspaceSave, offerError, removeBookingFormLocally, supabase, user],
+  );
+
+  const convertQuotation = useCallback(
+    (offerId: string, options?: { allowConflict?: boolean }): ConvertOfferResult => {
+      const offer = offersRef.current.find((item) => item.id === offerId);
+      const failed = translate(languageRef.current, 'of.convert.failed');
+      if (!offer || offer.kind !== 'quotation') return { ok: false, error: failed };
+      const ids = offerRecordIds(offer.id);
+      // Converting twice can only ever point back at the first conversion.
+      if (offer.bookingId || bookingsRef.current.some((item) => item.id === ids.bookingId)) {
+        return { ok: true, bookingId: offer.bookingId ?? ids.bookingId, invoiceId: offer.invoiceId ?? ids.invoiceId };
+      }
+      if (offer.status !== 'accepted') return { ok: false, error: failed };
+      const details = getRespondedDetails(offer);
+      const customer = offer.customerId ? customersRef.current.find((item) => item.id === offer.customerId) : undefined;
+      if (!details || !customer) return { ok: false, error: failed };
+
+      // The date was agreed earlier; the calendar may have changed since. Recheck before booking it.
+      const clash = findBookingConflicts(bookingsRef.current, {
+        date: details.date,
+        startTime: details.startTime,
+        endTime: details.endTime,
+        bufferMinutes: details.bufferMinutes,
+      }).find((item) => item.kind === 'overlap');
+      if (clash && !options?.allowConflict) {
+        return { ok: false, error: 'conflict', conflictTitle: clash.booking.title };
+      }
+      const bookingAllowance = checkPlanLimit('bookings');
+      if (!bookingAllowance.allowed) return { ok: false, error: 'limit', limit: bookingAllowance };
+      const invoiceAllowance = checkPlanLimit('invoices');
+      if (!invoiceAllowance.allowed) return { ok: false, error: 'limit', limit: invoiceAllowance };
+
+      const created = createRecordsFromOffer({
+        offerId: offer.id,
+        details,
+        customer,
+        isNewCustomer: false,
+        response: offer.response,
+        noteLabel: `Created from accepted quotation ${offer.number ?? ''} (version ${offer.respondedVersion ?? offer.version}).`.replace('  ', ' '),
+      });
+      const bookingId = created?.booking.id ?? ids.bookingId;
+      const converted: BookingOffer = { ...offer, status: 'converted', bookingId, invoiceId: ids.invoiceId };
+      offersRef.current = offersRef.current.map((item) => (item.id === offerId ? converted : item));
+      setOffers(offersRef.current);
+
+      // Best effort: tell the link it became a booking, once the workspace holding it is saved.
+      if (supabase && user) {
+        const ownerId = user.id;
+        confirmWorkspaceSave()
+          .then(() =>
+            supabase
+              .from('public_booking_offers')
+              .update({ status: 'converted', booking_id: bookingId, invoice_id: ids.invoiceId, expires_at: linkExpiry('booking_page', details), updated_at: new Date().toISOString() })
+              .eq('user_id', ownerId)
+              .eq('offer_id', offerId),
+          )
+          .then(() => {}, () => {});
+      }
+      return { ok: true, bookingId, invoiceId: ids.invoiceId };
+    },
+    [checkPlanLimit, confirmWorkspaceSave, createRecordsFromOffer, linkExpiry, supabase, user],
+  );
+
+  const refreshOffers = useCallback(async () => {
+    if (!supabase || !user) return;
+    if (refreshOffersRef.current) return refreshOffersRef.current;
+    const ownerId = user.id;
+
+    const run = async () => {
+      const { data, error } = await supabase
+        .from('public_booking_offers')
+        .select('offer_id, kind, status, version, offer, customer_id, response, responded_version, change_request, terms_version, terms_accepted_at, submitted_at, booking_id, invoice_id, invoice_token, expires_at, created_at')
+        .eq('user_id', ownerId)
+        .in('kind', ['booking_form', 'quotation']);
+      if (error) throw error;
+
+      const t = (key: TranslationKey, values?: Record<string, string | number>) => translate(languageRef.current, key, values);
+      let nextOffers = [...offersRef.current];
+      const fresh: AppNotification[] = [];
+      const acknowledge: { offerId: string; bookingId: string; invoiceId: string; date: string }[] = [];
+      const needsInvoiceLink: { offerId: string; invoiceId: string }[] = [];
+      for (const row of data ?? []) {
+        // Deleted in this session (the read may have started before the deletion).
+        if (deletedOfferIdsRef.current.has(row.offer_id)) continue;
+        const snapshot = row.offer as unknown as OfferSnapshot;
+        if (!snapshot || typeof snapshot !== 'object' || (row.kind !== 'booking_form' && row.kind !== 'quotation')) continue;
+        const kind = row.kind as BookingOffer['kind'];
+        const local = nextOffers.find((item) => item.id === row.offer_id);
+        // A link whose workspace record was lost (another device, an older app overwriting the
+        // document) is rebuilt from its own snapshot rather than dropped.
+        const rowCreated = row.created_at ? new Date(row.created_at) : null;
+        const base: BookingOffer = local ?? {
+          id: row.offer_id,
+          kind,
+          // The link's own creation time, never the day it happened to be rebuilt (blank hides it).
+          createdAt: rowCreated && !Number.isNaN(rowCreated.getTime()) ? getLocalTodayKey(rowCreated) : '',
+          ...(kind === 'quotation' ? { number: nextQuotationNumber(nextOffers) } : {}),
+          ...(row.customer_id ? { customerId: row.customer_id } : {}),
+          status: 'sent',
+          version: row.version,
+          details: detailsFromSnapshot(snapshot),
+          ...(snapshot.validUntil ? { validUntil: snapshot.validUntil } : {}),
+          requireEmail: Boolean(snapshot.requireEmail),
+          sharedAt: new Date().toISOString(),
+          sharedVersion: row.version,
+        };
+        const remoteStatus = row.status as OfferStatus;
+        const status: OfferStatus = base.status === 'converted' || remoteStatus === 'converted' ? 'converted' : remoteStatus;
+        const response = row.response && typeof row.response === 'object' && !Array.isArray(row.response) ? (row.response as OfferResponse) : undefined;
+        let merged: BookingOffer = {
+          ...base,
+          status,
+          linkExpiresAt: row.expires_at,
+          ...(response ? { response } : {}),
+          ...(row.responded_version ? { respondedVersion: row.responded_version } : {}),
+          ...(row.terms_version ? { termsVersion: row.terms_version } : {}),
+          ...(row.terms_accepted_at ? { termsAcceptedAt: row.terms_accepted_at } : {}),
+          ...(row.submitted_at ? { submittedAt: row.submitted_at } : {}),
+          ...(row.change_request ? { changeRequest: row.change_request } : {}),
+          ...(row.booking_id && !base.bookingId ? { bookingId: row.booking_id } : {}),
+          ...(row.invoice_id && !base.invoiceId ? { invoiceId: row.invoice_id } : {}),
+        };
+
+        if (base.status !== remoteStatus && (remoteStatus === 'submitted' || remoteStatus === 'accepted' || remoteStatus === 'change_requested')) {
+          const id = `offer-${row.offer_id}-${remoteStatus}-v${row.version}-${(row.change_request ?? '').length}`;
+          if (!notifications.some((item) => item.id === id)) {
+            fresh.push({
+              id,
+              title: remoteStatus === 'submitted' ? t('of.notify.formTitle') : remoteStatus === 'accepted' ? t('of.notify.quoteTitle') : t('of.notify.changeTitle'),
+              message: remoteStatus === 'submitted'
+                ? t('of.notify.form', { name: response?.name ?? '', date: snapshot.date })
+                : remoteStatus === 'accepted'
+                  ? t('of.notify.quote', { number: base.number ?? '' })
+                  : t('of.notify.change', { title: snapshot.title }),
+              createdAt: row.submitted_at ?? new Date().toISOString(),
+              isOpened: false,
+              type: 'booking',
+            });
+          }
+        }
+
+        const ids = offerRecordIds(row.offer_id);
+        // Only a submission the server still lists as `submitted` is ever turned into records. Once
+        // the link is `converted`, its records were saved, and their absence later cannot be told
+        // apart from a deliberate deletion — so nothing is recreated for it. A submission converted
+        // here whose save or acknowledgement has not landed yet is recognised by this copy's own
+        // offer, or by its booking held in a deleted invoice, and is not built twice.
+        const removedHere = local?.status === 'converted'
+          || invoicesRef.current.some((item) => (item.id === ids.invoiceId && Boolean(item.deletedAt)) || item.removedBooking?.id === ids.bookingId);
+        const hasBooking = bookingsRef.current.some((item) => item.id === ids.bookingId) || removedHere;
+        if (kind === 'booking_form' && remoteStatus === 'submitted' && response) {
+          if (!hasBooking) {
+            const details = local?.version === row.responded_version || local?.version === row.version ? local.details : detailsFromSnapshot(snapshot);
+            const matched = matchSubmissionCustomer(customersRef.current, response, row.customer_id);
+            const existingNew = customersRef.current.find((item) => item.id === ids.customerId);
+            const customer: Customer = matched ?? existingNew ?? {
+              id: ids.customerId,
+              createdAt: getLocalTodayKey(),
+              name: (response.name ?? '').trim() || 'Booking form customer',
+              email: (response.email ?? '').trim(),
+              phone: (response.phone ?? '').trim(),
+              location: (response.customerLocation ?? '').trim().slice(0, 300),
+              notes: 'Created from a booking form submission.',
+            };
+            createRecordsFromOffer({
+              offerId: row.offer_id,
+              details,
+              customer,
+              isNewCustomer: !matched && !existingNew,
+              response,
+              noteLabel: `Submitted through the booking form on ${(row.submitted_at ?? '').slice(0, 10)}. Terms ${row.terms_version ?? ''} accepted.`,
+            });
+            merged = { ...merged, status: 'converted', bookingId: ids.bookingId, invoiceId: ids.invoiceId };
+          }
+          // Marked converted only after the save holding these records succeeds (below).
+          acknowledge.push({ offerId: row.offer_id, bookingId: ids.bookingId, invoiceId: ids.invoiceId, date: snapshot.date });
+        }
+        if (kind === 'booking_form' && (remoteStatus === 'submitted' || remoteStatus === 'converted') && response && !row.invoice_token) {
+          needsInvoiceLink.push({ offerId: row.offer_id, invoiceId: ids.invoiceId });
+        }
+
+        nextOffers = local ? nextOffers.map((item) => (item.id === merged.id ? merged : item)) : [merged, ...nextOffers];
+      }
+
+      offersRef.current = nextOffers;
+      setOffers(nextOffers);
+      if (fresh.length) {
+        setNotifications((current) => [...fresh.filter((item) => !current.some((existing) => existing.id === item.id)), ...current]);
+        fresh.slice(0, 3).forEach((item) => {
+          presentOwnerNotification(item.title, item.message).catch(() => {});
+        });
+      }
+
+      if (acknowledge.length === 0 && needsInvoiceLink.length === 0) return;
+      // Only once the workspace holding the new records is safely saved is the link told so —
+      // otherwise a failed save could leave a "converted" link pointing at records that never landed.
+      await confirmWorkspaceSave();
+      let removedConcurrently = false;
+      for (const item of acknowledge) {
+        const { data: acknowledged, error: ackError } = await supabase
+          .from('public_booking_offers')
+          .update({ status: 'converted', booking_id: item.bookingId, invoice_id: item.invoiceId, expires_at: linkExpiry('booking_page', { date: item.date }), updated_at: new Date().toISOString() })
+          .eq('user_id', ownerId)
+          .eq('offer_id', item.offerId)
+          .select('offer_id');
+        // The form was deleted (on any device) while this sync was converting it: its row is gone,
+        // so the booking just made for it goes too, exactly as the deletion would have removed it.
+        if (!ackError && Array.isArray(acknowledged) && acknowledged.length === 0) {
+          deletedOfferIdsRef.current.add(item.offerId);
+          removeBookingFormLocally(item.offerId, [item.bookingId]);
+          removedConcurrently = true;
+        }
+      }
+      if (removedConcurrently) await confirmWorkspaceSave().catch(() => {});
+      // Gives the customer's page its invoice link, through the existing invoice link mechanism.
+      for (const item of needsInvoiceLink) {
+        if (deletedOfferIdsRef.current.has(item.offerId)) continue;
+        const share = valueRef.current?.createInvoiceShareLink;
+        if (!share || !invoicesRef.current.some((invoice) => invoice.id === item.invoiceId && !invoice.deletedAt)) continue;
+        try {
+          const invoiceToken = readInvoiceTokenFromUrl(await share(item.invoiceId));
+          if (invoiceToken) {
+            await supabase
+              .from('public_booking_offers')
+              .update({ invoice_token: invoiceToken, updated_at: new Date().toISOString() })
+              .eq('user_id', ownerId)
+              .eq('offer_id', item.offerId);
+          }
+        } catch {
+          // Retried on the next refresh.
+        }
+      }
+    };
+
+    const pending = run().finally(() => {
+      refreshOffersRef.current = null;
+    });
+    refreshOffersRef.current = pending;
+    return pending;
+  }, [confirmWorkspaceSave, createRecordsFromOffer, linkExpiry, notifications, removeBookingFormLocally, supabase, user]);
+
+  const createCustomerPageLink = useCallback(
+    async (bookingId: string): Promise<OfferLinkResult> => {
+      const booking = bookingsRef.current.find((item) => item.id === bookingId);
+      const failed = translate(languageRef.current, 'cp.failed');
+      if (!booking || !supabase || !user) return { ok: false, error: failed };
+      const offerId = `page-${bookingId}`;
+      try {
+        const invoice = invoicesRef.current.find((item) => item.bookingId === bookingId && !item.deletedAt && item.status !== 'Void');
+        let invoiceToken: string | null = null;
+        if (invoice && valueRef.current) {
+          invoiceToken = readInvoiceTokenFromUrl(await valueRef.current.createInvoiceShareLink(invoice.id));
+        }
+        const expiresAt = linkExpiry('booking_page', booking);
+        const { data: existing } = await supabase
+          .from('public_booking_offers')
+          .select('token')
+          .eq('user_id', user.id)
+          .eq('offer_id', offerId)
+          .maybeSingle();
+        if (existing) {
+          // The page reads the live booking; only the expiry and invoice link move on a re-share.
+          const { data, error } = await supabase
+            .from('public_booking_offers')
+            .update({ expires_at: expiresAt, invoice_id: invoice?.id ?? null, ...(invoiceToken ? { invoice_token: invoiceToken } : {}), updated_at: new Date().toISOString() })
+            .eq('user_id', user.id)
+            .eq('offer_id', offerId)
+            .select('token, expires_at')
+            .single();
+          if (error || !data) throw error ?? new Error('No link returned');
+          return { ok: true, url: createPublicBookingUrl(data.token), offerId, expiresAt: data.expires_at };
+        }
+        const charges = booking.charges ?? [];
+        const details: OfferDetails = {
+          title: booking.title,
+          packageName: booking.packageName,
+          includedServices: booking.includedServices,
+          basePrice: booking.basePrice ?? booking.price,
+          charges,
+          deposit: booking.depositType && booking.depositValue
+            ? { type: booking.depositType, value: booking.depositValue, ...(booking.depositDueDate ? { dueDate: booking.depositDueDate } : {}) }
+            : booking.depositAmount ? { type: 'fixed', value: booking.depositAmount } : null,
+          date: booking.date,
+          startTime: booking.startTime ?? booking.time ?? '',
+          endTime: booking.endTime ?? '',
+          bufferMinutes: booking.bufferMinutes,
+          location: booking.location,
+          terms: booking.terms ?? invoice?.terms ?? '',
+        };
+        const row = await publishOfferRow({
+          offerId,
+          kind: 'booking_page',
+          version: 1,
+          snapshot: buildSnapshotFor('booking_page', 1, details, {}),
+          status: 'converted',
+          expiresAt,
+          bookingId,
+          invoiceId: invoice?.id,
+          invoiceToken,
+        });
+        return { ok: true, url: createPublicBookingUrl(row.token), offerId, expiresAt: row.expires_at };
+      } catch (error) {
+        if (__DEV__) console.warn('[customer-page] could not create the link', error instanceof Error ? error.message : error);
+        return { ok: false, error: failed };
+      }
+    },
+    [buildSnapshotFor, linkExpiry, publishOfferRow, supabase, user],
+  );
+
+  /** Deletes the page's link row outright, so a later share mints a brand-new token. */
+  const revokeCustomerPageLink = useCallback(
+    async (bookingId: string): Promise<InvoiceMutationResult> => {
+      if (!supabase || !user) return { ok: false, error: translate(languageRef.current, 'app.error.connection') };
+      const { error } = await supabase
+        .from('public_booking_offers')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('offer_id', `page-${bookingId}`);
+      return error ? { ok: false, error: translate(languageRef.current, 'cp.failed') } : { ok: true };
+    },
+    [supabase, user],
+  );
+
   const value = useMemo<AppDataContextValue>(
     () => ({
       isLoading,
@@ -1800,6 +2967,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
             // Drops both fields unless they form a usable pair, so a partly filled deposit can
             // never be stored in a state the booking form cannot read back.
             ...normalizeServiceDeposit(service.defaultDepositType, service.defaultDepositValue),
+            ...normalizePackageExtras(service),
           },
         ]);
       },
@@ -1808,7 +2976,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           current.map((pkg) => {
             if (pkg.id !== id) return pkg;
 
-            const next = { ...pkg, ...updates };
+            const next = { ...pkg, ...updates, ...normalizePackageExtras({ ...pkg, ...updates }) };
+            if (!next.includedServices?.length) delete next.includedServices;
+            if (!next.addOns?.length) delete next.addOns;
+            if (!next.bufferMinutes) delete next.bufferMinutes;
             // An edit that clears the deposit must actually remove both fields rather than merge
             // the old pair back in, so `normalizeServiceDeposit` decides on the incoming values.
             const isDepositEdit = 'defaultDepositType' in updates || 'defaultDepositValue' in updates;
@@ -1907,6 +3078,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         const conflictingBooking = startTime && endTime
           ? findBookingTimeConflict(bookingsRef.current, booking.date, startTime, endTime)
           : null;
+        // Package price, additional charges and the deposit, validated against the final total.
+        const money = resolveBookingMoney(booking);
 
         if (
           !safeTitle ||
@@ -1914,9 +3087,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           !startTime ||
           !endTime ||
           endTime <= startTime ||
-          conflictingBooking ||
-          Number.isNaN(booking.price) ||
-          booking.price <= 0 ||
+          // An overlap is still refused unless the owner saw the warning and chose to keep both.
+          (conflictingBooking && !booking.allowConflict) ||
+          !money.ok ||
           (!existingCustomer && !safeNewCustomerName)
         ) {
           return null;
@@ -1937,15 +3110,14 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           location: booking.newCustomer?.location.trim() ?? '',
           notes: booking.newCustomer?.notes.trim() ?? '',
         };
-        // The deposit is whatever the form finally held: prefilled from the service, then edited.
-        // Clamped to the booking price and dropped when absent, so a job either carries a usable
-        // deposit or none at all.
-        const depositAmount =
-          typeof booking.depositAmount === 'number' &&
-          Number.isFinite(booking.depositAmount) &&
-          booking.depositAmount > 0
-            ? Math.min(Math.round(booking.depositAmount * 100) / 100, booking.price)
-            : undefined;
+        const bufferMinutes = normalizeBufferMinutes(booking.bufferMinutes);
+        const servicePackage =
+          packages.find((item) => item.id === booking.packageId) ??
+          packages.find((item) => item.name === booking.packageName);
+        const includedServices = (booking.includedServices ?? []).map((item) => item.trim()).filter(Boolean);
+        const bookingTerms = booking.terms?.trim();
+        // The money is whatever the form finally held, frozen on the booking: editing the service
+        // later must never reach back into it.
         const createdBooking: Booking = {
           id: `bk-${createdAt}`,
           createdAt: getLocalTodayKey(new Date(createdAt)),
@@ -1957,14 +3129,19 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           endTime,
           location: booking.location.trim(),
           packageName: booking.packageName,
-          price: booking.price,
-          ...(depositAmount === undefined ? {} : { depositAmount }),
+          ...(booking.packageId ? { packageId: booking.packageId } : {}),
+          ...money.fields,
+          ...(bufferMinutes ? { bufferMinutes } : {}),
+          ...(includedServices.length ? { includedServices } : {}),
+          ...(bookingTerms ? { terms: bookingTerms } : {}),
+          ...(booking.sourceOfferId ? { sourceOfferId: booking.sourceOfferId } : {}),
           status: booking.status,
           notes: booking.notes.trim() || 'Booking created from the app.',
         };
         const invoiceDueDate = getInvoiceDueDate(booking.date);
         // Numbers taken by trashed invoices stay taken, so a restore can never collide.
         const stamp = stampNewInvoice(allInvoices);
+        const packageDetails = servicePackage?.details;
         const createdInvoice: Invoice = {
           id: `inv-${createdAt}`,
           invoiceNumber: stamp.invoiceNumber,
@@ -1977,13 +3154,28 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           status: 'Draft',
           sentAt: getLocalTodayKey(),
           serviceName: createdBooking.packageName,
-          packageDetails: packages.find((item) => item.name === createdBooking.packageName)?.details,
+          packageDetails,
           eventLocation: createdBooking.location,
           eventDate: createdBooking.date,
           eventTime: createdBooking.time,
           eventStartTime: createdBooking.startTime,
           eventEndTime: createdBooking.endTime,
-          terms: packages.find((item) => item.name === createdBooking.packageName)?.info,
+          terms: bookingTerms || servicePackage?.info,
+          // Charge lines are frozen onto the invoice; a booking without charges keeps the single
+          // service line invoices have always had.
+          ...(createdBooking.charges?.length
+            ? {
+                lineItems: buildPricedLines({
+                  packageName: createdBooking.packageName,
+                  packageDetails,
+                  basePrice: createdBooking.basePrice ?? createdBooking.price,
+                  charges: createdBooking.charges,
+                }),
+              }
+            : {}),
+          // What the customer owes up front. Not a payment: nothing is recorded as received.
+          ...(createdBooking.depositAmount ? { depositDue: createdBooking.depositAmount } : {}),
+          ...(createdBooking.depositDueDate ? { depositDueDate: createdBooking.depositDueDate } : {}),
         };
 
         if (!existingCustomer) {
@@ -2007,6 +3199,160 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         ]);
         return { booking: createdBooking, customer: resolvedCustomer, invoice: createdInvoice };
       },
+      updateBooking: (bookingId: string, input: CreateBookingInput): UpdateBookingResult => {
+        const existing = bookingsRef.current.find((item) => item.id === bookingId);
+        if (!existing) return { ok: false, error: 'This booking could no longer be found.' };
+
+        const safeTitle = input.title.trim();
+        const startTime = normalizeBookingTime(input.startTime ?? input.time);
+        const endTime = normalizeBookingTime(input.endTime);
+        const money = resolveBookingMoney(input);
+        const existingCustomer = customersRef.current.find((customer) => customer.id === input.customerId) ?? null;
+        const safeNewCustomerName = input.newCustomer?.name.trim() ?? '';
+        if (!safeTitle || !input.date || !startTime || !endTime || endTime <= startTime || !money.ok || (!existingCustomer && !safeNewCustomerName)) {
+          return { ok: false, error: 'Check the booking details and try again.' };
+        }
+        // The booking being edited never conflicts with itself.
+        const conflict = findBookingTimeConflict(bookingsRef.current, input.date, startTime, endTime, bookingId);
+        if (conflict && !input.allowConflict) {
+          return { ok: false, error: 'This time overlaps with an existing booking. Choose another time.' };
+        }
+        if (!existingCustomer && !checkPlanLimit('customers').allowed) {
+          return { ok: false, error: 'limit' };
+        }
+
+        const now = Date.now();
+        const customer: Customer = existingCustomer ?? {
+          ...input.newCustomer!,
+          id: `cust-${now}`,
+          createdAt: getLocalTodayKey(new Date(now)),
+          name: safeNewCustomerName,
+          email: input.newCustomer?.email.trim() ?? '',
+          phone: input.newCustomer?.phone.trim() ?? '',
+          location: input.newCustomer?.location.trim() ?? '',
+          notes: input.newCustomer?.notes.trim() ?? '',
+        };
+        const bufferMinutes = normalizeBufferMinutes(input.bufferMinutes);
+        const includedServices = (input.includedServices ?? []).map((item) => item.trim()).filter(Boolean);
+        const bookingTerms = input.terms?.trim();
+
+        // Money fields are replaced as a set, so removing every charge or the deposit really
+        // removes it rather than leaving the old value behind.
+        const {
+          basePrice: _basePrice,
+          charges: _charges,
+          depositAmount: _depositAmount,
+          depositType: _depositType,
+          depositValue: _depositValue,
+          depositDueDate: _depositDueDate,
+          bufferMinutes: _bufferMinutes,
+          includedServices: _includedServices,
+          terms: _terms,
+          ...kept
+        } = existing;
+        const updated: Booking = {
+          ...kept,
+          customerId: customer.id,
+          title: safeTitle,
+          date: input.date,
+          time: startTime,
+          startTime,
+          endTime,
+          location: input.location.trim(),
+          packageName: input.packageName,
+          ...(input.packageId ? { packageId: input.packageId } : {}),
+          ...money.fields,
+          ...(bufferMinutes ? { bufferMinutes } : {}),
+          ...(includedServices.length ? { includedServices } : {}),
+          ...(bookingTerms ? { terms: bookingTerms } : {}),
+          notes: input.notes.trim() || existing.notes,
+        };
+
+        if (!existingCustomer) {
+          customersRef.current = [...customersRef.current, customer];
+          setCustomers((current) => [...current, customer]);
+        }
+        const nextBookings = bookingsRef.current.map((item) => (item.id === bookingId ? updated : item));
+        bookingsRef.current = nextBookings;
+        setBookings(nextBookings);
+
+        // A linked invoice follows the edit only while it is an unsent draft with no money against
+        // it. Anything already sent, accepted or paid keeps exactly what was agreed and issued.
+        const servicePackage = packages.find((item) => item.id === updated.packageId) ?? packages.find((item) => item.name === updated.packageName);
+        const unchanged: string[] = [];
+        const nextInvoices = invoicesRef.current.map((invoice) => {
+          if (invoice.bookingId !== bookingId || invoice.deletedAt) return invoice;
+          const hasPayments = allPayments.some((payment) => payment.invoiceId === invoice.id);
+          if (invoice.status !== 'Draft' || hasPayments) {
+            if (toCents(invoice.amount) !== toCents(updated.price)) unchanged.push(getInvoiceNumber(invoice));
+            return invoice;
+          }
+          const packageDetails = invoice.packageDetails ?? servicePackage?.details;
+          const {
+            lineItems: _lineItems,
+            depositDue: _depositDue,
+            depositDueDate: _invoiceDepositDueDate,
+            ...invoiceKept
+          } = invoice;
+          return {
+            ...invoiceKept,
+            customerId: customer.id,
+            customerSnapshot: createInvoiceCustomerSnapshot(customer),
+            amount: updated.price,
+            serviceName: updated.packageName,
+            eventLocation: updated.location,
+            eventDate: updated.date,
+            eventTime: updated.time,
+            eventStartTime: updated.startTime,
+            eventEndTime: updated.endTime,
+            ...(bookingTerms ? { terms: bookingTerms } : {}),
+            ...(updated.charges?.length
+              ? { lineItems: buildPricedLines({ packageName: updated.packageName, packageDetails, basePrice: updated.basePrice ?? updated.price, charges: updated.charges }) }
+              : {}),
+            ...(updated.depositAmount ? { depositDue: updated.depositAmount } : {}),
+            ...(updated.depositDueDate ? { depositDueDate: updated.depositDueDate } : {}),
+          };
+        });
+        invoicesRef.current = nextInvoices;
+        setInvoices(nextInvoices);
+        return { ok: true, ...(unchanged.length ? { unchangedInvoiceNumbers: unchanged } : {}) };
+      },
+      setBookingFulfilment: (bookingId: string, fulfilment: BookingFulfilment | null) => {
+        const booking = bookingsRef.current.find((item) => item.id === bookingId);
+        if (!booking) return { ok: false, error: 'This booking could no longer be found.' };
+        const normalized = fulfilment ? normalizeFulfilment({ ...fulfilment, updatedAt: new Date().toISOString() }) : undefined;
+        if (fulfilment && !normalized) return { ok: false, error: 'Check the delivery details and try again.' };
+        const nextBookings = bookingsRef.current.map((item) => {
+          if (item.id !== bookingId) return item;
+          if (normalized) return { ...item, fulfilment: normalized };
+          const { fulfilment: _removed, ...rest } = item;
+          return rest;
+        });
+        bookingsRef.current = nextBookings;
+        setBookings(nextBookings);
+        return { ok: true };
+      },
+      setBookingNotes: (bookingId: string, notes: string) => {
+        if (!bookingsRef.current.some((item) => item.id === bookingId)) {
+          return { ok: false, error: 'This booking could no longer be found.' };
+        }
+        const nextBookings = bookingsRef.current.map((item) => (item.id === bookingId ? { ...item, notes } : item));
+        bookingsRef.current = nextBookings;
+        setBookings(nextBookings);
+        return { ok: true };
+      },
+      offers,
+      saveQuotation,
+      createBookingForm,
+      reviseBookingForm,
+      shareOffer,
+      revokeOffer,
+      deleteOfferDraft,
+      deleteBookingForm,
+      refreshOffers,
+      convertQuotation,
+      createCustomerPageLink,
+      revokeCustomerPageLink,
       updateBookingStatus: (bookingId: string, status: Booking['status']) => {
         const booking = bookingsRef.current.find((item) => item.id === bookingId);
         if (!booking) {
@@ -2053,7 +3399,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           }
 
           // The same half-open interval rule the booking composer uses, over the same records.
-          if (findBookingTimeConflict(bookingsRef.current, schedule.date, startTime, endTime)) {
+          if (findBookingTimeConflict(bookingsRef.current, schedule.date, startTime, endTime) && !schedule.allowConflict) {
             return { ok: false, error: 'This time overlaps with an existing booking. Choose another time.' };
           }
 
@@ -2072,6 +3418,12 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
             price: invoice.amount,
             status: 'Inquiry',
             depositAmount: schedule.depositAmount,
+            ...(schedule.packageId ? { packageId: schedule.packageId } : {}),
+            ...(schedule.charges?.length ? { basePrice: schedule.basePrice ?? invoice.amount, charges: schedule.charges } : {}),
+            ...(schedule.depositType ? { depositType: schedule.depositType, depositValue: schedule.depositValue } : {}),
+            ...(schedule.depositDueDate ? { depositDueDate: schedule.depositDueDate } : {}),
+            ...(normalizeBufferMinutes(schedule.bufferMinutes) ? { bufferMinutes: normalizeBufferMinutes(schedule.bufferMinutes) } : {}),
+            ...(schedule.terms?.trim() ? { terms: schedule.terms.trim() } : {}),
             notes: schedule.notes?.trim() || 'Booking created from an invoice.',
           };
         }
@@ -2145,26 +3497,6 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           ? { ...storedInvoice, snapshot: snapshotCurrentInvoiceSettings() }
           : storedInvoice;
 
-        const booking = bookings.find((item) => item.id === invoice.bookingId);
-        const serviceName = invoice.serviceName ?? booking?.packageName;
-        const packageOption = packages.find((item) => item.name === serviceName);
-        const hasLogoSnapshot = invoice.snapshot
-          ? Object.prototype.hasOwnProperty.call(invoice.snapshot, 'businessLogoUrl')
-          : false;
-        const logoUrl = isPro
-          ? hasLogoSnapshot
-            ? invoice.snapshot?.businessLogoUrl ?? undefined
-            : businessProfile.logoUrl
-          : undefined;
-        const invoiceBusinessProfile = {
-          name: invoice.snapshot?.businessName ?? businessProfile.name,
-          ssmRegistrationNo:
-            invoice.snapshot?.businessRegistrationNumber ?? businessProfile.ssmRegistrationNo,
-          phone: invoice.snapshot?.businessPhone ?? businessProfile.phone,
-          email: invoice.snapshot?.businessEmail ?? businessProfile.email,
-          address: invoice.snapshot?.businessAddress ?? businessProfile.address,
-          logoUrl,
-        };
         const publicStatus =
           invoice.status === 'Accepted' ||
           invoice.status === 'Declined' ||
@@ -2172,69 +3504,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           invoice.status === 'Cancelled'
             ? invoice.status
             : 'Sent';
-        // The customer's page renders from this frozen model rather than recalculating anything of
-        // its own, so the figures, template, accent and hidden sections they see are exactly the
-        // ones the invoice was issued with. Older links have no `render` and keep their old layout.
-        const presentation = resolveInvoicePresentation(
-          { ...invoice, status: publicStatus },
-          {
-            design: invoiceSettings.design,
-            business: businessProfile,
-            paymentDetails: normalizeBankDetails(businessProfile.paymentDetails),
-            paymentInstructions: invoiceSettings.paymentInstructions,
-            termsAndConditions: invoiceSettings.termsAndConditions,
-            allowBusinessLogo: isPro,
-          },
-        );
-        const render = buildInvoiceRenderData({
-          // Resolved at share time: the document keeps the wording it was sent with, even if the
-          // owner later switches the app to another language.
-          labels: getInvoiceDocumentLabels(language),
-          invoice: { ...invoice, status: publicStatus },
-          client,
-          payments: allPayments,
-          currency,
-          design: presentation.design,
-          business: presentation.business,
-          paymentDetails: presentation.paymentDetails,
-          paymentInstructions: presentation.paymentInstructions,
-          termsAndConditions: presentation.termsAndConditions,
-          serviceName,
-          packageDetails: invoice.packageDetails ?? packageOption?.details,
-          eventLocation: invoice.eventLocation ?? booking?.location,
-          eventDate: invoice.eventDate ?? booking?.date,
-          eventStartTime: invoice.eventStartTime ?? booking?.startTime ?? invoice.eventTime ?? booking?.time,
-          eventEndTime: invoice.eventEndTime ?? booking?.endTime,
-        });
-
-        const payload = {
-          render,
-          // Travels with the link so the customer's page reads in the language it was sent in.
-          locale: language,
-          invoice: {
-            id: invoice.id,
-            invoiceNumber: getInvoiceNumber(invoice),
-            amount: invoice.amount,
-            depositPaid: invoice.depositPaid,
-            dueDate: invoice.dueDate,
-            sentAt: invoice.sentAt,
-            status: publicStatus,
-            terms: invoice.terms,
-          },
-          customer: {
-            name: client.name,
-            email: client.email,
-            phone: client.phone,
-          },
-          businessProfile: invoiceBusinessProfile,
-          currency,
-          serviceName,
-          packageDetails: invoice.packageDetails ?? packageOption?.details,
-          eventLocation: invoice.eventLocation ?? booking?.location,
-          eventDate: invoice.eventDate ?? booking?.date,
-          eventStartTime: invoice.eventStartTime ?? booking?.startTime ?? invoice.eventTime ?? booking?.time,
-          eventEndTime: invoice.eventEndTime ?? booking?.endTime,
-        };
+        const payload = buildPublicInvoicePayload(invoice, client, publicStatus, language);
         const now = new Date();
         const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
         const { data, error } = await supabase
@@ -2269,6 +3539,60 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         }
 
         return createPublicInvoiceUrl(data.token);
+      },
+      updateInvoice: (invoiceId: string, input: InvoiceEditInput): UpdateInvoiceResult => {
+        const invoice = invoicesRef.current.find((item) => item.id === invoiceId);
+        if (!invoice) return { ok: false, error: 'This invoice could no longer be found.' };
+
+        // A client deleted since the invoice was raised may stay on it, remembered by its snapshot;
+        // any other client must exist.
+        const customer = customersRef.current.find((item) => item.id === input.customerId) ?? null;
+        if (!customer && input.customerId !== invoice.customerId) {
+          return { ok: false, error: translate(languageRef.current, 'bookings.error.fields') };
+        }
+
+        // Checked here as well as in the form, so no caller can skip it.
+        const result = applyInvoiceEdit(
+          invoice,
+          { ...input, ...(customer ? { customerSnapshot: createInvoiceCustomerSnapshot(customer) } : {}) },
+          allPayments,
+        );
+        if (!result.ok) return { ok: false, error: translate(languageRef.current, result.error) };
+
+        const updated = result.invoice;
+        invoicesRef.current = invoicesRef.current.map((item) => (item.id === invoiceId ? updated : item));
+        setInvoices((current) => current.map((item) => (item.id === invoiceId ? updated : item)));
+
+        // The linked booking (found by the invoice's stored bookingId, never by name or date) moves
+        // with the event details this edit changed. Same tick as the invoice, so both land in one
+        // workspace save: they are stored together or not at all. An invoice with no booking, or
+        // whose booking is gone, saves exactly as before.
+        const linkedBooking = invoice.bookingId ? bookingsRef.current.find((item) => item.id === invoice.bookingId) : undefined;
+        if (linkedBooking) {
+          const syncedBooking = syncLinkedBookingSchedule(linkedBooking, invoice, updated);
+          if (syncedBooking !== linkedBooking) {
+            const nextBookings = bookingsRef.current.map((item) => (item.id === linkedBooking.id ? syncedBooking : item));
+            bookingsRef.current = nextBookings;
+            setBookings(nextBookings);
+          }
+        }
+
+        // Payment records are untouched; only their ledger mirror is rebuilt, so a changed client or
+        // total is reflected in the same rows (same ids, same amounts).
+        const invoicePayments = allPayments.filter((payment) => payment.invoiceId === invoiceId);
+        if (invoicePayments.length) {
+          setFinanceEntries((current) =>
+            replaceInvoicePaymentFinanceEntries(current, updated, invoicePayments, customersRef.current),
+          );
+        }
+
+        // The customer's page reads the total from the workspace and the rest from the link, so the
+        // link is rewritten only once the edit itself is stored — the two can never disagree.
+        const client = resolveInvoiceCustomer(updated, customer ?? undefined);
+        return {
+          ok: true,
+          sharedLink: confirmWorkspaceSave().then(() => refreshPublicInvoicePayload(updated, client)),
+        };
       },
       refreshInvoiceStatuses,
       setInvoiceDraft: (draft: InvoiceDraftPrefill | null) => {
@@ -2526,6 +3850,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         setPayments([]);
         setFinanceEntries([]);
         setReminders([]);
+        offersRef.current = [];
+        setOffers([]);
         setNotifications([]);
         // Reset with the rest, so a wiped workspace is not left holding a Clear all stamp that
         // would suppress reminders for whatever is put back into it.
@@ -2543,10 +3869,32 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         });
         setCurrency('MYR');
         setInvoiceSettings({ ...DEFAULT_INVOICE_SETTINGS });
+        // Open booking forms and quotations are closed too, so a customer cannot submit into the
+        // emptied workspace.
+        if (supabase && user) {
+          void supabase
+            .from('public_booking_offers')
+            .update({ status: 'revoked', updated_at: new Date().toISOString() })
+            .eq('user_id', user.id)
+            .in('status', ['sent', 'change_requested'])
+            .then(() => {}, () => {});
+        }
       },
     }),
     [
       confirmWorkspaceSave,
+      offers,
+      saveQuotation,
+      createBookingForm,
+      reviseBookingForm,
+      shareOffer,
+      revokeOffer,
+      deleteOfferDraft,
+      deleteBookingForm,
+      refreshOffers,
+      convertQuotation,
+      createCustomerPageLink,
+      revokeCustomerPageLink,
       bookings,
       businessProfile,
       currency,
@@ -2573,6 +3921,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       activePayments,
       allPayments,
       applyInvoicePayments,
+      buildPublicInvoicePayload,
+      refreshPublicInvoicePayload,
       refreshInvoiceStatuses,
       removeBusinessLogo,
       reminders,
@@ -2582,6 +3932,31 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       user,
     ],
   );
+
+  valueRef.current = value;
+
+  /**
+   * Customer responses arrive in their own table, so they are pulled in when the workspace finishes
+   * loading and whenever BookFlow returns to the foreground — at most every 30 seconds. A failure is
+   * silent here; the Quotes & forms screen offers a manual check that reports it.
+   */
+  const lastOfferRefreshRef = useRef(0);
+  const workspaceReady = !isLoading && !loadError && Boolean(user) && loadedUserIdRef.current === user?.id;
+  useEffect(() => {
+    if (!workspaceReady) return;
+    const pull = () => {
+      if (Date.now() - lastOfferRefreshRef.current < 30_000) return;
+      lastOfferRefreshRef.current = Date.now();
+      valueRef.current?.refreshOffers().catch((error) => {
+        if (__DEV__) console.warn('[booking-offers] refresh failed', error instanceof Error ? error.message : error);
+      });
+    };
+    pull();
+    const subscription = AppState.addEventListener('change', (status) => {
+      if (status === 'active') pull();
+    });
+    return () => subscription.remove();
+  }, [workspaceReady]);
 
   return <AppDataContext.Provider value={value}>{children}</AppDataContext.Provider>;
 }

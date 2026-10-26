@@ -8,3 +8,13 @@ verify_jwt = false
 [functions.delete-account]
 # The gateway cannot verify Clerk session tokens; the function verifies them itself against Clerk JWKS.
 verify_jwt = false
+
+[functions.entitlement-status]
+# The gateway cannot verify Clerk session tokens; the function passes the caller's token to Supabase,
+# which verifies it and applies row-level security.
+verify_jwt = false
+
+[functions.booking-public]
+# Customers open booking forms, quotations and booking pages without an account. The function
+# validates the unguessable, expiring, revocable token itself and acts through service-role RPCs.
+verify_jwt = false

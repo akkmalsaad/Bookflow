@@ -66,6 +66,61 @@ export type Database = {
           },
         ];
       };
+      public_booking_offers: {
+        Row: {
+          booking_id: string | null;
+          change_request: string | null;
+          change_request_count: number;
+          created_at: string;
+          customer_id: string | null;
+          expires_at: string;
+          invoice_id: string | null;
+          invoice_token: string | null;
+          kind: string;
+          offer: Json;
+          offer_id: string;
+          owner_plan: string;
+          responded_version: number | null;
+          response: Json | null;
+          status: string;
+          submitted_at: string | null;
+          terms_accepted_at: string | null;
+          terms_version: string | null;
+          token: string;
+          updated_at: string;
+          user_id: string;
+          version: number;
+        };
+        // Customer response fields are absent on purpose: a database trigger refuses owner writes to them.
+        Insert: {
+          booking_id?: string | null;
+          customer_id?: string | null;
+          expires_at?: string;
+          invoice_id?: string | null;
+          invoice_token?: string | null;
+          kind: string;
+          offer: Json;
+          offer_id: string;
+          owner_plan?: string;
+          status?: string;
+          updated_at?: string;
+          user_id?: string;
+          version?: number;
+        };
+        Update: {
+          booking_id?: string | null;
+          customer_id?: string | null;
+          expires_at?: string;
+          invoice_id?: string | null;
+          invoice_token?: string | null;
+          offer?: Json;
+          owner_plan?: string;
+          status?: string;
+          updated_at?: string;
+          version?: number;
+        };
+        Relationships: [];
+      };
       support_requests: {
         Row: {
           app_version: string | null;
@@ -95,6 +150,7 @@ export type Database = {
         Row: {
           app_version: string | null;
           category: string;
+          contact_allowed: boolean;
           created_at: string;
           id: string;
           message: string;
@@ -105,6 +161,7 @@ export type Database = {
         Insert: {
           app_version?: string | null;
           category: string;
+          contact_allowed?: boolean;
           id?: string;
           message: string;
           platform?: string | null;

@@ -52,16 +52,24 @@ export function publicInvoiceResponse(value: unknown, today = new Date().toISOSt
     const renderInvoice = strings(model.invoice,['number','issuedOn','dueOn','eventDate','eventTime','eventLocation']);
     if (!visible('dueDate')) renderInvoice.dueOn = '';
     const overdue = string(invoice.dueDate) && string(invoice.dueDate) < today;
+    const renderItems = (Array.isArray(model.items) ? model.items : []).slice(0, 40).map(object);
+    const lineAmount = (item: ObjectValue) => renderItems.length > 1 && Number.isInteger(item.amountCents) && (item.amountCents as number) >= 0 && (item.amountCents as number) <= total
+      ? item.amountCents as number : total;
+    // Read from the live invoice, never the frozen payload, so a recorded deposit clears it.
+    const agreedDeposit = Math.min(Math.max(0, cents(invoice.depositDue)), total);
+    const depositStillDue = Math.max(0, agreedDeposit - paid);
     const paymentStatus = status === 'Sent' && overdue ? 'Overdue' : status === 'Partially Paid' && overdue ? 'Partially Paid · Overdue' : status;
     payload.render = {
       design: { ...strings(design,['templateId','accentColor','invoicePrefix']), thankYouMessage: visible('thankYou') ? string(design.thankYouMessage) : '',
         visibility: Object.fromEntries(['businessAddress','clientAddress','dueDate','paymentStatus','paymentInformation','paymentInstructions','terms','thankYou','bookflowBranding'].map(k=>[k,visible(k)])) },
       tokens: strings(model.tokens,['accent','accentText','accentSoft','text','muted','border','background','surface']),
-      ...(model.labels ? {labels: strings(model.labels, ['invoice','from','billTo','billToLabel','yourBusiness','client','invoiceNumber','issued','due','eventDate','eventTime','location','description','amount','professionalServices','invoiceTotal','depositPaid','amountPaid','balanceDue','paymentInformation','paymentInstructions','bank','accountName','accountNumber','duitNow','terms','createdWith'])} : {}),
+      ...(model.labels ? {labels: strings(model.labels, ['invoice','from','billTo','billToLabel','yourBusiness','client','invoiceNumber','issued','due','eventDate','eventTime','location','description','amount','professionalServices','invoiceTotal','depositPaid','amountPaid','balanceDue','paymentInformation','paymentInstructions','bank','accountName','accountNumber','duitNow','terms','createdWith','depositDue','subtotal','additionalCharges'])} : {}),
       business, client, currency,
       invoice: {...renderInvoice,status,paymentStatus:visible('paymentStatus') ? paymentStatus : ''},
-      items: (Array.isArray(model.items) ? model.items : []).map(item=>({...strings(item,['description','detail']),amountLabel:money(total)})),
-      totals: {subtotal:money(total),total:money(total),depositPaid:money(deposit),amountPaid:money(paid),balance:money(Math.max(0,total-paid)),hasDeposit:deposit>0,isSettled:paid>=total},
+      // Multi-line invoices (additional charges) carry each line's own cents; a legacy single line is the total.
+      items: renderItems.map(item=>({...strings(item,['description','detail']),amountLabel:money(lineAmount(item))})),
+      totals: {subtotal:money(total),total:money(total),depositPaid:money(deposit),amountPaid:money(paid),balance:money(Math.max(0,total-paid)),hasDeposit:deposit>0,isSettled:paid>=total,
+        ...(agreedDeposit>0?{depositDue:money(depositStillDue),hasDepositDue:depositStillDue>0}:{})},
       payment: visible('paymentInformation') ? strings(model.payment,['bankName','accountHolder','accountNumber','duitNowId']) : {bankName:'',accountHolder:'',accountNumber:'',duitNowId:''},
       paymentInstructions: visible('paymentInstructions') ? string(model.paymentInstructions) : '',
       terms: visible('terms') ? string(model.terms) : '',

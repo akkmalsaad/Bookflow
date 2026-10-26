@@ -8,6 +8,8 @@
  * Bahasa Melayu as used in Malaysia — not Bahasa Indonesia.
  */
 
+import { WORKFLOW_EN, WORKFLOW_MS } from './i18n-workflows';
+
 export type Locale = 'en' | 'ms-MY';
 
 export const LOCALES: { id: Locale; label: string; subtitle: string }[] = [
@@ -151,6 +153,11 @@ const HOME_EN = {
   'settings.section.support': 'Support',
   'settings.help': 'Help & support',
   'settings.feedback': 'Send feedback',
+  'settings.feedback.subtitle': 'Suggest an improvement or report a problem',
+  'settings.section.helpFeedback': 'Help & feedback',
+  'settings.rate': 'Rate BookFlow',
+  'settings.rate.subtitle': 'Share your experience',
+  'settings.rate.error': 'Couldn’t open the App Store. Please try again.',
   'settings.section.about': 'About',
   'settings.privacy': 'Privacy Policy',
   'settings.terms': 'Terms of Service',
@@ -195,6 +202,10 @@ const HOME_EN = {
   'invoices.save': 'Save invoice',
   'invoices.created.title': 'Invoice created',
   'invoices.created.body': 'Your invoice has been created',
+  'invoices.edit.eyebrow': 'Edit',
+  'invoices.edit.title': 'Edit invoice',
+  'invoices.edit.saved.title': 'Invoice updated',
+  'invoices.edit.saved.body': 'Your changes have been saved.',
   'invoices.paid.title': 'Payment recorded',
   'invoices.paid.body': 'Invoice marked as paid',
   'invoices.unknownCustomer': 'Unknown customer',
@@ -478,6 +489,12 @@ const HOME_EN = {
   'invoice.accept': 'Accept',
   'invoice.saveFailed': 'Unable to save invoice',
   'invoice.undo': 'Undo',
+  'invoice.edit': 'Edit invoice',
+  'invoice.edit.hint': 'Changes the invoice details. Its number, status and acceptance stay the same',
+  'invoice.edit.error.closed': 'This invoice is closed and can no longer be edited.',
+  'invoice.edit.error.dueDate': 'Enter the due date as YYYY-MM-DD.',
+  'invoice.edit.error.belowPaid': 'The invoice total cannot be less than the payments already received.',
+  'invoice.edit.linkFailed': 'Invoice saved, but its shared link could not be updated. Share the invoice again to refresh it.',
   'invoice.voided': 'Invoice voided',
   'invoice.trashed': 'Invoice moved to the Dustbin',
   'invoice.trashFailed': 'The invoice could not be moved to the Dustbin.',
@@ -585,6 +602,13 @@ const HOME_EN = {
   'feedback.sent.body': 'Your feedback helps us make BookFlow better.',
   'feedback.error.optionRequired': 'Choose a feedback type.',
   'feedback.error.unavailable': 'Couldn’t send your feedback. Please try again.',
+  'feedback.category.suggestion': 'Suggestion',
+  'feedback.category.problem': 'Report a problem',
+  'feedbackSheet.title': 'Help improve BookFlow',
+  'feedbackSheet.description': 'Tell us what’s working or what could be better.',
+  'feedbackSheet.placeholder': 'What would you like us to know?',
+  'feedbackSheet.contact': 'You can contact me about this feedback.',
+  'feedbackSheet.sent': 'Thanks for helping improve BookFlow.',
   'messageForm.message.label': 'Message',
   'messageForm.required': 'Required',
   'messageForm.sending': 'Sending…',
@@ -805,7 +829,10 @@ const HOME_EN = {
   'paywall.restore': 'Restore Purchases',
   'paywall.restoring': 'Restoring…',
   'paywall.terms': 'Terms of Service',
+  'paywall.eula': 'Terms of Use (EULA)',
   'paywall.privacy': 'Privacy Policy',
+  'paywall.linkFailed': 'Unable to open link',
+  'paywall.linkFailed.body': 'The Terms of Use could not be opened. Check your connection and try again.',
   'paywall.expoGo': 'Purchases are not available in Expo Go. Run a development build to subscribe.',
   'paywall.storeOnly': 'Purchases are only available in the iOS and Android apps.',
   'paywall.incomplete': 'Purchase incomplete',
@@ -1239,6 +1266,8 @@ const HOME_EN = {
   'status.reminder.scheduled': 'scheduled',
   'status.reminder.sent': 'sent',
   'status.reminder.failed': 'failed',
+  // Booking workflows (charges, forms, quotations, deliveries, reminders) live in their own module.
+  ...WORKFLOW_EN,
 } as const;
 
 export type TranslationKey = keyof typeof HOME_EN;
@@ -1367,6 +1396,11 @@ const HOME_MS: Record<TranslationKey, string> = {
   'settings.section.support': 'Sokongan',
   'settings.help': 'Bantuan & sokongan',
   'settings.feedback': 'Hantar maklum balas',
+  'settings.feedback.subtitle': 'Cadangkan penambahbaikan atau laporkan masalah',
+  'settings.section.helpFeedback': 'Bantuan & maklum balas',
+  'settings.rate': 'Nilaikan BookFlow',
+  'settings.rate.subtitle': 'Kongsi pengalaman anda',
+  'settings.rate.error': 'App Store tidak dapat dibuka. Sila cuba lagi.',
   'settings.section.about': 'Perihal',
   'settings.privacy': 'Dasar Privasi',
   'settings.terms': 'Terma Perkhidmatan',
@@ -1411,6 +1445,10 @@ const HOME_MS: Record<TranslationKey, string> = {
   'invoices.save': 'Simpan invois',
   'invoices.created.title': 'Invois dicipta',
   'invoices.created.body': 'Invois anda telah dicipta',
+  'invoices.edit.eyebrow': 'Edit',
+  'invoices.edit.title': 'Edit invois',
+  'invoices.edit.saved.title': 'Invois dikemas kini',
+  'invoices.edit.saved.body': 'Perubahan anda telah disimpan.',
   'invoices.paid.title': 'Pembayaran direkodkan',
   'invoices.paid.body': 'Invois ditanda sebagai telah dibayar',
   'invoices.unknownCustomer': 'Pelanggan tidak diketahui',
@@ -1693,6 +1731,12 @@ const HOME_MS: Record<TranslationKey, string> = {
   'invoice.accept': 'Terima',
   'invoice.saveFailed': 'Invois tidak dapat disimpan',
   'invoice.undo': 'Buat asal',
+  'invoice.edit': 'Edit invois',
+  'invoice.edit.hint': 'Mengubah butiran invois. Nombor, status dan penerimaannya kekal sama',
+  'invoice.edit.error.closed': 'Invois ini telah ditutup dan tidak boleh diedit lagi.',
+  'invoice.edit.error.dueDate': 'Masukkan tarikh akhir dalam format YYYY-MM-DD.',
+  'invoice.edit.error.belowPaid': 'Jumlah invois tidak boleh kurang daripada bayaran yang telah diterima.',
+  'invoice.edit.linkFailed': 'Invois disimpan, tetapi pautan kongsinya tidak dapat dikemas kini. Kongsi invois sekali lagi untuk memperbaharuinya.',
   'invoice.voided': 'Invois dibatalkan',
   'invoice.trashed': 'Invois dipindahkan ke Tong sampah',
   'invoice.trashFailed': 'Invois tidak dapat dipindahkan ke Tong sampah.',
@@ -1796,6 +1840,13 @@ const HOME_MS: Record<TranslationKey, string> = {
   'feedback.sent.body': 'Maklum balas anda membantu kami menjadikan BookFlow lebih baik.',
   'feedback.error.optionRequired': 'Pilih jenis maklum balas.',
   'feedback.error.unavailable': 'Maklum balas anda tidak dapat dihantar. Sila cuba lagi.',
+  'feedback.category.suggestion': 'Cadangan',
+  'feedback.category.problem': 'Laporkan masalah',
+  'feedbackSheet.title': 'Bantu tingkatkan BookFlow',
+  'feedbackSheet.description': 'Beritahu kami apa yang berfungsi dengan baik atau apa yang boleh diperbaiki.',
+  'feedbackSheet.placeholder': 'Apa yang anda ingin kami tahu?',
+  'feedbackSheet.contact': 'Anda boleh menghubungi saya tentang maklum balas ini.',
+  'feedbackSheet.sent': 'Terima kasih kerana membantu meningkatkan BookFlow.',
   'messageForm.message.label': 'Mesej',
   'messageForm.required': 'Wajib',
   'messageForm.sending': 'Menghantar…',
@@ -2016,7 +2067,10 @@ const HOME_MS: Record<TranslationKey, string> = {
   'paywall.restore': 'Pulihkan pembelian',
   'paywall.restoring': 'Memulihkan…',
   'paywall.terms': 'Terma Perkhidmatan',
+  'paywall.eula': 'Terma Penggunaan (EULA)',
   'paywall.privacy': 'Dasar Privasi',
+  'paywall.linkFailed': 'Pautan tidak dapat dibuka',
+  'paywall.linkFailed.body': 'Terma Penggunaan tidak dapat dibuka. Semak sambungan anda dan cuba lagi.',
   'paywall.expoGo': 'Pembelian tidak tersedia dalam Expo Go. Jalankan binaan pembangunan untuk melanggan.',
   'paywall.storeOnly': 'Pembelian hanya tersedia dalam aplikasi iOS dan Android.',
   'paywall.incomplete': 'Pembelian tidak lengkap',
@@ -2449,6 +2503,7 @@ const HOME_MS: Record<TranslationKey, string> = {
   'status.reminder.scheduled': 'dijadualkan',
   'status.reminder.sent': 'dihantar',
   'status.reminder.failed': 'gagal',
+  ...WORKFLOW_MS,
 };
 
 const TRANSLATIONS: Record<Locale, Record<TranslationKey, string>> = {
@@ -2487,7 +2542,8 @@ export type InvoiceDocumentLabels = Record<
   | 'invoiceNumber' | 'issued' | 'due' | 'eventDate' | 'eventTime' | 'location'
   | 'description' | 'amount' | 'professionalServices' | 'invoiceTotal' | 'depositPaid'
   | 'amountPaid' | 'balanceDue' | 'paymentInformation' | 'paymentInstructions'
-  | 'bank' | 'accountName' | 'accountNumber' | 'duitNow' | 'terms' | 'createdWith',
+  | 'bank' | 'accountName' | 'accountNumber' | 'duitNow' | 'terms' | 'createdWith'
+  | 'depositDue' | 'subtotal' | 'additionalCharges',
   string
 >;
 
@@ -2521,6 +2577,9 @@ export function getInvoiceDocumentLabels(locale: Locale): InvoiceDocumentLabels 
     duitNow: at('doc.duitNow'),
     terms: at('doc.terms'),
     createdWith: at('doc.createdWith'),
+    depositDue: at('doc.depositDue'),
+    subtotal: at('doc.subtotal'),
+    additionalCharges: at('doc.additionalCharges'),
   };
 }
 

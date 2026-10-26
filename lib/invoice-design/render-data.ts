@@ -9,6 +9,7 @@ import {
 import type { InvoiceCustomerDetails } from '@/lib/invoice-customer';
 import { getInvoicePaymentSummary, getInvoicePayments, sumPaymentsInCents, fromCents } from '@/lib/invoice-payments';
 import { getInvoiceNumber } from '@/lib/invoice-numbering';
+import { chargeAmountCents, describeQuantity, normalizePricedLines, toCents as lineCents } from '@/lib/booking-pricing';
 
 import { resolveInvoiceTokens } from './tokens';
 import { DEFAULT_INVOICE_DOCUMENT_LABELS, type InvoiceDocumentLabels } from '@/lib/i18n';
@@ -177,6 +178,13 @@ export function buildInvoiceRenderData(input: BuildInvoiceRenderDataInput): Invo
     getInvoicePayments(invoice.id, payments).filter((payment) => payment.kind === 'deposit'),
   );
   const depositPaid = fromCents(depositCents);
+  // Invoices with additional charges carry their own frozen lines; older invoices keep the single
+  // service line they were always printed with.
+  const lines = normalizePricedLines(invoice.lineItems);
+  const totalCents = lineCents(summary.totalAmount);
+  const paidCents = lineCents(summary.amountPaid);
+  const agreedDepositCents = Math.min(lineCents(invoice.depositDue ?? 0), totalCents);
+  const depositStillDueCents = Math.max(0, agreedDepositCents - paidCents);
 
   return {
     design,
@@ -202,13 +210,26 @@ export function buildInvoiceRenderData(input: BuildInvoiceRenderDataInput): Invo
       ),
       eventLocation: (input.eventLocation ?? invoice.eventLocation ?? '').trim(),
     },
-    items: [
-      {
-        description: (input.serviceName ?? invoice.serviceName ?? '').trim() || 'Professional services',
-        detail: (input.packageDetails ?? invoice.packageDetails ?? '').trim() || undefined,
-        amountLabel: formatter.format(summary.totalAmount),
-      },
-    ],
+    items: lines
+      ? lines.map((line) => {
+          const amountCents = chargeAmountCents(line.quantity, line.unitPrice);
+          return {
+            kind: line.kind,
+            description: line.description.trim() || 'Professional services',
+            detail: line.kind === 'charge'
+              ? [line.detail, line.quantity !== 1 || line.unit ? describeQuantity(line, formatter) : ''].filter(Boolean).join(' · ') || undefined
+              : line.detail?.trim() || undefined,
+            amountLabel: formatter.format(fromCents(amountCents)),
+            amountCents,
+          };
+        })
+      : [
+          {
+            description: (input.serviceName ?? invoice.serviceName ?? '').trim() || 'Professional services',
+            detail: (input.packageDetails ?? invoice.packageDetails ?? '').trim() || undefined,
+            amountLabel: formatter.format(summary.totalAmount),
+          },
+        ],
     totals: {
       subtotal: formatter.format(summary.totalAmount),
       total: formatter.format(summary.totalAmount),
@@ -217,6 +238,13 @@ export function buildInvoiceRenderData(input: BuildInvoiceRenderDataInput): Invo
       balance: formatter.format(summary.outstanding),
       hasDeposit: depositCents > 0,
       isSettled: summary.outstanding <= 0,
+      ...(agreedDepositCents > 0
+        ? {
+            depositDue: formatter.format(fromCents(depositStillDueCents)),
+            depositDueCents: depositStillDueCents,
+            hasDepositDue: depositStillDueCents > 0,
+          }
+        : {}),
     },
     payment: paymentDetails ?? { ...EMPTY_BANK_DETAILS },
     paymentInstructions: input.paymentInstructions ?? '',

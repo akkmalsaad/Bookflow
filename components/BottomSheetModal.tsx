@@ -20,6 +20,12 @@ type Props = {
   heightRatio?: number;
   /** Fires once the sheet has finished sliding away, for handing off to a follow-up sheet. */
   onClosed?: () => void;
+  /**
+   * Opt-in for sheets that hold no unsaved input: tapping the dimmed backdrop and the screen-reader
+   * escape gesture also close the sheet, through the same `onClose` as Android Back. Off by default,
+   * so other sheets keep putting the keyboard away on a backdrop tap.
+   */
+  dismissible?: boolean;
 };
 
 /**
@@ -31,7 +37,7 @@ type Props = {
  * Closing is driven by `visible` going false, so callers close it exactly as they would an
  * unanimated modal and the sheet unmounts itself once it has slid away.
  */
-export function BottomSheetModal({ visible, onClose, children, heightRatio = 0.92, onClosed }: Props) {
+export function BottomSheetModal({ visible, onClose, children, heightRatio = 0.92, onClosed, dismissible = false }: Props) {
   const { isDarkMode } = useTheme();
   const palette = getThemePalette(isDarkMode);
   const soft = getSoftTokens(isDarkMode);
@@ -56,13 +62,17 @@ export function BottomSheetModal({ visible, onClose, children, heightRatio = 0.9
 
   return (
     <Modal visible={mounted} transparent animationType="none" onRequestClose={guard(onClose)}>
-      <View style={styles.root} pointerEvents={visible ? 'auto' : 'none'}>
+      <View
+        style={styles.root}
+        pointerEvents={visible ? 'auto' : 'none'}
+        onAccessibilityEscape={dismissible ? guard(onClose) : undefined}>
         <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.overlay, overlayStyle]} />
-        {/* Matches the app's other sheets: tapping outside puts the keyboard away, it does not close. */}
+        {/* By default, tapping outside puts the keyboard away and does not close. The sheet sits above
+            this in the tree, so a tap inside the sheet never reaches it. */}
         <Pressable
           accessible={false}
           importantForAccessibility="no"
-          onPress={Keyboard.dismiss}
+          onPress={dismissible ? guard(onClose) : Keyboard.dismiss}
           style={StyleSheet.absoluteFill}
         />
 

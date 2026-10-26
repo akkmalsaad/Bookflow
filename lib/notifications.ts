@@ -210,3 +210,23 @@ export async function cancelBookingReminderNotifications() {
     // Best effort: notification access can be unavailable (e.g. Expo Go on Android).
   }
 }
+
+/**
+ * Shows an owner notification right away — a new booking form submission, an accepted quotation —
+ * through the same local notification channel the booking reminders use. Never prompts for
+ * permission (that stays where the person expects it) and never throws: the in-app notification
+ * centre already holds the same event.
+ */
+export async function presentOwnerNotification(title: string, body: string) {
+  try {
+    const current = await Notifications.getPermissionsAsync();
+    if (!current.granted) return;
+    await setupTodayPriorityChannel();
+    await Notifications.scheduleNotificationAsync({
+      content: { title, body, sound: true },
+      trigger: Platform.OS === 'android' ? { channelId: TODAY_PRIORITY_CHANNEL_ID } as Notifications.NotificationTriggerInput : null,
+    });
+  } catch {
+    // Best effort only.
+  }
+}

@@ -1,5 +1,8 @@
 import { normalizeInvoiceDesign } from '@/lib/invoice-design';
 import { normalizeServiceDeposit } from '@/lib/service-defaults';
+import { normalizeBufferMinutes } from '@/lib/booking-conflicts';
+import { normalizeFulfilment } from '@/lib/booking-fulfilment';
+import { normalizeCharges, normalizeIncludedServices, normalizePricedLines, normalizeSavedAddOns } from '@/lib/booking-pricing';
 
 import type {
   Booking,
@@ -195,6 +198,11 @@ function id(value: unknown) {
  * hostile file from smuggling extra keys into the workspace document — anything not listed here
  * simply does not survive the import.
  */
+/** Spreads a normalised list only when it has entries, so older-shaped records stay unchanged. */
+function optionalList<K extends string, T>(key: K, list: T[]) {
+  return (list.length ? { [key]: list } : {}) as Partial<Record<K, T[]>>;
+}
+
 const SANITIZERS = {
   packages: (value: Record<string, unknown>): PackageOption | null => {
     const recordId = id(value.id);
@@ -208,6 +216,10 @@ const SANITIZERS = {
       info: str(value.info),
       // Optional pair: a file written before service deposits existed simply yields neither field.
       ...normalizeServiceDeposit(value.defaultDepositType, value.defaultDepositValue),
+      // Optional extras, each passed through its own allow-list normaliser.
+      ...optionalList('includedServices', normalizeIncludedServices(value.includedServices)),
+      ...optionalList('addOns', normalizeSavedAddOns(value.addOns)),
+      ...(normalizeBufferMinutes(value.bufferMinutes) ? { bufferMinutes: normalizeBufferMinutes(value.bufferMinutes) } : {}),
     };
   },
   customers: (value: Record<string, unknown>): Customer | null => {
@@ -240,6 +252,16 @@ const SANITIZERS = {
       depositAmount: optionalPositiveNum(value.depositAmount),
       status: BOOKING_STATUSES.includes(status) ? status : 'Inquiry',
       notes: str(value.notes),
+      // Charges, deposit terms and delivery tracking, each read through its own normaliser.
+      ...(optionalPositiveNum(value.basePrice) !== undefined ? { basePrice: optionalPositiveNum(value.basePrice) } : {}),
+      ...optionalList('charges', normalizeCharges(value.charges)),
+      ...(value.depositType === 'fixed' || value.depositType === 'percent' ? { depositType: value.depositType, depositValue: optionalPositiveNum(value.depositValue) } : {}),
+      ...(optionalStr(value.depositDueDate) ? { depositDueDate: optionalStr(value.depositDueDate) } : {}),
+      ...(normalizeBufferMinutes(value.bufferMinutes) ? { bufferMinutes: normalizeBufferMinutes(value.bufferMinutes) } : {}),
+      ...optionalList('includedServices', normalizeIncludedServices(value.includedServices)),
+      ...(optionalStr(value.terms) ? { terms: optionalStr(value.terms) } : {}),
+      ...(optionalStr(value.packageId) ? { packageId: optionalStr(value.packageId) } : {}),
+      ...(normalizeFulfilment(value.fulfilment) ? { fulfilment: normalizeFulfilment(value.fulfilment) } : {}),
     };
   },
   invoices: (value: Record<string, unknown>): Invoice | null => {
@@ -290,9 +312,18 @@ const SANITIZERS = {
         : undefined,
       deletedAt: nullableStr(value.deletedAt) ?? null,
       deletionReason: nullableStr(value.deletionReason) ?? null,
+      ...(nullableStr(value.deletedBy) ? { deletedBy: nullableStr(value.deletedBy) } : {}),
       voidedAt: nullableStr(value.voidedAt) ?? null,
       voidReason: nullableStr(value.voidReason) ?? null,
       statusBeforeTrash: (nullableStr(value.statusBeforeTrash) as Invoice['status'] | null) ?? null,
+      // Frozen charge lines and the agreed deposit, so a restored invoice prints exactly as issued.
+      ...(normalizePricedLines(value.lineItems) ? { lineItems: normalizePricedLines(value.lineItems) ?? undefined } : {}),
+      ...(optionalPositiveNum(value.depositDue) !== undefined ? { depositDue: optionalPositiveNum(value.depositDue) } : {}),
+      ...(optionalStr(value.depositDueDate) ? { depositDueDate: optionalStr(value.depositDueDate) } : {}),
+      // The booking deleting this invoice removed, sanitised exactly like any other booking.
+      ...(isRecord(value.removedBooking) && SANITIZERS.bookings(value.removedBooking)
+        ? { removedBooking: SANITIZERS.bookings(value.removedBooking) }
+        : {}),
     };
   },
   payments: (value: Record<string, unknown>): InvoicePayment | null => {

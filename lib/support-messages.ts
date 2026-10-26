@@ -9,7 +9,10 @@ export const SUPPORT_TOPICS = ['booking', 'invoice_payment', 'pro', 'account_dat
 export type SupportTopic = (typeof SUPPORT_TOPICS)[number];
 
 export const FEEDBACK_CATEGORIES = ['feature_request', 'improvement', 'praise', 'other'] as const;
-export type FeedbackCategory = (typeof FEEDBACK_CATEGORIES)[number];
+/** The choices on the Settings feedback sheet (supabase/migrations/20261019000000_…). */
+export const FEEDBACK_SHEET_CATEGORIES = ['suggestion', 'problem', 'other'] as const;
+export type FeedbackSheetCategory = (typeof FEEDBACK_SHEET_CATEGORIES)[number];
+export type FeedbackCategory = (typeof FEEDBACK_CATEGORIES)[number] | FeedbackSheetCategory;
 
 export const MESSAGE_MIN_LENGTH = 10;
 export const MESSAGE_MAX_LENGTH = 2000;

@@ -63,7 +63,13 @@ export default function InvoiceTrashScreen() {
       showSnackbar({ message: result.error ?? 'The invoice could not be restored.', tone: 'danger' });
       return;
     }
-    showSnackbar({ message: result.error ?? 'Invoice restored', tone: result.error ? 'danger' : 'success' });
+    const restoredInvoice = trashedInvoices.find((item) => item.id === invoiceId);
+    showSnackbar({
+      message: result.error ?? (result.linkedBooking === 'restored' && restoredInvoice
+        ? t('invoice.restoredWithBooking', { invoice: getInvoiceNumber(restoredInvoice) })
+        : 'Invoice restored'),
+      tone: result.error ? 'danger' : 'success',
+    });
   };
 
   const handlePermanentDelete = async () => {

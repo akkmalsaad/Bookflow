@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { getBookingStatusVisual } from '@/lib/booking-status';
+import { getBookingStatusLabelKey, getBookingStatusVisual } from '@/lib/booking-status';
 import { useTheme } from '@/context/theme-context';
+import { useTranslation } from '@/lib/use-translation';
 
 type Props = {
   status: string | null | undefined;
@@ -20,14 +21,17 @@ type Props = {
  */
 export function JobStatusPill({ status, onPress, isBusy = false, disabled = false }: Props) {
   const { isDarkMode } = useTheme();
+  const { t } = useTranslation();
   const visual = getBookingStatusVisual(status, isDarkMode);
+  // Translated for display only; the stored status value is unchanged.
+  const label = t(getBookingStatusLabelKey(status));
   const isDisabled = disabled || isBusy;
 
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`Job status, ${visual.label}`}
-      accessibilityHint="Opens the job status picker"
+      accessibilityLabel={t('jobStatus.pillLabel', { status: label })}
+      accessibilityHint={t('jobStatus.pillHint')}
       accessibilityState={{ disabled: isDisabled, busy: isBusy }}
       disabled={isDisabled}
       hitSlop={6}
@@ -44,7 +48,7 @@ export function JobStatusPill({ status, onPress, isBusy = false, disabled = fals
         <View style={[styles.dot, { backgroundColor: visual.colors.dot }]} />
       )}
       <Text style={[styles.label, { color: visual.colors.text }]} numberOfLines={1}>
-        {visual.label}
+        {label}
       </Text>
       <Ionicons name="chevron-down" size={14} color={visual.colors.text} />
     </Pressable>

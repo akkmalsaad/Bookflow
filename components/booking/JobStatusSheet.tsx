@@ -10,7 +10,9 @@ import { getThemePalette, useTheme } from '@/context/theme-context';
 import { useTranslation } from '@/lib/use-translation';
 import {
   BOOKING_STATUS_ORDER,
+  getBookingStatusLabelKey,
   getBookingStatusVisual,
+  isLegacyBookingStatus,
   resolveBookingStatus,
   type BookingStatus,
 } from '@/lib/booking-status';
@@ -39,6 +41,8 @@ export function JobStatusSheet({ visible, status, bookingTitle, onSelect, onClos
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
   const selected = resolveBookingStatus(status);
+  // A legacy status is not one of the rows, so none is checked until a stage is picked.
+  const isLegacy = isLegacyBookingStatus(selected);
   const [pendingDestructive, setPendingDestructive] = useState<BookingStatus | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
   // The picker steps aside for the confirmation without ending the flow, so the caller keeps the
@@ -54,7 +58,12 @@ export function JobStatusSheet({ visible, status, bookingTitle, onSelect, onClos
   }, [visible]);
 
   const handleRowPress = (next: BookingStatus, destructive: boolean) => {
-    if (destructive && next !== selected) {
+    // The status already held: nothing to change, so this simply closes — no save is started.
+    if (next === selected) {
+      onClose();
+      return;
+    }
+    if (destructive) {
       // Nothing is written yet — this only hides the picker so the confirmation can take over.
       setPendingDestructive(next);
       return;
@@ -85,38 +94,59 @@ export function JobStatusSheet({ visible, status, bookingTitle, onSelect, onClos
 
   return (
     <>
+      {/* Every way out — the X, the backdrop, Android Back and the screen-reader escape — goes
+          through the same onClose. Closing writes nothing; it is not the Cancelled stage. */}
       <BottomSheetModal
         visible={isPickerVisible}
         onClose={onClose}
+        dismissible
         heightRatio={0.8}
         onClosed={() => {
           // Handed over only after this sheet is gone, so the two never overlap.
           if (pendingDestructive) setShowConfirm(true);
         }}>
         <View style={[styles.body, { paddingBottom: Math.max(insets.bottom, 16) }]}>
-          <View style={styles.header}>
-            <Text style={[styles.title, { color: palette.text }]}>{t('jobStatus.title')}</Text>
-            {bookingTitle ? (
-              <Text style={[styles.subtitle, { color: palette.muter }]} numberOfLines={1}>
-                {bookingTitle}
-              </Text>
-            ) : null}
+          <View style={[styles.header, styles.headerRow]}>
+            <View style={styles.headerCopy}>
+              <Text style={[styles.title, { color: palette.text }]}>{t('jobStatus.title')}</Text>
+              {bookingTitle ? (
+                <Text style={[styles.subtitle, { color: palette.muter }]} numberOfLines={1}>
+                  {bookingTitle}
+                </Text>
+              ) : null}
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t('a11y.close')}
+              hitSlop={6}
+              onPress={onClose}
+              style={({ pressed }) => [styles.closeButton, { backgroundColor: soft.inset }, pressed && styles.pressed]}>
+              <Ionicons name="close" size={20} color={palette.text} />
+            </Pressable>
           </View>
+
+          {isLegacy ? (
+            <View style={[styles.legacyNote, { backgroundColor: soft.inset }]}>
+              <Ionicons name="information-circle-outline" size={17} color={palette.muter} />
+              <Text style={[styles.confirmNoteText, { color: palette.text }]}>
+                {t('jobStatus.legacyNote')}
+              </Text>
+            </View>
+          ) : null}
 
           <View accessibilityRole="radiogroup">
             {BOOKING_STATUS_ORDER.map((option) => {
               const visual = getBookingStatusVisual(option, isDarkMode);
+              const label = t(getBookingStatusLabelKey(option));
               const isSelected = option === selected;
 
               return (
                 <Pressable
                   key={option}
                   accessibilityRole="radio"
-                  accessibilityLabel={visual.label}
+                  accessibilityLabel={label}
                   accessibilityState={{ selected: isSelected }}
-                  accessibilityHint={
-                    visual.destructive ? 'Asks you to confirm before cancelling the booking' : undefined
-                  }
+                  accessibilityHint={visual.destructive ? t('jobStatus.cancelHint') : undefined}
                   onPress={() => handleRowPress(option, visual.destructive)}
                   style={({ pressed }) => [
                     styles.row,
@@ -129,7 +159,7 @@ export function JobStatusSheet({ visible, status, bookingTitle, onSelect, onClos
                   <Text
                     style={[styles.rowLabel, { color: isSelected ? palette.text : palette.muter }]}
                     numberOfLines={1}>
-                    {visual.label}
+                    {label}
                   </Text>
                   {isSelected ? <Ionicons name="checkmark" size={20} color={palette.accent} /> : null}
                 </Pressable>
@@ -139,7 +169,8 @@ export function JobStatusSheet({ visible, status, bookingTitle, onSelect, onClos
         </View>
       </BottomSheetModal>
 
-      <BottomSheetModal visible={showConfirm} onClose={dismissConfirm} heightRatio={0.6}>
+      {/* Dismissing the confirmation is the same as Keep Booking: nothing is written. */}
+      <BottomSheetModal visible={showConfirm} onClose={dismissConfirm} dismissible heightRatio={0.6}>
         <View style={[styles.body, { paddingBottom: Math.max(insets.bottom, 16) }]}>
           <View style={styles.header}>
             <Text style={[styles.eyebrow, { color: palette.danger }]}>{t('jobStatus.cancel.eyebrow')}</Text>
@@ -194,6 +225,22 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     paddingHorizontal: 4,
   },
+  headerRow: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: 12,
+  },
+  headerCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  closeButton: {
+    alignItems: 'center',
+    borderRadius: 22,
+    height: 44,
+    justifyContent: 'center',
+    width: 44,
+  },
   eyebrow: {
     fontSize: 10,
     fontWeight: '800',
@@ -237,6 +284,15 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     flexDirection: 'row',
     gap: 9,
+    paddingHorizontal: 13,
+    paddingVertical: 12,
+  },
+  legacyNote: {
+    alignItems: 'flex-start',
+    borderRadius: 14,
+    flexDirection: 'row',
+    gap: 9,
+    marginBottom: 10,
     paddingHorizontal: 13,
     paddingVertical: 12,
   },

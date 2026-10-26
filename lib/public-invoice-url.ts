@@ -45,3 +45,28 @@ export function createPublicInvoiceUrl(token: string): string {
   url.searchParams.set('t', encodeInvoiceToken(token));
   return url.toString();
 }
+
+/**
+ * Booking forms, quotations and customer booking pages share one short route, `/b?t=<token>`.
+ * The token is a separate capability from any invoice token, scoped to one offer row.
+ */
+export function createPublicBookingUrl(token: string): string {
+  const base = process.env.EXPO_PUBLIC_INVOICE_WEB_URL?.trim() || 'https://bookflow.expo.app';
+  const url = new URL(base);
+  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) {
+    throw new Error('Booking website must be an HTTPS URL without credentials, query or fragment.');
+  }
+  url.pathname = `${url.pathname.replace(/\/$/, '')}/b`;
+  url.searchParams.set('t', encodeInvoiceToken(token));
+  return url.toString();
+}
+
+/** Reads the token back out of a public invoice URL this app created. */
+export function readInvoiceTokenFromUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    return decodeInvoiceToken(url.searchParams.get('t') ?? url.searchParams.get('token') ?? undefined);
+  } catch {
+    return null;
+  }
+}

@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from 'react';
 import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { AddBookingModal, type BookingInvoiceInput } from '@/components/booking/AddBookingModal';
 import { InvoiceActionSheet, type InvoiceActionSheetItem } from '@/components/invoice/InvoiceActionSheet';
 import { InvoiceDeleteConfirmation } from '@/components/invoice/InvoiceDeleteConfirmation';
 import { RecordDepositModal } from '@/components/RecordDepositModal';
@@ -17,10 +18,12 @@ import { useResponsive } from '@/lib/responsive';
 import { getInvoiceDocumentLabels } from '@/lib/i18n';
 import { useTranslation } from '@/lib/use-translation';
 import { resolveInvoiceCustomer } from '@/lib/invoice-customer';
-import { getInvoiceRemovalAction, isInvoiceClosed } from '@/lib/invoice-lifecycle';
+import { canEditInvoice, getInvoiceDeleteAction, getInvoiceRemovalAction, isInvoiceClosed, removalRequiresReason, type InvoiceRemovalAction } from '@/lib/invoice-lifecycle';
+import { getLinkedBookingImpact, removalTakesLinkedBooking } from '@/lib/invoice-booking-link';
 import { getInvoicePaymentSummary } from '@/lib/invoice-payments';
 import { saveInvoiceAsPdf } from '@/lib/invoice-pdf';
 import { getInvoiceNumber } from '@/lib/invoice-numbering';
+import { chargeAmountCents, describeQuantity, normalizePricedLines } from '@/lib/booking-pricing';
 import { shareInvoiceOnWhatsApp } from '@/lib/invoice-sharing';
 import { captureEvent } from '@/lib/analytics';
 
@@ -63,9 +66,12 @@ export default function InvoiceAcceptanceScreen() {
     businessProfile,
     invoiceSettings,
     updateInvoiceStatus,
+    updateInvoice,
+    addCustomer,
     createInvoiceShareLink,
     trashInvoice,
     restoreInvoice,
+    confirmWorkspaceSave,
     currency,
   } = useAppData();
   const { showSnackbar } = useSnackbar();
@@ -82,6 +88,12 @@ export default function InvoiceAcceptanceScreen() {
   const [showRemoveConfirmation, setShowRemoveConfirmation] = useState(false);
   const [isRemoving, setIsRemoving] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
+  // Same hand-off as removal: the edit form opens only once the menu has gone.
+  const [editQueued, setEditQueued] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
+  const [editDueDate, setEditDueDate] = useState('');
+  // The removal picked from the menu, when it is not the default one (Delete on an accepted invoice).
+  const [chosenRemoval, setChosenRemoval] = useState<InvoiceRemovalAction | null>(null);
   const currencyFormatter = useMemo(() => getCurrencyFormatter(currency), [currency]);
   const foundInvoice = invoices.find((item) => item.id === params.invoiceId);
   // Removing an invoice takes it out of the active list immediately, which would otherwise flash
@@ -103,6 +115,12 @@ export default function InvoiceAcceptanceScreen() {
   const packageOption = packages.find((item) => item.name === packageName)
     ?? packages.find((item) => item.price === invoice?.amount);
   const packageDetails = invoice?.packageDetails ?? packageOption?.details ?? 'No package description available.';
+  // Additional charges are their own frozen lines on the invoice, each with the description the
+  // owner typed. An invoice without charges has no lines and shows its package exactly as before.
+  const pricedLines = normalizePricedLines(invoice?.lineItems) ?? [];
+  const chargeLines = pricedLines.filter((line) => line.kind === 'charge');
+  const lineCents = (kind: 'package' | 'charge') =>
+    pricedLines.filter((line) => line.kind === kind).reduce((sum, line) => sum + chargeAmountCents(line.quantity, line.unitPrice), 0);
   const eventLocation = invoice?.eventLocation ?? booking?.location ?? 'Not specified';
   const eventDate = invoice?.eventDate ?? booking?.date;
   const eventStartTime = invoice?.eventStartTime ?? booking?.startTime ?? invoice?.eventTime ?? booking?.time ?? 'Not specified';
@@ -111,7 +129,25 @@ export default function InvoiceAcceptanceScreen() {
   const depositPaid = paymentSummary?.amountPaid ?? 0;
   const remainingBalance = paymentSummary?.outstanding ?? 0;
   const canRecordPayments = Boolean(invoice && invoice.status !== 'Paid' && !isInvoiceClosed(invoice));
-  const removalAction = invoice ? getInvoiceRemovalAction(invoice, payments) : null;
+  const defaultRemovalAction = invoice ? getInvoiceRemovalAction(invoice, payments) : null;
+  // Every status also offers a plain Delete beside its Cancel or Void.
+  const deleteAction = invoice ? getInvoiceDeleteAction(invoice, payments) : null;
+  const removalAction = chosenRemoval ?? defaultRemovalAction;
+  const reasonRequired = Boolean(invoice && removalAction && removalRequiresReason(invoice, removalAction.mode));
+  // Only a plain Delete removes the booking (Cancel and Void leave it as they always have). Decided
+  // from the invoice's stored bookingId, against the active invoices and bookings.
+  const linkedBookingImpact = invoice && removalAction && removalTakesLinkedBooking(removalAction.mode) ? getLinkedBookingImpact(invoice, invoices, bookings) : null;
+  const linkedBookingNote = linkedBookingImpact?.kind === 'remove'
+    ? t('invoice.delete.bookingRemoved', {
+        title: linkedBookingImpact.booking.title,
+        date: new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(`${linkedBookingImpact.booking.date}T00:00:00`)),
+      })
+    : linkedBookingImpact?.kind === 'keep_shared'
+      ? t('invoice.delete.bookingShared', {
+          title: linkedBookingImpact.booking.title,
+          invoices: linkedBookingImpact.sharedWith.map((item) => getInvoiceNumber(item)).join(', '),
+        })
+      : undefined;
   const hasLogoSnapshot = invoice?.snapshot
     ? Object.prototype.hasOwnProperty.call(invoice.snapshot, 'businessLogoUrl')
     : false;
@@ -138,6 +174,41 @@ export default function InvoiceAcceptanceScreen() {
     updateInvoiceStatus(invoice.id, status);
     captureEvent('invoice_status_updated', { status });
     router.back();
+  };
+
+  /** Saves the edit form over this invoice. Mirrors the create handler on the Invoices tab. */
+  const handleSaveEdit = (input: BookingInvoiceInput) => {
+    const customerId = input.newCustomer ? addCustomer(input.newCustomer)?.id : input.customerId;
+    if (!customerId) return { ok: false as const, error: t('bookings.error.fields') };
+
+    // No matching service means the form kept the invoice's own package (its service was deleted,
+    // or it was raised for a custom amount), so its stored name stays exactly as it was.
+    const service = packages.find((item) => item.id === input.packageId);
+    const serviceName = service ? service.name : invoice.serviceName ?? '';
+    const result = updateInvoice(invoice.id, {
+      customerId,
+      serviceName,
+      // The details frozen on the invoice stay while its package is unchanged.
+      packageDetails: serviceName === (invoice.serviceName ?? '') ? invoice.packageDetails : service?.details,
+      price: input.price,
+      basePrice: input.basePrice,
+      charges: input.charges,
+      depositAmount: input.depositAmount,
+      depositType: input.depositType,
+      depositValue: input.depositValue,
+      depositDueDate: input.depositDueDate,
+      dueDate: editDueDate.trim(),
+      terms: input.terms,
+      location: input.location,
+      date: input.date,
+      startTime: input.startTime,
+      endTime: input.endTime,
+    });
+    if (!result.ok) return result;
+
+    captureEvent('invoice_edited', { status: invoice.status, has_charges: Boolean(input.charges?.length) });
+    result.sharedLink.catch(() => showSnackbar({ message: t('invoice.edit.linkFailed'), tone: 'danger' }));
+    return { ok: true as const };
   };
 
   const handleBack = () => {
@@ -216,18 +287,35 @@ export default function InvoiceAcceptanceScreen() {
       return;
     }
 
-    captureEvent('invoice_removed', { mode: removalAction.mode });
+    // A Delete (which can take the booking with it) is only reported once the invoice, its reason
+    // and the booking removal — all one workspace save — have actually been stored. If that save
+    // fails, both are put back exactly as they were and the sheet stays open to try again.
+    if (removalAction.mode === 'delete') {
+      try {
+        await confirmWorkspaceSave();
+      } catch (failure) {
+        await restoreInvoice(invoiceId);
+        setIsRemoving(false);
+        setRemoveError(failure instanceof Error ? failure.message : t('invoice.trashFailed'));
+        return;
+      }
+    }
+
+    captureEvent('invoice_removed', { mode: removalAction.mode, linked_booking: result.linkedBooking ?? 'none' });
     setShowRemoveConfirmation(false);
+    setChosenRemoval(null);
     handleBack();
     showSnackbar({
-      message: result.error ?? (removalAction.mode === 'void' ? t('invoice.voided') : t('invoice.trashed')),
+      message: result.error ?? (result.linkedBooking === 'removed' ? t('invoice.trashedWithBooking') : removalAction.mode === 'void' ? t('invoice.voided') : t('invoice.trashed')),
       tone: result.error ? 'danger' : 'default',
       action: {
         label: t('invoice.undo'),
         onPress: () => {
           restoreInvoice(invoiceId).then((undone) => {
             showSnackbar({
-              message: undone.ok && !undone.error ? t('invoice.restored', { invoice: invoiceNumber }) : undone.error ?? t('invoice.restoreFailed'),
+              message: undone.ok && !undone.error
+                ? t(undone.linkedBooking === 'restored' ? 'invoice.restoredWithBooking' : 'invoice.restored', { invoice: invoiceNumber })
+                : undone.error ?? t('invoice.restoreFailed'),
               tone: undone.ok && !undone.error ? 'success' : 'danger',
             });
           });
@@ -258,7 +346,7 @@ export default function InvoiceAcceptanceScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={`More actions for invoice ${getInvoiceNumber(invoice)}`}
-              accessibilityHint="Share, save as PDF, or remove this invoice"
+              accessibilityHint="Edit, share, save as PDF, or remove this invoice"
               hitSlop={8}
               onPress={() => setShowActions(true)}
               style={({ pressed }) => [
@@ -348,6 +436,27 @@ export default function InvoiceAcceptanceScreen() {
           <Text style={[styles.sectionLabel, { color: palette.muter }]}>{t('invoice.package')}</Text>
           <Text style={[styles.packageName, { color: palette.text }]}>{packageName ?? 'Custom service'}</Text>
           <Text style={[styles.packageDetails, { color: palette.muter }]}>{packageDetails}</Text>
+
+          {chargeLines.length ? (
+            <>
+              <View style={[styles.divider, { backgroundColor: palette.border }]} />
+              <View style={styles.detailRow}>
+                <Text style={[styles.detailLabel, styles.lineLabel, { color: palette.muter }]}>{packageName ?? 'Custom service'}</Text>
+                <Text style={[styles.detailValue, { color: palette.text }]}>{currencyFormatter.format(lineCents('package') / 100)}</Text>
+              </View>
+              {chargeLines.map((line, index) => (
+                <View key={`${index}-${line.description}`} style={styles.detailRow}>
+                  <View style={styles.lineLabel}>
+                    <Text style={[styles.detailLabel, { color: palette.muter }]}>{line.description}</Text>
+                    {line.quantity !== 1 || line.unit ? (
+                      <Text style={[styles.lineDetail, { color: palette.muter }]}>{describeQuantity(line, currencyFormatter)}</Text>
+                    ) : null}
+                  </View>
+                  <Text style={[styles.detailValue, { color: palette.text }]}>{currencyFormatter.format(chargeAmountCents(line.quantity, line.unitPrice) / 100)}</Text>
+                </View>
+              ))}
+            </>
+          ) : null}
 
           <View style={[styles.divider, { backgroundColor: palette.border }]} />
 
@@ -452,6 +561,12 @@ export default function InvoiceAcceptanceScreen() {
         visible={showActions}
         onClose={() => setShowActions(false)}
         onClosed={() => {
+          if (editQueued) {
+            setEditQueued(false);
+            setEditDueDate(invoice.dueDate);
+            setShowEdit(true);
+            return;
+          }
           if (!removalQueued) return;
           setRemovalQueued(false);
           setShowRemoveConfirmation(true);
@@ -459,6 +574,20 @@ export default function InvoiceAcceptanceScreen() {
         title={getInvoiceNumber(invoice)}
         subtitle={clientName}
         items={[
+          ...(canEditInvoice(invoice)
+            ? ([
+                {
+                  key: 'edit',
+                  icon: 'create-outline',
+                  label: t('invoice.edit'),
+                  accessibilityHint: t('invoice.edit.hint'),
+                  onPress: () => {
+                    setEditQueued(true);
+                    setShowActions(false);
+                  },
+                },
+              ] satisfies InvoiceActionSheetItem[])
+            : []),
           {
             key: 'share',
             icon: 'logo-whatsapp',
@@ -480,20 +609,39 @@ export default function InvoiceAcceptanceScreen() {
               handleSavePdf();
             },
           },
-          ...(removalAction
+          ...(deleteAction
+            ? ([
+                {
+                  key: 'delete',
+                  icon: 'trash-outline',
+                  label: deleteAction.menuLabel,
+                  destructive: true,
+                  separatedAbove: true,
+                  accessibilityHint: 'Moves the invoice to the Dustbin, where you can restore it',
+                  onPress: () => {
+                    setRemoveError(null);
+                    setChosenRemoval(deleteAction);
+                    setRemovalQueued(true);
+                    setShowActions(false);
+                  },
+                },
+              ] satisfies InvoiceActionSheetItem[])
+            : []),
+          ...(defaultRemovalAction
             ? ([
                 {
                   key: 'remove',
-                  icon: removalAction.mode === 'void' ? 'ban-outline' : 'trash-outline',
-                  label: removalAction.menuLabel,
+                  icon: defaultRemovalAction.mode === 'void' ? 'ban-outline' : 'trash-outline',
+                  label: defaultRemovalAction.menuLabel,
                   destructive: true,
-                  separatedAbove: true,
+                  separatedAbove: !deleteAction,
                   accessibilityHint:
-                    removalAction.mode === 'void'
+                    defaultRemovalAction.mode === 'void'
                       ? 'Marks the invoice void and moves it to the Dustbin, keeping its payment history'
                       : 'Moves the invoice to the Dustbin, where you can restore it',
                   onPress: () => {
                     setRemoveError(null);
+                    setChosenRemoval(null);
                     setRemovalQueued(true);
                     setShowActions(false);
                   },
@@ -502,6 +650,18 @@ export default function InvoiceAcceptanceScreen() {
             : []),
         ]}
       />
+
+      {showEdit ? (
+        <AddBookingModal
+          mode="edit"
+          sourceInvoice={invoice}
+          selectedDate={invoice.eventDate ?? invoice.sentAt}
+          dueDate={editDueDate}
+          onDueDateChange={setEditDueDate}
+          onClose={() => setShowEdit(false)}
+          onSaveInvoice={handleSaveEdit}
+        />
+      ) : null}
 
       <InvoiceDeleteConfirmation
         visible={showRemoveConfirmation}
@@ -512,12 +672,15 @@ export default function InvoiceAcceptanceScreen() {
         amountPaidNote={
           depositPaid > 0 ? `${currencyFormatter.format(depositPaid)} already received` : undefined
         }
+        linkedBookingNote={linkedBookingNote}
+        reasonRequired={reasonRequired}
         isBusy={isRemoving}
         error={removeError}
         onConfirm={handleRemoveInvoice}
         onClose={() => {
           setShowRemoveConfirmation(false);
           setRemoveError(null);
+          setChosenRemoval(null);
         }}
       />
     </SafeAreaView>
@@ -687,6 +850,14 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     textAlign: 'right',
+  },
+  lineLabel: {
+    flexShrink: 1,
+    maxWidth: '65%',
+  },
+  lineDetail: {
+    fontSize: 12,
+    marginTop: 2,
   },
   termsBox: {
     borderWidth: 1,

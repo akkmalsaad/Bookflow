@@ -1,4 +1,5 @@
 import { AddBookingModal, type BookingInvoiceInput } from '@/components/booking/AddBookingModal';
+import { buildPricedLines } from '@/lib/booking-pricing';
 import { SuccessFeedback } from '@/components/feedback/SuccessFeedback';
 
 import { Ionicons } from '@expo/vector-icons';
@@ -273,14 +274,29 @@ export default function InvoicesScreen() {
       sentAt: getLocalDayKey(),
       serviceName: service?.name,
       packageDetails: service?.details,
-      terms: service?.info,
+      terms: input.terms ?? service?.info,
       eventLocation: input.location,
+      // Additional charges are frozen onto the invoice as their own lines.
+      ...(input.charges?.length
+        ? { lineItems: buildPricedLines({ packageName: service?.name ?? '', packageDetails: service?.details, basePrice: input.basePrice ?? input.price, charges: input.charges }) }
+        : {}),
+      ...(input.depositAmount ? { depositDue: input.depositAmount } : {}),
+      ...(input.depositDueDate ? { depositDueDate: input.depositDueDate } : {}),
     }, {
       date: input.date,
       startTime: input.startTime,
       endTime: input.endTime,
       depositAmount: input.depositAmount,
       notes: input.notes,
+      basePrice: input.basePrice,
+      charges: input.charges,
+      depositType: input.depositType,
+      depositValue: input.depositValue,
+      depositDueDate: input.depositDueDate,
+      bufferMinutes: input.bufferMinutes,
+      packageId: service?.id,
+      terms: input.terms,
+      allowConflict: input.allowConflict,
     });
     if (result.ok) {
       captureEvent('invoice_created', {

@@ -40,11 +40,12 @@ test('C: the customer accepting the invoice confirms the booking', () => {
   assert.equal(statusOf([booking('bk-1', 'Inquiry')], invoices, []), 'Confirmed');
 });
 
-test('D: a recorded deposit moves the booking to Deposit Paid', () => {
+test('D: a recorded deposit never changes job progress — payment shows beside the job status, not in it', () => {
   const invoices = [invoice('inv-1', 'bk-1', 'Accepted')];
-  assert.equal(statusOf([booking('bk-1', 'Confirmed')], invoices, [deposit('inv-1')]), 'Deposit Paid');
-  // Straight from Inquiry too: a deposit is evidence of acceptance whatever the invoice now says.
-  assert.equal(statusOf([booking('bk-1', 'Inquiry')], invoices, [deposit('inv-1')]), 'Deposit Paid');
+  assert.equal(statusOf([booking('bk-1', 'Confirmed')], invoices, [deposit('inv-1')]), 'Confirmed');
+  // From Inquiry, only the acceptance moves it — to Confirmed, never to a payment stage.
+  assert.equal(statusOf([booking('bk-1', 'Inquiry')], invoices, [deposit('inv-1')]), 'Confirmed');
+  assert.equal(statusOf([booking('bk-1', 'Inquiry')], [invoice('inv-1', 'bk-1', 'Partially Paid')], [deposit('inv-1')]), 'Inquiry');
 });
 
 test('E: a manual In Progress is never pulled back by an earlier acceptance or deposit', () => {
@@ -80,11 +81,12 @@ test('each booking only ever reads its own invoices', () => {
   const bookings = [booking('bk-1', 'Inquiry'), booking('bk-2', 'Inquiry')];
   const invoices = [invoice('inv-1', 'bk-1', 'Accepted'), invoice('inv-2', 'bk-2', 'Sent')];
   const synced = syncBookingStatuses(bookings, invoices, [deposit('inv-1')]);
-  assert.equal(synced.find((item) => item.id === 'bk-1').status, 'Deposit Paid');
+  assert.equal(synced.find((item) => item.id === 'bk-1').status, 'Confirmed');
   assert.equal(synced.find((item) => item.id === 'bk-2').status, 'Inquiry');
 });
 
 test('an already consistent workspace is returned unchanged, so no render or save is queued', () => {
+  // A legacy 'Deposit Paid' is kept exactly as stored, even beside an accepted invoice.
   const bookings = [booking('bk-1', 'Deposit Paid')];
   const invoices = [invoice('inv-1', 'bk-1', 'Accepted')];
   assert.equal(syncBookingStatuses(bookings, invoices, [deposit('inv-1')]), bookings);

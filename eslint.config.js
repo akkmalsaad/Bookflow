@@ -5,6 +5,7 @@ const expoConfig = require('eslint-config-expo/flat');
 module.exports = defineConfig([
   expoConfig,
   {
-    ignores: ['dist/*'],
+    // Release bundles hold copies of deployed Deno functions and SQL for recovery, not app code.
+    ignores: ['dist/*', 'supabase/releases/*'],
   },
 ]);

@@ -89,3 +89,41 @@ test('the package duration drives the suggested end time', () => {
   assert.equal(addMinutesToTime('10:00', 480), '18:00');
   assert.equal(parsePackageDurationMinutes('Half day'), null);
 });
+
+const { findBookingConflicts, normalizeBufferMinutes } = loadConflicts();
+const slot = (startTime, endTime, extra = {}) => ({ date: DATE, startTime, endTime, ...extra });
+const kinds = (bookings, request, excludeId) => [...findBookingConflicts(bookings, request, excludeId)].map((item) => `${item.booking.id}:${item.kind}`);
+
+test('detailed conflicts list every clash, overlaps first', () => {
+  const bookings = [existing('09:00', '10:00', 'Confirmed', 'bk-a'), existing('11:00', '12:00', 'Confirmed', 'bk-b'), existing('15:00', '16:00', 'Confirmed', 'bk-c')];
+  assert.deepEqual(kinds(bookings, slot('09:30', '11:30')), ['bk-a:overlap', 'bk-b:overlap']);
+});
+
+test('buffers turn a near miss into a buffer warning, using the larger buffer only', () => {
+  const bookings = [{ ...existing('10:00', '12:00', 'Confirmed', 'bk-a'), bufferMinutes: 30 }];
+  assert.deepEqual(kinds(bookings, slot('12:15', '13:00')), ['bk-a:buffer']);
+  assert.deepEqual(kinds(bookings, slot('12:30', '13:00')), []);
+  assert.deepEqual(kinds(bookings, slot('12:30', '13:00', { bufferMinutes: 45 })), ['bk-a:buffer']);
+  // Without any buffer the adjacent rule still holds.
+  assert.deepEqual(kinds([existing('10:00', '12:00', 'Confirmed', 'bk-z')], slot('12:00', '13:00')), []);
+});
+
+test('buffers reach across midnight to the neighbouring day', () => {
+  const late = { id: 'bk-late', date: '2026-09-09', startTime: '22:00', endTime: '23:50', status: 'Confirmed', bufferMinutes: 60 };
+  assert.deepEqual(kinds([late], slot('00:30', '02:00')), ['bk-late:buffer']);
+  assert.deepEqual(kinds([late], slot('01:00', '02:00')), []);
+});
+
+test('cancelled bookings and the booking being edited are excluded', () => {
+  const bookings = [existing('10:00', '12:00', 'Cancelled', 'bk-x'), existing('10:00', '12:00', 'Confirmed', 'bk-self')];
+  assert.deepEqual(kinds(bookings, slot('10:00', '12:00'), 'bk-self'), []);
+  assert.deepEqual(kinds(bookings, slot('10:00', '12:00')), ['bk-self:overlap']);
+});
+
+test('buffer values are clamped and malformed requests report nothing', () => {
+  assert.equal(normalizeBufferMinutes(-5), 0);
+  assert.equal(normalizeBufferMinutes('45'), 45);
+  assert.equal(normalizeBufferMinutes(99999), 720);
+  assert.deepEqual(kinds([existing('10:00', '12:00')], slot('12:00', '11:00')), []);
+  assert.deepEqual(kinds([existing('10:00', '12:00')], { date: 'bad', startTime: '10:00', endTime: '11:00' }), []);
+});

@@ -139,15 +139,20 @@ export function DeleteAccountFlow({ visible, onClose }: { visible: boolean; onCl
 
     // Nothing may write the workspace back while the server is deleting it.
     await suspendWorkspaceSync();
-    let deleted = await requestAccountDeletion(getAccessToken);
-    // The server may have finished even though its answer never arrived (timeout, dropped connection).
-    if (!deleted) deleted = await accountNoLongerExists();
+    const result = await requestAccountDeletion(getAccessToken);
+    let deleted = result.outcome === 'deleted';
+    // Only when no answer arrived (timeout, dropped connection) may the server have finished anyway.
+    // A definite "not deleted" from the server is never second-guessed into a success.
+    if (result.outcome === 'unknown') deleted = await accountNoLongerExists();
 
     if (!deleted) {
+      const reason = result.outcome === 'deleted' ? 'unconfirmed' : result.reason;
+      // A short code only (e.g. "unknown_issuer", "storage_remove", "timeout") — no token or account data.
+      if (__DEV__) console.warn('[account-deletion] not deleted', { outcome: result.outcome, reason });
       resumeWorkspaceSync();
       setIsDeleting(false);
       setFailed(true);
-      captureEvent('account_deletion_failed');
+      captureEvent('account_deletion_failed', { reason });
       return;
     }
 

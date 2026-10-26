@@ -1,10 +1,15 @@
-import { AddBookingModal } from '@/components/booking/AddBookingModal';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { AddBookingModal, type BookingModalMode } from '@/components/booking/AddBookingModal';
+import { BookingDetailsSheet } from '@/components/booking/BookingDetailsSheet';
+import { BookingFormActionSheet } from '@/components/booking/BookingFormActionSheet';
+import { SuccessFeedback } from '@/components/feedback/SuccessFeedback';
+import { FilterTabs } from '@/components/TrendRangeTabs';
+import { filterDeliveries, getDeliveryState, type DeliveryFilter } from '@/lib/booking-fulfilment';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AppState, FlatList, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Reanimated, {
   Easing,
@@ -20,7 +25,7 @@ import { scheduleOnRN } from 'react-native-worklets';
 
 import { Booking, getCurrencyFormatter, useAppData } from '@/context/app-data-context';
 import { SectionHeader } from '@/components/SectionHeader';
-import { JobStatusPill } from '@/components/booking/JobStatusPill';
+import { BookingCardStatusFooter } from '@/components/booking/BookingCardStatusFooter';
 import { JobStatusSheet } from '@/components/booking/JobStatusSheet';
 import {
   SETTINGS_ICON_BACKGROUND_COLOR,
@@ -28,11 +33,14 @@ import {
 } from '@/components/settings/tokens';
 import { useSnackbar } from '@/context/snackbar-context';
 import { getThemePalette, useTheme } from '@/context/theme-context';
+import { recordDeliveredJob, requestReviewIfEligible } from '@/lib/app-store-review';
 import type { BookingStatus } from '@/lib/booking-status';
+import { getBookingInvoicePayment, hasLinkedInvoice } from '@/lib/job-financials';
 import { usePressScale } from '@/components/use-press-scale';
 import { useResponsive } from '@/lib/responsive';
 import { useTranslation } from '@/lib/use-translation';
 import { captureEvent } from '@/lib/analytics';
+import { getCalendarPendingForms, getOfferTotals, offerRecordIds, type BookingOffer } from '@/lib/booking-offers';
 
 const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -136,6 +144,12 @@ function toIsoDate(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
+/** The first day of the month a YYYY-MM-DD date falls in, in local time. */
+function monthStartOf(dateKey: string) {
+  const date = new Date(`${dateKey}T00:00:00`);
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
 function formatDisplayDate(dateString: string) {
   const date = new Date(`${dateString}T00:00:00`);
   return new Intl.DateTimeFormat('en-GB', {
@@ -145,12 +159,25 @@ function formatDisplayDate(dateString: string) {
   }).format(date);
 }
 
+/**
+ * A booking made from a submitted booking form starts its notes with a line the app writes
+ * ("Submitted through the booking form on 2026-10-16. Terms t1-… accepted."). The card shows it
+ * plainly — submission date and that the terms were accepted — while the stored note, with its
+ * terms version, stays exactly as recorded.
+ */
+const SUBMISSION_NOTE = /^Submitted through the booking form on (\d{4}-\d{2}-\d{2})\. Terms \S* accepted\./;
+
+function formatBookingNotes(notes: string, submittedLabel: (date: string) => string) {
+  const match = SUBMISSION_NOTE.exec(notes);
+  return match ? notes.replace(SUBMISSION_NOTE, submittedLabel(formatDisplayDate(match[1]))) : notes;
+}
+
 export default function BookingsScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ composeForCustomerId?: string }>();
+  const params = useLocalSearchParams<{ composeForCustomerId?: string; date?: string }>();
   const handledDeepLinkRef = useRef('');
   const { isDarkMode } = useTheme();
-  const { packages, bookings, customers, updateBookingStatus, currency } = useAppData();
+  const { packages, bookings, customers, invoices, trashedInvoices, payments, offers, updateBookingStatus, confirmWorkspaceSave, currency, refreshOffers, checkPlanLimit } = useAppData();
   const { t } = useTranslation();
   const { showSnackbar } = useSnackbar();
   const palette = getThemePalette(isDarkMode);
@@ -165,11 +192,68 @@ export default function BookingsScreen() {
   // The booking whose job status is being changed. One at a time, so a second tap while the sheet
   // is open cannot start a competing edit.
   const [statusBookingId, setStatusBookingId] = useState<string | null>(null);
+  // The booking whose job status change is waiting on the workspace save. The ref blocks a second
+  // change before the state has re-rendered the pill as busy.
+  const [savingStatusBookingId, setSavingStatusBookingId] = useState<string | null>(null);
+  const savingStatusRef = useRef(false);
+  // Booking details sheet. The id outlives `detailsVisible` so the sheet keeps its content while it
+  // slides away; a follow-up (edit, duplicate, status) opens only once it has finished closing.
+  const [detailsBookingId, setDetailsBookingId] = useState<string | null>(null);
+  const [detailsVisible, setDetailsVisible] = useState(false);
+  const afterDetailsClosed = useRef<(() => void) | null>(null);
+  // "Status saved" is shown here, after the details sheet has finished closing, so the two never
+  // overlap and the confirmation outlives the sheet.
+  const [showStatusSaved, setShowStatusSaved] = useState(false);
+  // Set when the save just confirmed was a Delivered status: once "Status saved" has gone, that is
+  // the natural stopping point at which iOS may be asked for its App Store review prompt.
+  const reviewAfterStatusSaved = useRef(false);
+  const isFocusedRef = useRef(false);
+  const overlayOpenRef = useRef(false);
+  const [composerMode, setComposerMode] = useState<BookingModalMode>('create');
+  const [composerSource, setComposerSource] = useState<Booking | undefined>();
+  const [listMode, setListMode] = useState<'schedule' | 'deliveries'>('schedule');
+  const [deliveryFilter, setDeliveryFilter] = useState<DeliveryFilter>('open');
 
-  const firstBookingDate = bookings[0]?.date ?? toIsoDate(new Date());
   const todayKey = toIsoDate(new Date());
-  const [viewDate, setViewDate] = useState(new Date(`${firstBookingDate}T00:00:00`));
-  const [selectedDate, setSelectedDate] = useState(firstBookingDate);
+  // The calendar opens on the device's current month, with today selected.
+  const [viewDate, setViewDate] = useState(() => monthStartOf(todayKey));
+  const [selectedDate, setSelectedDate] = useState(todayKey);
+
+  const showDay = (dateKey: string) => {
+    setViewDate(monthStartOf(dateKey));
+    setSelectedDate(dateKey);
+  };
+
+  // Entering or returning to the tab always shows the current month. Only focus does this, so
+  // re-renders, data refreshes and closing a sheet or modal leave the month where the owner put it.
+  useFocusEffect(
+    useCallback(() => {
+      showDay(toIsoDate(new Date()));
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []),
+  );
+
+  // Customer responses (submissions, change requests) live in their own table and otherwise arrive
+  // only on launch or return to the foreground, so the booking-form cards check on every visit —
+  // the same as Quotes & forms. Through a ref, so the check runs per focus, not per new function.
+  const refreshOffersRef = useRef(refreshOffers);
+  useEffect(() => {
+    refreshOffersRef.current = refreshOffers;
+  }, [refreshOffers]);
+  useFocusEffect(
+    useCallback(() => {
+      refreshOffersRef.current().catch(() => {});
+    }, []),
+  );
+
+  // A link may still ask for a specific day (?date=YYYY-MM-DD); that request wins over today.
+  useEffect(() => {
+    const requestedDate = typeof params.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(params.date) ? params.date : '';
+    if (!requestedDate) return;
+    showDay(requestedDate);
+    router.setParams({ date: '' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.date]);
 
   const firstDayOfMonth = new Date(viewDate.getFullYear(), viewDate.getMonth(), 1);
   const startOffset = firstDayOfMonth.getDay();
@@ -191,20 +275,79 @@ export default function BookingsScreen() {
   }, [startOffset, viewDate]);
 
   const selectedDayBookings = bookings.filter((item) => item.date === selectedDate);
+  // Booking forms not yet turned into a booking, shown on their event date (display only). One whose
+  // booking exists — active, or held by a deleted invoice — is left to that booking's own card.
+  const pendingForms = useMemo(() => {
+    const bookingIds = new Set(bookings.map((item) => item.id));
+    for (const invoice of [...invoices, ...trashedInvoices]) {
+      if (invoice.removedBooking?.id) bookingIds.add(invoice.removedBooking.id);
+    }
+    return getCalendarPendingForms(offers, bookingIds, Date.now());
+  }, [bookings, invoices, offers, trashedInvoices]);
+  const selectedDayForms = pendingForms.filter((offer) => offer.details.date === selectedDate);
+  // The form's actions are read from the live list, so they always reflect its current status.
+  const [formMenuId, setFormMenuId] = useState<string | null>(null);
+  // "View request" on a card opens the form's change request directly rather than its actions.
+  const [formMenuView, setFormMenuView] = useState<'actions' | 'request'>('actions');
+  const formMenuOffer = formMenuId ? offers.find((item) => item.id === formMenuId) ?? null : null;
+
+  // Read from a timer, so kept in refs rather than closed over.
+  useFocusEffect(
+    useCallback(() => {
+      isFocusedRef.current = true;
+      return () => {
+        isFocusedRef.current = false;
+      };
+    }, []),
+  );
+  useEffect(() => {
+    overlayOpenRef.current = showComposer || detailsVisible || detailsBookingId !== null
+      || statusBookingId !== null || formMenuId !== null || showStatusSaved;
+  });
+
+  /**
+   * Asks iOS for its review prompt if the rules allow, but only with the calendar on screen and
+   * nothing over it. Anything opened in the meantime wins — the request is simply skipped.
+   */
+  const requestReviewWhenSettled = () => {
+    // Lets the confirmation finish fading so iOS never presents over a closing modal.
+    setTimeout(() => {
+      if (!isFocusedRef.current || overlayOpenRef.current || AppState.currentState !== 'active') return;
+      void requestReviewIfEligible();
+    }, 600);
+  };
   const monthLabel = new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(viewDate);
 
-  const goToPreviousMonth = () => {
-    setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1));
+  // Moving month keeps the selected day (and its list) inside the month on screen: today in the
+  // current month, otherwise the 1st.
+  const goToMonth = (offset: number) => {
+    const nextMonth = new Date(viewDate.getFullYear(), viewDate.getMonth() + offset, 1);
+    const today = toIsoDate(new Date());
+    setViewDate(nextMonth);
+    setSelectedDate(today.slice(0, 7) === toIsoDate(nextMonth).slice(0, 7) ? today : toIsoDate(nextMonth));
   };
 
-  const goToNextMonth = () => {
-    setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1));
-  };
+  const goToPreviousMonth = () => goToMonth(-1);
+
+  const goToNextMonth = () => goToMonth(1);
 
   const openComposer = () => {
     if (!packages.length) return;
     setComposerCustomerId(undefined);
+    setComposerMode('create');
+    setComposerSource(undefined);
     setShowComposer(true);
+  };
+
+  /** Closes the details sheet, then runs the follow-up once it has slid away. */
+  const closeDetailsThen = (next: () => void) => {
+    afterDetailsClosed.current = next;
+    setDetailsVisible(false);
+  };
+  const openDetails = (bookingId: string) => {
+    afterDetailsClosed.current = null;
+    setDetailsBookingId(bookingId);
+    setDetailsVisible(true);
   };
 
   // A customer profile can ask this tab to open the composer for a specific customer.
@@ -222,22 +365,49 @@ export default function BookingsScreen() {
 
   const statusBooking = bookings.find((item) => item.id === statusBookingId) ?? null;
 
-  const handleStatusSelect = (status: BookingStatus) => {
-    if (!statusBookingId) return;
-
-    const result = updateBookingStatus(statusBookingId, status);
+  /**
+   * Changes only the booking's own job status — no invoice, acceptance or payment is touched — and
+   * counts it as done once the workspace save has landed. If the save fails, the previous status is
+   * put back so the card matches what is stored, and the existing error is shown.
+   */
+  const handleStatusSelect = async (status: BookingStatus) => {
+    const bookingId = statusBookingId;
     setStatusBookingId(null);
+    if (!bookingId || savingStatusRef.current) return;
+
+    const previous = bookings.find((item) => item.id === bookingId)?.status;
+    const result = updateBookingStatus(bookingId, status);
 
     if (!result.ok) {
       showSnackbar({ message: result.error ?? t('bookings.error.status'), tone: 'danger' });
       return;
     }
+    if (previous === status) return;
 
-    captureEvent('booking_status_updated', { status });
+    savingStatusRef.current = true;
+    setSavingStatusBookingId(bookingId);
+    try {
+      await confirmWorkspaceSave();
+      captureEvent('booking_status_updated', { status });
+    } catch {
+      if (previous) updateBookingStatus(bookingId, previous);
+      showSnackbar({ message: t('bookings.error.status'), tone: 'danger' });
+    } finally {
+      savingStatusRef.current = false;
+      setSavingStatusBookingId(null);
+    }
   };
 
-  const flatListData: (Booking | { readonly id: 'empty-state'; readonly __empty: true })[] = selectedDayBookings.length > 0
-    ? selectedDayBookings
+  const deliveryBookings = useMemo(
+    () => (listMode === 'deliveries' ? filterDeliveries(bookings, deliveryFilter, todayKey) : []),
+    [bookings, deliveryFilter, listMode, todayKey],
+  );
+  type PendingFormItem = { readonly id: string; readonly __form: BookingOffer };
+  const visibleBookings: (Booking | PendingFormItem)[] = listMode === 'deliveries'
+    ? deliveryBookings
+    : [...selectedDayBookings, ...selectedDayForms.map((offer) => ({ id: `form-${offer.id}`, __form: offer }))];
+  const flatListData: (Booking | PendingFormItem | { readonly id: 'empty-state'; readonly __empty: true })[] = visibleBookings.length > 0
+    ? visibleBookings
     : [{ id: 'empty-state', __empty: true } as const];
   const softSurface = isDarkMode ? '#172033' : '#F7F9FD';
   const softInset = isDarkMode ? '#111A2B' : '#EEF2F8';
@@ -262,6 +432,15 @@ export default function BookingsScreen() {
                   <Text style={[styles.title, { color: palette.text }]}>{t('bookings.title')}</Text>
                 </View>
               </View>
+              <View style={styles.headerActions}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t('bk.offers')}
+                hitSlop={6}
+                onPress={() => router.push('/offers')}
+                style={({ pressed }) => [styles.arrowButton, styles.offersButton, { backgroundColor: softInset, borderColor: softBorder }, pressed && { opacity: 0.7 }]}>
+                <Ionicons name="pricetags-outline" size={18} color={palette.text} />
+              </Pressable>
               <Reanimated.View style={addButtonPress.scaleStyle}>
                 <Pressable
                   style={[styles.primaryButton, { backgroundColor: '#142A3A', shadowColor: palette.accent }]}
@@ -272,6 +451,7 @@ export default function BookingsScreen() {
                   <Text style={styles.primaryButtonText}>{t('bookings.add')}</Text>
                 </Pressable>
               </Reanimated.View>
+              </View>
             </View>
 
             <View style={[styles.calendarCard, calendarStyle, { backgroundColor: softSurface, borderColor: softBorder, shadowColor: softShadow }]}>
@@ -307,7 +487,8 @@ export default function BookingsScreen() {
                 {calendarCells.map((cell) => {
                   const isSelected = cell.dateKey === selectedDate;
                   const isToday = cell.dateKey === todayKey;
-                  const hasEvent = bookings.some((booking) => booking.date === cell.dateKey);
+                  const hasEvent = bookings.some((booking) => booking.date === cell.dateKey)
+                    || pendingForms.some((offer) => offer.details.date === cell.dateKey);
 
                   return (
                     <CalendarDayCell
@@ -322,7 +503,8 @@ export default function BookingsScreen() {
                       fillColor="#142A3A"
                       rippleColor="#142A3A"
                       isSelected={isSelected}
-                      onPress={() => setSelectedDate(cell.dateKey)}>
+                      // A day from the neighbouring month brings that month on screen with it.
+                      onPress={() => (cell.isCurrentMonth ? setSelectedDate(cell.dateKey) : showDay(cell.dateKey))}>
                       <Text style={[styles.dayNumber, { color: isSelected ? '#FFFFFF' : palette.text }]}>
                         {cell.date.getDate()}
                       </Text>
@@ -334,16 +516,40 @@ export default function BookingsScreen() {
             </View>
 
             <View style={styles.eventsHeader}>
+              <FilterTabs
+                value={listMode}
+                onChange={setListMode}
+                options={[
+                  { key: 'schedule', label: t('bk.view.schedule') },
+                  { key: 'deliveries', label: t('bk.view.deliveries') },
+                ]}
+                color={palette.accent}
+                isDarkMode={isDarkMode}
+              />
+              {listMode === 'deliveries' ? (
+                <FilterTabs
+                  value={deliveryFilter}
+                  onChange={setDeliveryFilter}
+                  options={[
+                    { key: 'open', label: t('bk.deliveries.open') },
+                    { key: 'overdue', label: t('bk.deliveries.overdue') },
+                    { key: 'delivered', label: t('bk.deliveries.delivered') },
+                  ]}
+                  color={palette.accent}
+                  isDarkMode={isDarkMode}
+                />
+              ) : (
               <SectionHeader
                 icon="calendar-outline"
                 eyebrow={t('bookings.scheduleEyebrow')}
                 title={formatDisplayDate(selectedDate)}
                 rightElement={
                   <View style={[styles.eventCountPill, { backgroundColor: softInset }]}>
-                    <Text style={[styles.eventCountText, { color: palette.accent }]}>{selectedDayBookings.length}</Text>
+                    <Text style={[styles.eventCountText, { color: palette.accent }]}>{selectedDayBookings.length + selectedDayForms.length}</Text>
                   </View>
                 }
               />
+              )}
             </View>
           </>
         )}
@@ -354,15 +560,114 @@ export default function BookingsScreen() {
                 <View style={[styles.emptyIcon, { backgroundColor: softInset }]}>
                   <Ionicons name="calendar-outline" size={24} color={palette.accent} />
                 </View>
-                <Text style={[styles.emptyText, { color: palette.muter }]}>{t('bookings.emptyDate')}</Text>
+                <Text style={[styles.emptyText, { color: palette.muter }]}>{listMode === 'deliveries' ? t('bk.deliveries.empty') : t('bookings.emptyDate')}</Text>
               </View>
             );
           }
 
+          if ('__form' in item) {
+            // A booking form not yet a booking: the same card, built from the form's saved details.
+            const form = item.__form;
+            const formCustomer = form.customerId ? customerMap.get(form.customerId) : undefined;
+            const received = form.status === 'submitted';
+            const changeRequested = form.status === 'change_requested';
+            const formStatusLabel = changeRequested ? t('of.status.change_requested') : t(received ? 'bk.form.received' : 'bk.form.awaiting');
+            // The same linked id the calendar uses to hide a form once its booking exists.
+            const formBookingId = form.bookingId ?? offerRecordIds(form.id).bookingId;
+            // A form still waiting for the client that the Free allowance would refuse right now —
+            // the booking, invoice and (for a client not yet on file) customer limits the server
+            // applies at submission. checkPlanLimit allows everything on Pro.
+            const limitBlocked = (form.status === 'sent' || changeRequested) && (
+              !checkPlanLimit('bookings').allowed
+              || !checkPlanLimit('invoices').allowed
+              || (!form.customerId && !checkPlanLimit('customers').allowed)
+            );
+            return (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`${form.details.title}, ${formStatusLabel}`}
+                onPress={() => {
+                  setFormMenuView('actions');
+                  setFormMenuId(form.id);
+                }}
+                style={({ pressed }) => [styles.card, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, shadowColor: palette.background }, pressed && { opacity: 0.92 }]}>
+                <View style={[styles.cardAccent, { backgroundColor: palette.accent }]} />
+                <View style={styles.cardHeader}>
+                  <View style={styles.cardHeaderCopy}>
+                    <Text style={[styles.cardTitle, { color: palette.text }]} numberOfLines={1}>{form.details.title}</Text>
+                    <Text style={[styles.customer, { color: palette.muter }]} numberOfLines={1}>
+                      {formCustomer?.name ?? form.response?.name ?? t('bk.form.customerPending')}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.scheduleMetaRow}>
+                  <Ionicons name="calendar-outline" size={16} color={palette.muter} />
+                  <Text style={[styles.scheduleMetaValue, { color: palette.text }]}>{formatDisplayDate(form.details.date)}</Text>
+                </View>
+                <View style={styles.scheduleMetaRow}>
+                  <Ionicons name="time-outline" size={16} color={palette.muter} />
+                  <Text style={[styles.scheduleMetaValue, { color: palette.text }]}>
+                    {form.details.startTime || t('bookings.notSpecified')} – {form.details.endTime || t('bookings.notSpecified')}
+                  </Text>
+                </View>
+                {form.details.location?.trim() ? (
+                  <View style={styles.scheduleMetaRow}>
+                    <Ionicons name="location-outline" size={16} color={palette.muter} />
+                    <Text style={[styles.scheduleMetaValue, { color: palette.text }]} numberOfLines={2}>{form.details.location}</Text>
+                  </View>
+                ) : null}
+                <View style={styles.scheduleMetaRow}>
+                  <Ionicons name="cube-outline" size={16} color={palette.muter} />
+                  <Text style={[styles.scheduleMetaValue, { color: palette.text }]} numberOfLines={1}>{form.details.packageName}</Text>
+                </View>
+
+                {/* Payment reads the invoice the form's own linked booking id would carry. Normally
+                    there is none until conversion, so it says "No invoice yet"; nothing is created. */}
+                <BookingCardStatusFooter
+                  variant="form"
+                  bookingTotal={getOfferTotals(form.details).totalCents / 100}
+                  formStatus={{ label: formStatusLabel, tone: received || changeRequested ? 'attention' : 'awaiting' }}
+                  payment={getBookingInvoicePayment(formBookingId, invoices, payments)}
+                  hasLinkedInvoice={hasLinkedInvoice(formBookingId, invoices)}
+                  formatAmount={(amount) => currencyFormatter.format(amount)}
+                  colors={{ text: palette.text, muted: palette.muter, divider: palette.border }}
+                />
+                {limitBlocked ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={t('bk.form.limitBlocked')}
+                    onPress={() => router.push('/paywall')}
+                    style={({ pressed }) => [styles.formRequestButton, styles.formLimitNotice, { borderColor: palette.accent }, pressed && { opacity: 0.8 }]}>
+                    <Text style={[styles.formLimitText, { color: palette.accent }]}>{t('bk.form.limitBlocked')}</Text>
+                  </Pressable>
+                ) : null}
+                {changeRequested ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`${t('of.request.view')}, ${form.details.title}`}
+                    onPress={() => {
+                      setFormMenuView('request');
+                      setFormMenuId(form.id);
+                    }}
+                    style={({ pressed }) => [styles.formRequestButton, { borderColor: palette.accent }, pressed && { opacity: 0.8 }]}>
+                    <Ionicons name="chatbubble-ellipses-outline" size={17} color={palette.accent} />
+                    <Text style={[styles.formRequestText, { color: palette.accent }]}>{t('of.request.view')}</Text>
+                  </Pressable>
+                ) : null}
+              </Pressable>
+            );
+          }
+
           const customer = customerMap.get(item.customerId);
+          const deliveryState = getDeliveryState(item, todayKey);
 
           return (
-            <View style={[styles.card, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, shadowColor: palette.background }]}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`${item.title}, ${t('bk.viewDetails')}`}
+              onPress={() => openDetails(item.id)}
+              style={({ pressed }) => [styles.card, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, shadowColor: palette.background }, pressed && { opacity: 0.92 }]}>
               <View style={[styles.cardAccent, { backgroundColor: palette.accent }]} />
               <View style={styles.cardHeader}>
                 <View style={styles.cardHeaderCopy}>
@@ -391,23 +696,34 @@ export default function BookingsScreen() {
                 <Text style={[styles.scheduleMetaValue, { color: palette.text }]} numberOfLines={1}>{item.packageName}</Text>
               </View>
 
+              {item.fulfilment && deliveryState !== 'none' ? (
+                <View style={styles.scheduleMetaRow}>
+                  <Ionicons name="images-outline" size={16} color={deliveryState === 'overdue' ? palette.danger : palette.muter} />
+                  <Text style={[styles.scheduleMetaValue, { color: deliveryState === 'overdue' ? palette.danger : palette.text }]} numberOfLines={1}>
+                    {t(`bd.status.${item.fulfilment.status}`)}
+                    {item.fulfilment.promisedDate && item.fulfilment.status !== 'delivered' ? ` · ${t('bd.delivery.promised')} ${formatDisplayDate(item.fulfilment.promisedDate)}` : ''}
+                    {deliveryState === 'overdue' ? ` · ${t('bd.delivery.overdue')}` : ''}
+                  </Text>
+                </View>
+              ) : null}
+
               <View style={[styles.scheduleNotes, { backgroundColor: softSurface }]}>
                 <Ionicons name="document-text-outline" size={15} color={palette.muter} />
-                <Text style={[styles.notes, { color: palette.muter }]} numberOfLines={2}>{item.notes}</Text>
+                <Text style={[styles.notes, { color: palette.muter }]} numberOfLines={2}>{formatBookingNotes(item.notes, (date) => t('bookings.note.submitted', { date }))}</Text>
               </View>
 
-              <View style={styles.scheduleFooter}>
-                <View style={styles.schedulePrice}>
-                  <Ionicons name="cash-outline" size={17} color={palette.muter} />
-                  <Text style={[styles.amount, { color: palette.text }]}>{currencyFormatter.format(item.price)}</Text>
-                </View>
-                <JobStatusPill
-                  status={item.status}
-                  onPress={() => setStatusBookingId(item.id)}
-                  disabled={statusBookingId !== null}
-                />
-              </View>
-            </View>
+              <BookingCardStatusFooter
+                variant="booking"
+                payment={getBookingInvoicePayment(item.id, invoices, payments)}
+                hasLinkedInvoice={hasLinkedInvoice(item.id, invoices)}
+                jobStatus={item.status}
+                formatAmount={(amount) => currencyFormatter.format(amount)}
+                onChangeJobStatus={() => setStatusBookingId(item.id)}
+                isSavingJobStatus={savingStatusBookingId === item.id}
+                jobStatusDisabled={statusBookingId !== null || savingStatusBookingId !== null}
+                colors={{ text: palette.text, muted: palette.muter, divider: palette.border }}
+              />
+            </Pressable>
           );
         }}
         contentContainerStyle={[styles.listContent, readingStyle]}
@@ -415,11 +731,60 @@ export default function BookingsScreen() {
 
       {showComposer ? (
         <AddBookingModal
-          selectedDate={selectedDate}
+          selectedDate={composerMode === 'duplicate' ? selectedDate : composerSource?.date ?? selectedDate}
           initialCustomerId={composerCustomerId}
+          mode={composerMode}
+          sourceBooking={composerSource}
           onClose={() => setShowComposer(false)}
         />
       ) : null}
+
+      <BookingFormActionSheet
+        offer={formMenuOffer}
+        view={formMenuView}
+        onClose={() => {
+          setFormMenuId(null);
+          setFormMenuView('actions');
+        }}
+      />
+
+      <BookingDetailsSheet
+        bookingId={detailsBookingId}
+        visible={detailsVisible}
+        onClose={() => closeDetailsThen(() => {})}
+        onClosed={() => {
+          const next = afterDetailsClosed.current;
+          afterDetailsClosed.current = null;
+          setDetailsBookingId(null);
+          next?.();
+        }}
+        onChangeStatus={(booking) => closeDetailsThen(() => {
+          if (!savingStatusRef.current) setStatusBookingId(booking.id);
+        })}
+        onStatusSaved={(saved) => {
+          if (saved.status === 'delivered') {
+            recordDeliveredJob(saved.bookingId);
+            reviewAfterStatusSaved.current = true;
+          }
+          closeDetailsThen(() => setShowStatusSaved(true));
+        }}
+      />
+
+      {/* The same presentation the Invoices screen uses for a confirmation outside any form. */}
+      <Modal visible={showStatusSaved} transparent animationType="fade" onRequestClose={() => {}}>
+        <View style={styles.successBackdrop}>
+          <SuccessFeedback
+            visible={showStatusSaved}
+            title={t('bd.delivery.saved')}
+            onComplete={() => {
+              setShowStatusSaved(false);
+              if (!reviewAfterStatusSaved.current) return;
+              reviewAfterStatusSaved.current = false;
+              requestReviewWhenSettled();
+            }}
+          />
+        </View>
+      </Modal>
 
       <JobStatusSheet
         visible={statusBooking !== null}
@@ -437,6 +802,41 @@ const styles = StyleSheet.create({
     flex: 1,
     overflow: 'hidden',
   },
+  successBackdrop: {
+    backgroundColor: 'rgba(15, 23, 42, 0.58)',
+    flex: 1,
+  },
+  formRequestButton: {
+    marginTop: 12,
+    minHeight: 44,
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  formRequestText: {
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  // The request button's shape, with room for a sentence that wraps.
+  // The request button's outline, kept compact and secondary to the booking details above it. The
+  // 44pt minimum stays, so it remains a comfortable tap target.
+  formLimitNotice: {
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    marginTop: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+  },
+  formLimitText: {
+    flex: 1,
+    fontSize: 12.5,
+    fontWeight: '600',
+    lineHeight: 17,
+    textAlign: 'left',
+  },
   listContent: {
     paddingHorizontal: 20,
     paddingTop: 14,
@@ -447,6 +847,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 24,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  offersButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 15,
   },
   headerTitleGroup: {
     flexDirection: 'row',
@@ -666,25 +1076,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 10,
     marginTop: 2,
-  },
-  scheduleFooter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 12,
-  },
-  schedulePrice: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexShrink: 1,
-    marginRight: 10,
-  },
-  amount: {
-    // Shrinks with the price row so a long amount and the status pill can share a narrow card.
-    flexShrink: 1,
-    fontSize: 14,
-    fontWeight: '800',
-    marginLeft: 8,
   },
   notes: {
     flex: 1,

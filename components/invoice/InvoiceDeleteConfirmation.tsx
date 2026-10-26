@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BottomSheetModal } from '@/components/BottomSheetModal';
@@ -19,6 +19,13 @@ type Props = {
   amount: string;
   /** Shown on a void so the user can see the money that is being preserved. */
   amountPaidNote?: string;
+  /** What removing this invoice does to its linked booking, when it has one. */
+  linkedBookingNote?: string;
+  /**
+   * Deleting an accepted invoice: a reason must be chosen (and written out for "Other") before the
+   * confirm button acts, and the sheet says what happens to the acceptance and payments.
+   */
+  reasonRequired?: boolean;
   isBusy: boolean;
   error?: string | null;
   onConfirm: (reason?: string) => void;
@@ -39,6 +46,8 @@ export function InvoiceDeleteConfirmation({
   clientName,
   amount,
   amountPaidNote,
+  linkedBookingNote,
+  reasonRequired = false,
   isBusy,
   error,
   onConfirm,
@@ -50,11 +59,36 @@ export function InvoiceDeleteConfirmation({
   const soft = getSoftTokens(isDarkMode);
   const insets = useSafeAreaInsets();
   const [reason, setReason] = useState<string | null>(null);
+  const [otherText, setOtherText] = useState('');
+  const [reasonError, setReasonError] = useState<string | null>(null);
 
   // Cleared on each opening rather than by remounting the sheet, so the slide-out still plays.
   useEffect(() => {
-    if (visible) setReason(null);
+    if (visible) {
+      setReason(null);
+      setOtherText('');
+      setReasonError(null);
+    }
   }, [visible]);
+
+  const confirm = () => {
+    if (!reasonRequired) {
+      onConfirm(reason ?? undefined);
+      return;
+    }
+    if (!reason) {
+      setReasonError(t('invoice.delete.reasonRequired'));
+      return;
+    }
+    // "Other" is only a reason once it says what the reason is.
+    const finalReason = reason === 'Other' ? otherText.trim() : reason;
+    if (!finalReason) {
+      setReasonError(t('invoice.delete.otherRequired'));
+      return;
+    }
+    setReasonError(null);
+    onConfirm(finalReason);
+  };
 
   if (!action) return null;
 
@@ -80,8 +114,20 @@ export function InvoiceDeleteConfirmation({
 
           <Text style={[invoiceSheetStyles.description, { color: palette.muter }]}>{action.description}</Text>
 
+          {reasonRequired ? (
+            <SheetCallout icon="shield-checkmark-outline" tone="warning">
+              {t('invoice.delete.accepted')}
+            </SheetCallout>
+          ) : null}
+
+          {linkedBookingNote ? (
+            <SheetCallout icon="calendar-outline" tone="warning">
+              {linkedBookingNote}
+            </SheetCallout>
+          ) : null}
+
           <Text style={[invoiceSheetStyles.fieldLabel, { color: palette.muter }]}>
-            {action.reasonLabel} <Text style={{ color: palette.muter }}>(optional)</Text>
+            {action.reasonLabel} <Text style={{ color: palette.muter }}>{reasonRequired ? t('invoice.delete.required') : '(optional)'}</Text>
           </Text>
           <View style={styles.reasons}>
             {INVOICE_DELETION_REASONS.map((option) => {
@@ -94,7 +140,10 @@ export function InvoiceDeleteConfirmation({
                   accessibilityState={{ selected }}
                   disabled={isBusy}
                   // Tapping the chosen reason again clears it, so the choice is never a trap.
-                  onPress={() => setReason(selected ? null : option)}
+                  onPress={() => {
+                    setReason(selected ? null : option);
+                    setReasonError(null);
+                  }}
                   style={({ pressed }) => [
                     styles.reasonChip,
                     {
@@ -118,6 +167,31 @@ export function InvoiceDeleteConfirmation({
               );
             })}
           </View>
+
+          {reasonRequired && reason === 'Other' ? (
+            <TextInput
+              value={otherText}
+              onChangeText={(value) => {
+                setOtherText(value);
+                setReasonError(null);
+              }}
+              editable={!isBusy}
+              placeholder={t('invoice.delete.otherPlaceholder')}
+              placeholderTextColor={palette.muter}
+              accessibilityLabel={t('invoice.delete.otherPlaceholder')}
+              maxLength={200}
+              style={[
+                styles.otherInput,
+                { backgroundColor: soft.inset, borderColor: reasonError ? palette.danger : soft.border, color: palette.text },
+              ]}
+            />
+          ) : null}
+
+          {reasonError ? (
+            <Text accessibilityRole="alert" style={[styles.reasonError, { color: palette.danger }]}>
+              {reasonError}
+            </Text>
+          ) : null}
 
           {isVoid ? (
             <SheetCallout icon="shield-checkmark-outline" tone="warning">
@@ -152,7 +226,7 @@ export function InvoiceDeleteConfirmation({
             accessibilityLabel={`${action.confirmLabel} ${invoiceNumber}`}
             accessibilityState={{ disabled: isBusy, busy: isBusy }}
             disabled={isBusy}
-            onPress={() => onConfirm(reason ?? undefined)}
+            onPress={confirm}
             style={({ pressed }) => [
               invoiceSheetStyles.destructiveButton,
               { backgroundColor: palette.danger, shadowColor: palette.danger },
@@ -202,6 +276,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     // Always occupies its slot so the label sits in the same place selected or not.
     width: 15,
+  },
+  otherInput: {
+    borderRadius: 13,
+    borderWidth: 1,
+    fontSize: 14,
+    marginTop: 10,
+    minHeight: 46,
+    paddingHorizontal: 14,
+  },
+  reasonError: {
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: 8,
   },
   reasonText: {
     flex: 1,

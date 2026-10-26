@@ -2,7 +2,7 @@
   "expo": {
     "name": "BookFlow",
     "slug": "Bookflow",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "splash": {
@@ -46,6 +46,8 @@
     },
     "plugins": [
       "./plugins/withPersonalTeamSigning",
+      "./plugins/withPodDeploymentTargetFloor",
+      "./plugins/withSceneLifecycle",
       [
         "expo-router",
         {

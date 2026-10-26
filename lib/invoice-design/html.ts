@@ -136,6 +136,7 @@ function totalsBlock(data: InvoiceRenderData) {
   return `<div class="totals">
     <div class="total-row"><span>${L.invoiceTotal}</span><strong>${escapeHtml(totals.total)}</strong></div>
     ${totals.hasDeposit ? `<div class="total-row"><span>${L.depositPaid}</span><strong>${escapeHtml(totals.depositPaid)}</strong></div>` : ''}
+    ${totals.hasDepositDue && has(totals.depositDue) ? `<div class="total-row"><span>${escapeHtml(L.depositDue || 'Deposit due')}</span><strong>${escapeHtml(totals.depositDue)}</strong></div>` : ''}
     <div class="total-row"><span>${L.amountPaid}</span><strong>${escapeHtml(totals.amountPaid)}</strong></div>
     <div class="total-due"><span>${L.balanceDue}</span><strong>${escapeHtml(totals.balance)}</strong></div>
   </div>`;

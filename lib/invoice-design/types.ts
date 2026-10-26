@@ -111,6 +111,12 @@ export type InvoiceLineItem = {
   description: string;
   detail?: string;
   amountLabel: string;
+  /**
+   * The line's own amount in cents. Present on invoices with additional charges, so the public page
+   * can print each line's figure instead of the invoice total. Absent on single-line invoices.
+   */
+  amountCents?: number;
+  kind?: 'package' | 'charge';
 };
 
 /**
@@ -164,6 +170,10 @@ export type InvoiceRenderData = {
     total: string;
     hasDeposit: boolean;
     isSettled: boolean;
+    /** Deposit still owed against the agreed deposit, when the invoice carries one. */
+    depositDue?: string;
+    depositDueCents?: number;
+    hasDepositDue?: boolean;
   };
   payment: InvoiceBankDetails;
   paymentInstructions: string;

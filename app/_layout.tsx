@@ -21,6 +21,7 @@ import { AuthProvider, useAuth } from '@/context/auth-context';
 import { SubscriptionProvider } from '@/context/subscription-context';
 import { SnackbarProvider } from '@/context/snackbar-context';
 import { getThemePalette, ThemeProvider as AppThemeProvider, useTheme } from '@/context/theme-context';
+import { startReviewTracking } from '@/lib/app-store-review';
 import { posthog } from '@/lib/posthog';
 import { useResponsive } from '@/lib/responsive';
 import * as Sentry from '@sentry/react-native';
@@ -111,6 +112,7 @@ function AppShell() {
           <Stack.Screen name="bookflow-insights" />
           <Stack.Screen name="invoice/[invoiceId]" />
           <Stack.Screen name="customer/[customerId]" />
+          <Stack.Screen name="offers" />
           <Stack.Screen name="settings" />
           <Stack.Screen name="paywall" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
         </Stack.Protected>
@@ -118,6 +120,7 @@ function AppShell() {
           <Stack.Screen name="(auth)" />
         </Stack.Protected>
         <Stack.Screen name="invoice-public" />
+        <Stack.Screen name="booking-public" />
         <Stack.Screen name="i" />
       </Stack>
       <StatusBar style={isDarkMode ? 'light' : 'dark'} />
@@ -223,11 +226,16 @@ export default Sentry.wrap(function RootLayout() {
       current.target.x === target.x && current.target.y === target.y && current.target.size === target.size
       ? current : { pathname: logoPathname, target });
   }, []);
-  const isPublicInvoice = Platform.OS === 'web' && (pathname === '/i' || pathname === '/invoice-public');
+  // Invoice links and booking links (forms, quotations, customer pages) are both public capability pages.
+  const isPublicInvoice = Platform.OS === 'web' && (pathname === '/i' || pathname === '/invoice-public' || pathname === '/b' || pathname === '/booking-public');
   const [showSplash, setShowSplash] = useState(true);
   useEffect(() => {
     if (isPublicInvoice) void SplashScreen.hideAsync().catch(() => {});
   }, [isPublicInvoice]);
+  // Starts the App Store review usage clock on the first launch (iOS only; no-op elsewhere).
+  useEffect(() => {
+    startReviewTracking();
+  }, []);
 
   const handleNativeReady = useCallback(async () => {
     if (fontsLoaded || fontError) await SplashScreen.hideAsync().catch(() => {});

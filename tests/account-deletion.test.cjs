@@ -7,7 +7,14 @@ const root = path.join(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 
 const edgeFunction = read('supabase/functions/delete-account/index.ts');
-const migration = read('supabase/migrations/20260916000000_account_deletion.sql');
+// The deletion function is redefined whenever a new user-owned table is added, so the latest
+// migration that defines it is the one in force.
+const migration = fs
+  .readdirSync(path.join(root, 'supabase', 'migrations'))
+  .sort()
+  .map((file) => read(`supabase/migrations/${file}`))
+  .filter((sql) => sql.includes('create or replace function public.delete_bookflow_account_data'))
+  .pop();
 const clientRequest = read('lib/account-deletion.ts');
 const deleteFlow = read('components/settings/AccountDialogs.tsx');
 const config = read('supabase/config.toml');
@@ -17,7 +24,7 @@ test('the deleted user comes only from the verified token, never the request bod
   assert.match(edgeFunction, /jwtVerify\(token/);
   assert.match(edgeFunction, /algorithms: \['RS256'\]/);
   // Impersonation sessions are refused.
-  assert.match(edgeFunction, /if \(payload\.act\) return null;/);
+  assert.match(edgeFunction, /if \(payload\.act\) return \{ ok: false, reason: 'impersonation'/);
   assert.match(clientRequest, /body: '\{\}'/);
 });
 
@@ -32,27 +39,37 @@ test('the database deletion function is callable by the service role only', () =
 });
 
 test('every user-owned BookFlow table is covered by the deletion', () => {
-  const tables = new Set();
+  // Covered means deleted explicitly by the function, or removed by an ON DELETE CASCADE from the
+  // workspace row the function deletes.
+  const tables = new Map();
   for (const file of fs.readdirSync(path.join(root, 'supabase', 'migrations'))) {
     const sql = read(`supabase/migrations/${file}`);
     for (const match of sql.matchAll(/create table if not exists public\.(\w+)/g)) {
       const body = sql.slice(match.index, sql.indexOf(');', match.index));
-      if (/\buser_id\b/.test(body)) tables.add(match[1]);
+      if (/\buser_id\b/.test(body)) {
+        tables.set(match[1], /\buser_id\b[^,]*references public\.bookflow_workspaces\(user_id\)\s+on delete cascade/.test(body));
+      }
     }
   }
   assert.ok(tables.size >= 4);
-  for (const table of tables) {
-    assert.match(migration, new RegExp(`delete from public\\.${table} where user_id = p_user_id;`), `${table} is not deleted`);
+  const deletesWorkspace = /delete from public\.bookflow_workspaces where user_id = p_user_id;/.test(migration);
+  assert.ok(deletesWorkspace, 'the workspace row is not deleted');
+  for (const [table, cascades] of tables) {
+    const explicit = new RegExp(`delete from public\\.${table} where user_id = p_user_id;`).test(migration);
+    assert.ok(explicit || cascades, `${table} is neither deleted nor cascaded from the workspace`);
   }
 });
 
-test('the Clerk user is deleted only after storage and database cleanup', () => {
-  const order = ['await deleteStorage(', 'await deleteDatabaseRows(', 'await deleteRevenueCatCustomer(', 'await deleteClerkUser('];
-  const positions = order.map((call) => edgeFunction.indexOf(call));
+test('the Clerk user is deleted only after RevenueCat, storage and database cleanup', () => {
+  // RevenueCat runs first, so a refused key stops the request before any BookFlow data is removed.
+  const order = ['await deleteRevenueCatCustomer(', 'await deleteStorage(', 'await deleteDatabaseRows(', 'await deleteClerkUser('];
+  // The order that matters is the request handler's; helpers defined above it are not steps.
+  const handler = edgeFunction.slice(edgeFunction.indexOf('Deno.serve('));
+  const positions = order.map((call) => handler.indexOf(call));
   positions.forEach((position, index) => assert.ok(position > 0, `${order[index]} missing`));
   assert.deepEqual([...positions].sort((a, b) => a - b), positions);
   // Already-deleted resources count as success, so a retry can finish the job.
-  assert.match(edgeFunction, /response\.status !== 404\) throw new DeletionError\(\{ step: 'clerk'/);
+  assert.match(edgeFunction, /response\.status !== 404\) throw new DeletionError\(\{ step: `clerk_/);
 });
 
 test('no privileged secrets or raw errors reach the client', () => {
