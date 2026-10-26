@@ -8,8 +8,8 @@ const { loadTs, plain } = require('./helpers/load-ts.cjs');
 
 /**
  * The owner's Pro entitlement is verified with RevenueCat server-side on every booking-form
- * submission (booking-public) and on request after a purchase or restore (entitlement-status).
- * RevenueCat is a test double here; the Edge Functions and the shared check run as written.
+ * submission (booking-public). RevenueCat is a test double here; the Edge Function and the shared
+ * check run as written. (The app's own Pro access is the SDK entitlement: tests/purchase-flow.)
  */
 const root = path.resolve(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
@@ -198,142 +198,6 @@ test('rollout: before the migration, booking-public answers through the previous
   assert.equal(limited.rpc.length, 1);
 });
 
-// --- entitlement-status (owner's app, after a purchase or restore) -------------------------------
-
-/** A token shaped like a Clerk session JWT. Its signature is checked by Supabase, not here. */
-const jwt = (claims) => ['{"alg":"RS256"}', JSON.stringify(claims), 'sig'].map((part, i) => (i < 2 ? Buffer.from(part).toString('base64url') : part)).join('.');
-
-function entitlementStatus({ workspace, revenueCat = entitlements({ bookflow_pro: { expires_date: '2999-01-01T00:00:00Z' } }), env = {} } = {}) {
-  const clientOptions = [];
-  const queries = [];
-  const revenueCatCalls = [];
-  const logs = [];
-  const entitlement = loadEntitlement(async (url, init) => { revenueCatCalls.push(url); return revenueCat(url, init); });
-  const values = { SUPABASE_URL: 'https://x', SUPABASE_ANON_KEY: 'anon', REVENUECAT_SECRET_API_KEY: 'sk_test', REVENUECAT_PRO_ENTITLEMENT_ID: '', ...env };
-  let handler;
-  vm.runInNewContext(compile('supabase/functions/entitlement-status/index.ts'), {
-    exports: {}, Request, Response, Object, JSON, Math, atob,
-    console: { warn: (...args) => logs.push(args) },
-    Deno: { env: { get: (name) => values[name] }, serve: (fn) => { handler = fn; } },
-    require: (name) => name === '../_shared/pro-entitlement.ts' ? entitlement : {
-      createClient: (url, key, options) => {
-        clientOptions.push({ key, options });
-        return {
-          from: (table) => ({
-            select: (columns) => ({
-              eq: (column, value) => ({
-                maybeSingle: async () => {
-                  queries.push({ table, columns, column, value });
-                  // Default: PostgREST accepted the token and RLS returned the caller's own row.
-                  return workspace ?? { data: { user_id: value }, error: null };
-                },
-              }),
-            }),
-          }),
-        };
-      },
-    },
-  });
-  const call = (headers = { authorization: `Bearer ${jwt({ sub: 'owner-a' })}` }, method = 'POST', body = '{"userId":"owner-b","user_id":"owner-b"}') =>
-    handler(new Request('https://example.com/entitlement-status', { method, headers, body: method === 'POST' ? body : undefined }));
-  return { call, clientOptions, queries, revenueCatCalls, logs };
-}
-
-test('entitlement-status validates the caller’s session itself and answers only for that caller', async () => {
-  const s = entitlementStatus();
-  const response = await s.call();
-  assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { plan: 'pro', reason: 'entitlement_active' });
-  // The caller's own token goes to Supabase with the anon key (never the service role), and the
-  // row asked for is the token's subject — the body naming owner-b is never read.
-  assert.equal(s.clientOptions[0].key, 'anon');
-  assert.match(s.clientOptions[0].options.global.headers.Authorization, /^Bearer ey/);
-  assert.deepEqual(plain(s.queries), [{ table: 'bookflow_workspaces', columns: 'user_id', column: 'user_id', value: 'owner-a' }]);
-  assert.deepEqual(plain(s.revenueCatCalls), ['https://api.revenuecat.com/v1/subscribers/owner-a']);
-});
-
-test('entitlement-status refuses anything but a verified session for an existing workspace', async () => {
-  const status = async (options, headers) => {
-    const response = await entitlementStatus(options).call(headers);
-    return [response.status, (await response.json()).reason];
-  };
-  assert.deepEqual(await status({}, {}), [401, 'missing_token']);
-  assert.deepEqual(await status({}, { authorization: 'Bearer not-a-jwt' }), [401, 'malformed_token']);
-  // A legacy anon key is a JWT without a user: refused before any lookup.
-  assert.deepEqual(await status({}, { authorization: `Bearer ${jwt({ role: 'anon' })}` }), [401, 'malformed_token']);
-  // A forged or expired token naming someone else: Supabase rejects its signature.
-  assert.deepEqual(await status({ workspace: { data: null, error: { code: 'PGRST301', message: 'JWSInvalidSignature' } } }, { authorization: `Bearer ${jwt({ sub: 'owner-b' })}` }), [401, 'invalid_session']);
-  assert.deepEqual(await status({ workspace: { data: null, error: { code: 'PGRST303', message: 'JWT expired' } } }), [401, 'invalid_session']);
-  assert.deepEqual(await status({ workspace: { data: null, error: { code: '42501', message: 'permission denied' } } }), [401, 'invalid_session']);
-  // RLS returned nothing (not this user, or no workspace) — or, defensively, someone else's row.
-  assert.deepEqual(await status({ workspace: { data: null, error: null } }), [401, 'no_verified_workspace']);
-  assert.deepEqual(await status({ workspace: { data: { user_id: 'owner-b' }, error: null } }), [401, 'no_verified_workspace']);
-  // Server-side faults are not the caller's: 503, with the reason.
-  assert.deepEqual(await status({ workspace: { data: null, error: { code: '57014', message: 'timeout' } } }), [503, 'workspace_lookup_failed']);
-  assert.deepEqual(await status({ revenueCat: json({}, 401) }), [503, 'key_rejected']);
-  assert.deepEqual(await status({ revenueCat: json({}, 500) }), [503, 'http_500']);
-  const free = await entitlementStatus({ revenueCat: entitlements({}) }).call();
-  assert.deepEqual(await free.json(), { plan: 'free', reason: 'entitlement_missing' });
-  assert.equal((await entitlementStatus().call({}, 'GET')).status, 405);
-  assert.match(read('supabase/config.toml'), /\[functions\.entitlement-status\]\s*\n(#.*\n)*verify_jwt = false/);
-});
-
-// --- The app: confirm with the server before saying existing links are ready ------------------
-
-function activation() {
-  return loadTs('lib/pro-activation.ts', { AbortController, setTimeout, clearTimeout, process: { env: {} } }, {
-    '@/lib/supabase': { isSupabaseConfigured: true, getSupabaseFunctionUrl: (name) => `https://x/functions/v1/${name}` },
-  });
-}
-const answers = (...list) => {
-  const calls = [];
-  return { calls, fetchImpl: async (url, init) => { calls.push({ url, init }); const next = list[Math.min(calls.length - 1, list.length - 1)]; if (next instanceof Error) throw next; return new Response(JSON.stringify(next.body), { status: next.status ?? 200 }); } };
-};
-const noWait = { sleep: async () => {}, retryDelaysMs: [1, 1, 1] };
-
-test('activation is only "active" once the server confirms, retrying a delayed record', async () => {
-  const { confirmProActivation } = activation();
-  const run = async (fetchImpl, token = 'token') => plain(await confirmProActivation(async () => token, { fetchImpl, ...noWait }));
-  const delayed = answers({ body: { plan: 'free', reason: 'entitlement_missing' } }, { body: { plan: 'free', reason: 'entitlement_missing' } }, { body: { plan: 'pro', reason: 'entitlement_active' } });
-  assert.deepEqual(await run(delayed.fetchImpl), { outcome: 'active', reason: 'entitlement_active' });
-  assert.equal(delayed.calls.length, 3);
-  assert.equal(delayed.calls[0].url, 'https://x/functions/v1/entitlement-status');
-  assert.equal(delayed.calls[0].init.headers.authorization, 'Bearer token');
-  const once = answers({ body: { plan: 'pro' } });
-  await run(once.fetchImpl);
-  assert.equal(once.calls.length, 1, 'stops as soon as it is confirmed');
-});
-
-test('a failed activation says which failure it was — never assumed', async () => {
-  const { confirmProActivation } = activation();
-  const run = async (fetchImpl, token = 'token') => plain(await confirmProActivation(async () => token, { fetchImpl, ...noWait }));
-  // RevenueCat answered without Pro for this app user id (identity mismatch, or entitlement not visible).
-  assert.deepEqual(await run(answers({ body: { plan: 'free', reason: 'entitlement_missing' } }).fetchImpl), { outcome: 'not_active', reason: 'entitlement_missing' });
-  assert.deepEqual(await run(answers({ body: { plan: 'free', reason: 'customer_not_found' } }).fetchImpl), { outcome: 'not_active', reason: 'customer_not_found' });
-  // The server key, the session, the network.
-  assert.deepEqual(await run(answers({ status: 503, body: { error: 'unavailable', reason: 'key_rejected' } }).fetchImpl), { outcome: 'unavailable', reason: 'key_rejected' });
-  assert.deepEqual(await run(answers({ status: 401, body: { error: 'unauthorized', reason: 'invalid_session' } }).fetchImpl), { outcome: 'unavailable', reason: 'session_rejected' });
-  assert.deepEqual(await run(answers(new Error('offline')).fetchImpl), { outcome: 'unavailable', reason: 'network' });
-  assert.deepEqual(await run(answers({ status: 502, body: null }).fetchImpl), { outcome: 'unavailable', reason: 'http_502' });
-  assert.deepEqual(await run(answers({ body: { plan: 'pro' } }).fetchImpl, null), { outcome: 'unavailable', reason: 'no_session' });
-  // A reason that is not a plain code is never passed through.
-  assert.deepEqual(await run(answers({ status: 503, body: { reason: 'user owner-a <script>' } }).fetchImpl), { outcome: 'unavailable', reason: 'http_503' });
-});
-
-test('the paywall says "Activating Pro…" and only announces ready links after confirmation', () => {
-  const paywall = read('app/paywall.tsx');
-  const finish = paywall.slice(paywall.indexOf('const finishActivation = useCallback'), paywall.indexOf('const isBusy ='));
-  assert.match(finish, /const \{ outcome, reason \} = await confirmProActivation\(getAccessToken\);/);
-  assert.match(finish, /if \(outcome === 'active'\) \{\s*showSnackbar\(\{ message: t\('pro\.activation\.ready'\), tone: 'success' \}\);/);
-  assert.match(finish, /Alert\.alert\(t\('pro\.activation\.pendingTitle'\), t\('pro\.activation\.pendingBody'\), \[/);
-  assert.match(finish, /t\('pro\.activation\.retry'\), onPress: \(\) => \{ void finishActivation\(\); \}/);
-  // Both a purchase and a restore that the store verified go through the server confirmation.
-  assert.equal((paywall.match(/await finishActivation\(\);/g) ?? []).length, 2);
-  // The screen does not close on the device's own isPro while that confirmation is running.
-  assert.match(paywall, /if \(!isPro \|\| activationOwned\.current\) return;/);
-  assert.match(paywall, /\{isActivating \? <>\s*<ActivityIndicator color="#FFFFFF" \/>\s*<Text style=\{styles\.primaryButtonText\}>\{t\('pro\.activation\.activating'\)\}<\/Text>/);
-});
-
 // --- Public page and owner messaging ------------------------------------------------------------
 
 test('the public page retries cleanly and never mentions plans or billing', () => {
@@ -368,14 +232,12 @@ test('the owner sees a Free-limit block on the form card, explained, with the wa
   const notice = screen.slice(screen.indexOf('{limitBlocked ? ('), screen.indexOf('{changeRequested ? (', screen.indexOf('{limitBlocked ? (')));
   assert.equal(/<Ionicons/.test(notice), false);
   const i18n = loadTs('lib/i18n.ts');
-  const keys = ['bk.form.limitBlocked', 'pro.activation.activating', 'pro.activation.ready', 'pro.activation.pendingTitle', 'pro.activation.pendingBody', 'pro.activation.retry', 'pro.activation.later', 'pub.error.unavailable'];
+  const keys = ['bk.form.limitBlocked', 'pub.error.unavailable'];
   for (const key of keys) {
     const en = i18n.translate('en', key);
     const ms = i18n.translate('ms-MY', key);
     assert.ok(en && en !== key && ms && ms !== key && ms !== en, key);
   }
-  assert.equal(i18n.translate('en', 'pro.activation.activating'), 'Activating Pro…');
-  assert.equal(i18n.translate('en', 'pro.activation.ready'), 'Pro is active. Existing booking links are ready to use.');
   assert.equal(i18n.translate('en', 'bk.form.limitBlocked'), 'Free plan limit reached. Upgrade to Pro to continue receiving bookings.');
   assert.equal(i18n.translate('ms-MY', 'bk.form.limitBlocked'), 'Had pelan Percuma dicapai. Naik taraf ke Pro untuk terus menerima tempahan.');
   // It states the limit the app's own counts show, and never claims what a client can or cannot do.

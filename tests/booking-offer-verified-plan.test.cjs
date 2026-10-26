@@ -251,24 +251,6 @@ async function respondRaw(token, payload, key) {
   return (await db.query('select respond_to_booking_offer($1, $2, $3, $4, $5) as r', [token, 'submit', JSON.stringify(payload), key, 'pro'])).rows[0].r;
 }
 
-test('the workspace lookup entitlement-status relies on returns only the verified caller’s own row', async () => {
-  await reset();
-  await db.query(`insert into bookflow_workspaces(user_id, data) values ('owner-b', '{}')`);
-  const lookup = async (role, sub, target) => {
-    await db.exec(`reset role; set role ${role}; set request.jwt.claims = '${JSON.stringify(sub ? { sub, role } : { role })}'`);
-    try {
-      return (await db.query('select user_id from bookflow_workspaces where user_id = $1', [target])).rows;
-    } finally {
-      await db.exec('reset role');
-    }
-  };
-  assert.deepEqual(await lookup('authenticated', 'owner-a', 'owner-a'), [{ user_id: 'owner-a' }]);
-  // Signed in as owner-b, asking for owner-a — what a forged `sub` would need — returns nothing.
-  assert.deepEqual(await lookup('authenticated', 'owner-b', 'owner-a'), []);
-  // No signed-in user at all is refused outright.
-  await assert.rejects(lookup('anon', null, 'owner-a'), /permission denied/);
-});
-
 // --- The release bundle ---------------------------------------------------------------------------
 
 /** Applied in production (supabase migration list, 2026-10-25) — the baseline this release builds on. */

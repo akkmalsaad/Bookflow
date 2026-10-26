@@ -9,9 +9,8 @@ until the steps below are done and the end-to-end test passes.
 |---|---|---|
 | Migration `20261025000000_booking_offer_verified_plan` | `supabase/migrations/` (copied, byte-identical, into `release-workdir/`) | `db push` from `release-workdir/` |
 | `booking-public` Edge Function | `supabase/functions/booking-public/` + `supabase/functions/_shared/` | deploy from the project root |
-| `entitlement-status` Edge Function (new) | `supabase/functions/entitlement-status/` + `_shared/` | deploy from the project root |
 | Public booking page (web) | `app/booking-public.tsx`, `lib/i18n-workflows.ts` | your usual web export + EAS Hosting deploy |
-| App update (paywall activation, owner notice) | `app/paywall.tsx`, `app/(tabs)/bookings.tsx`, `lib/pro-activation.ts` | normal app release (not part of this) |
+| App update (owner Free-limit notice) | `app/(tabs)/bookings.tsx` | normal app release (not part of this) |
 
 **Not in this release:** `20261021000000_invoice_edit_guard` (pending in production, unrelated,
 not authorised). `release-workdir/` holds production's nine applied migrations plus this one only,
@@ -53,7 +52,9 @@ exactly these files and fails if any differs from `supabase/migrations/`.
 | `invoice-public` | v22 (= `e482225`) | v23 | redeploy from `e482225` (below) |
 | `delete-account` | v1 (= `e482225`) | v2 | redeploy from `e482225` (below) — **not recommended**: v1 deletes storage and data before RevenueCat, so with the current key it leaves accounts partially deleted |
 
-Not deployed (blocked): `booking-public` (still v1), `entitlement-status`, migration `20261025000000`.
+Not deployed (blocked): `booking-public` (still v1), migration `20261025000000`. `entitlement-status` was
+removed from the project on 2026-10-26 (never deployed): the app now unlocks Pro from RevenueCat's SDK
+entitlement alone, with no server confirmation step.
 Migration `20261021000000` stays pending for a separate review.
 
 Verified 2026-10-26: `REVENUECAT_SECRET_API_KEY` has the same SHA-256 as the production public iOS SDK key
@@ -77,12 +78,12 @@ Essential to the initial upgrade flow:
 1. **Key type.** RevenueCat → Project settings → API keys: the key stored as `REVENUECAT_SECRET_API_KEY`
    must be a **v1 secret key** (v2 keys also start with `sk_` but are rejected by `/v1/subscribers`).
    The handoff notes list replacing this key as outstanding, and it was last set on 2026-09-16.
-   Deployment step 1 below probes it either way.
+   Deployment step 1 below checks it either way.
 2. **Entitlement.** RevenueCat → Entitlements: identifier `bookflow_pro` exists and the Test Store
    product (and the App Store product) is attached to it.
 3. **Test Store in the same project.** The dev build's `EXPO_PUBLIC_REVENUECAT_TEST_KEY` belongs to the
-   same RevenueCat project as the server key, so its purchases are visible server-side. Confirmed in
-   end-to-end step 4 by `reason: entitlement_active`.
+   same RevenueCat project as the server key, so its purchases are visible server-side. Confirmed by
+   end-to-end step 4 (the retried submission succeeds once the server sees Pro).
 4. **Identity.** After the simulated purchase, RevenueCat → Customers → the test account's Clerk user id
    shows the purchase (not an `$RCAnonymousID`).
 
@@ -96,11 +97,11 @@ Later subscription lifecycle (do not block the initial upgrade test):
 
 ## Deployment steps (in order; run from the project root unless stated)
 
-1. `supabase functions deploy entitlement-status` — nothing uses it until the app update. Probe it
-   once with the test account (sign in on a dev build, open the paywall's restore, or POST with that
-   session's token). Read `reason`: `key_rejected` → wrong key type; `no_api_key` → secret missing;
-   `entitlement_missing` / `customer_not_found` → key works, account has no Pro. Stop and fix the
-   secret on the first two.
+1. **Check the server key** (nothing is deployed by this step): one read-only
+   `GET https://api.revenuecat.com/v1/subscribers/<app_user_id>` with the stored key's value, for a
+   dedicated test customer **confirmed in the RevenueCat dashboard to exist** (the endpoint creates
+   unknown customers). 200 → authorized; 401/403 → the key cannot make the server read: stop, the
+   booking-form rollout stays blocked. 201 → the customer did not exist: stop and report.
 2. `supabase functions deploy booking-public` — until step 3 it falls back to the previous database
    function on `PGRST202`, so behaviour stays **exactly as today, including the old stored-plan check
    and the old 30-attempt cap**, until the migration is applied.
@@ -122,11 +123,10 @@ When the invoice-edit guard is authorised, apply it from the project root with
 
 | Situation | Effect | Action |
 |---|---|---|
-| Step 1 probe fails | Nothing customer-facing changed | Fix the secret (`supabase secrets set --env-file <file outside the repo>`), re-probe; or `supabase functions delete entitlement-status` |
+| Step 1 check fails | Nothing deployed or changed | Stop; the booking-form rollout stays blocked until a key that authorizes the read is configured |
 | After step 2, function misbehaves | Submissions affected | `supabase functions deploy booking-public --workdir supabase/releases/2026-10-25-booking-form-entitlement/rollback/booking-public-v1-workdir` (exact previous version) |
 | Migration applied, `booking-public` still/rolled back to v1 | Under-limit submissions work; owners at the Free usage level get a generic temporary error (plan unverifiable). No limit is bypassed | Deploy the new `booking-public` |
 | Migration must be undone | Previous function and owner guard restored exactly (columns left in place) | `psql "<db-url>" --single-transaction -v ON_ERROR_STOP=1 -f supabase/releases/2026-10-25-booking-form-entitlement/rollback/20261025_rollback.sql`, then `supabase migration repair --status reverted 20261025000000`, then `supabase migration list` to confirm. Redeploy `booking-public` v1 as above so it matches |
-| `entitlement-status` returns errors after the app update | Paywall shows "Pro is still activating" with Retry; submissions unaffected | Fix per `reason`; no rollback needed |
 
 ## End-to-end test (test account, simulated purchase only)
 
@@ -142,11 +142,10 @@ the Free limit (5 bookings). Note the counts of customers, bookings and invoices
    check is failing — see deployment step 1.)
 2. **Throttle expires (form B).** Submit B 10 times quickly (refused each time), then once more:
    expect "Too many attempts… Please wait N min". Note N. Continue with step 3 meanwhile.
-3. **Verified upgrade.** In the app, buy Pro in the Test Store (simulated). Expect "Activating Pro…",
-   then "Pro is active. Existing booking links are ready to use." If instead "Pro is still activating",
-   read the `[pro-activation]` dev log reason: `entitlement_missing`/`customer_not_found` → identity or
-   Test Store visibility (checks 3–4); `key_rejected`/`no_api_key` → server key; `session_rejected` →
-   sign-in; `timeout`/`network` → connectivity. Do not continue until it says active.
+3. **Verified upgrade.** In the app, buy Pro in the Test Store (simulated). Expect "BookFlow Pro is now
+   active." — Pro unlocks from RevenueCat's SDK entitlement. The server checks the same entitlement
+   on the next booking-form submission (step 4); if that retry still shows the limit or "couldn't
+   finish checking", see external checks 3–4 and deployment step 1.
 4. **Same open page, original link.** Back in A's tab — no reload — tap Submit again. Expect success;
    details and terms were kept. Tap Submit again / reload: still submitted, no second submission.
 5. **Throttle ended.** After B's wait has passed, submit B from its original link: expect success
