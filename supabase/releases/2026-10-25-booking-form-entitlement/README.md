@@ -44,6 +44,32 @@ exactly these files and fails if any differs from `supabase/migrations/`.
   returns to the foreground, or opens Bookings / Quotes & forms. A submission made while the app is
   closed waits as "submitted" (holding its slot) and is converted once when the app next opens.
 
+## Deployment log
+
+**2026-10-26** — deployed from commit `22bfe24` (live source verified byte-identical afterwards):
+
+| Function | Before | After | Rollback |
+|---|---|---|---|
+| `invoice-public` | v22 (= `e482225`) | v23 | redeploy from `e482225` (below) |
+| `delete-account` | v1 (= `e482225`) | v2 | redeploy from `e482225` (below) — **not recommended**: v1 deletes storage and data before RevenueCat, so with the current key it leaves accounts partially deleted |
+
+Not deployed (blocked): `booking-public` (still v1), `entitlement-status`, migration `20261025000000`.
+Migration `20261021000000` stays pending for a separate review.
+
+Verified 2026-10-26: `REVENUECAT_SECRET_API_KEY` has the same SHA-256 as the production public iOS SDK key
+(`EXPO_PUBLIC_REVENUECAT_IOS_API_KEY`, `appl_…`). With it, `delete-account` v2 refuses every deletion up front
+(`deletion_failed` / `revenuecat_config`, nothing deleted) until a RevenueCat secret key is configured, and the
+entitlement checks above stay unverified. The project lists no physical backups (PITR off): take one before
+applying any migration.
+
+Rolling back a function deployed above to its previous version:
+
+```sh
+git worktree add ../bookflow-e482225 e482225
+supabase functions deploy <invoice-public|delete-account> --workdir ../bookflow-e482225 --project-ref bgtrfxwviqdewyloncdq --use-api
+git worktree remove ../bookflow-e482225
+```
+
 ## Before deploying — external checks (not verifiable from here; none assumed to pass)
 
 Essential to the initial upgrade flow:
